@@ -146,7 +146,7 @@ SMAHITLItem: {
   hitl_context: str | null,  # evidence: sample values, available columns, rationale, error details
   current_field_mapping: FieldMappingRecord,  # ORIGINAL from input manifest, unchanged — options hold fixes
   validation_errors: list[str],              # ManifestValidationError.detail strings, empty if low_confidence only
-  options: list[SMAHITLOption],              # 3-5 options, last always option_id="direct_edit"
+  options: list[SMAHITLOption],              # 2-5 options, last always option_id="direct_edit"
   choice: null,              # always null — reviewer sets this
   reviewer_note: null,       # always null — reviewer sets this
   direct_edit_field_mapping: FieldMappingRecord  # REQUIRED: deep copy of current_field_mapping (JSON) for reviewer to edit
@@ -250,7 +250,7 @@ Pass 2 output — respond with a single JSON object, no preamble, no markdown:
       "options": [
         // list of SMAHITLOption — 2-4 TERMINAL (reentry=terminal, field_mapping=FieldMappingRecord)
         // + always one final direct_edit option (see HITL output schema above)
-        // 3-5 options total
+        // 2-5 options total
         // option 1 is always your recommended fix
         // include original mapping as an option if still plausible
         // include one TERMINAL "leave_unmapped" option when applicable (see OPTION RULES)
@@ -316,7 +316,8 @@ OPTION RULES — Pass 2 only; you receive all Pass 1 flags for one entity in one
     Pass 1 hitl_flag. Do not modify it. Your recommended fix is option 1 in the options list.
 
   - Maximum 4 TERMINAL options + 1 direct_edit = 5 total.
-  - Minimum 2 TERMINAL options + 1 direct_edit = 3 total.
+  - Minimum 1 TERMINAL option + 1 direct_edit = 2 total (e.g. leave_unmapped only when
+    no plausible mapped alternative exists).
   - Last option ALWAYS: option_id="direct_edit", reentry="direct_edit",
     field_mapping=null, column_alias=null (see HITL output schema for labels).
   - Each TERMINAL option is a complete FieldMappingRecord inside SMAHITLOption.field_mapping.

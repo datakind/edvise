@@ -13,12 +13,18 @@ from edvise.configs.genai import (
     IdentityAgentInputsConfig,
     SchoolMappingConfig,
     bronze_volume_path_for_institution,
-    ia_inputs_toml_under_bronze,
     resolve_genai_data_path,
     resolve_genai_inputs_toml_path,
 )
-from edvise.genai.mapping.shared.pipeline_artifacts import default_pipeline_version
+from edvise.genai.mapping.shared.pipeline_artifacts import (
+    default_pipeline_version,
+    versioned_genai_run_root,
+)
 from edvise.dataio.read import from_toml_file
+
+_DEFAULT_INPUTS_TOML = (
+    "/Volumes/my_cat/synthetic_univ_beta_bronze/bronze_volume/genai_mapping/inputs.toml"
+)
 
 
 def test_identity_agent_inputs_round_trip(tmp_path: Path) -> None:
@@ -26,8 +32,7 @@ def test_identity_agent_inputs_round_trip(tmp_path: Path) -> None:
     p.write_text(
         textwrap.dedent(
             """
-            [institution]
-            id = "synthetic_univ_alpha"
+            institution_id = "synthetic_univ_alpha"
 
             [datasets.onboard_files]
             student = "fixture_students.csv"
@@ -50,7 +55,7 @@ def test_identity_agent_inputs_round_trip(tmp_path: Path) -> None:
     )
 
     raw = IdentityAgentInputsConfig.model_validate(from_toml_file(str(p)))
-    assert raw.institution.id == "synthetic_univ_alpha"
+    assert raw.institution_id == "synthetic_univ_alpha"
     assert raw.datasets.onboard_files["student"] == "fixture_students.csv"
     assert raw.datasets.onboard_files["course"] == [
         "fixture_classes_2005_2013.csv",
@@ -83,8 +88,7 @@ def test_bronze_volume_path_derived_from_institution_id(tmp_path: Path) -> None:
     p.write_text(
         textwrap.dedent(
             """
-            [institution]
-            id = "synthetic_univ_alpha"
+            institution_id = "synthetic_univ_alpha"
 
             [datasets.onboard_files]
             student = "raw/students.csv"
@@ -128,19 +132,19 @@ def test_bronze_volume_path_for_institution_with_catalog() -> None:
     ) == ("/Volumes/my_cat/synthetic_univ_beta_bronze/bronze_volume")
 
 
-def test_ia_inputs_toml_under_bronze() -> None:
-    assert ia_inputs_toml_under_bronze("synthetic_univ_beta", catalog="my_cat") == (
-        "/Volumes/my_cat/synthetic_univ_beta_bronze/bronze_volume/genai_mapping/inputs.toml"
+def test_resolve_genai_inputs_toml_path_default() -> None:
+    assert (
+        resolve_genai_inputs_toml_path(
+            "synthetic_univ_beta", catalog="my_cat", inputs_toml_path=None
+        )
+        == _DEFAULT_INPUTS_TOML
     )
-
-
-def test_resolve_genai_inputs_toml_path_default_matches_legacy() -> None:
-    assert resolve_genai_inputs_toml_path(
-        "synthetic_univ_beta", catalog="my_cat", inputs_toml_path=None
-    ) == ia_inputs_toml_under_bronze("synthetic_univ_beta", catalog="my_cat")
-    assert resolve_genai_inputs_toml_path(
-        "synthetic_univ_beta", catalog="my_cat", inputs_toml_path="  "
-    ) == ia_inputs_toml_under_bronze("synthetic_univ_beta", catalog="my_cat")
+    assert (
+        resolve_genai_inputs_toml_path(
+            "synthetic_univ_beta", catalog="my_cat", inputs_toml_path="  "
+        )
+        == _DEFAULT_INPUTS_TOML
+    )
 
 
 def test_resolve_genai_inputs_toml_path_relative_under_genai_mapping() -> None:
@@ -178,11 +182,49 @@ def test_resolve_genai_data_path_no_root() -> None:
     assert resolve_genai_data_path(None, "rel/a.csv") == "rel/a.csv"
 
 
+def test_legacy_institution_table_still_loads(tmp_path: Path) -> None:
+    p = tmp_path / "inputs.toml"
+    p.write_text(
+        textwrap.dedent(
+            """
+            [institution]
+            id = "legacy_inst"
+
+            [datasets.onboard_files]
+            student = "a.csv"
+            """
+        ).strip(),
+        encoding="utf-8",
+    )
+    raw = IdentityAgentInputsConfig.model_validate(from_toml_file(str(p)))
+    assert raw.institution_id == "legacy_inst"
+
+
+def test_institution_id_conflicts_with_legacy_table(tmp_path: Path) -> None:
+    p = tmp_path / "inputs.toml"
+    p.write_text(
+        textwrap.dedent(
+            """
+            institution_id = "new_id"
+
+            [institution]
+            id = "old_id"
+
+            [datasets.onboard_files]
+            student = "a.csv"
+            """
+        ).strip(),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValidationError, match="conflicts"):
+        IdentityAgentInputsConfig.model_validate(from_toml_file(str(p)))
+
+
 def test_files_rejects_non_string_list() -> None:
     with pytest.raises(ValidationError):
         IdentityAgentInputsConfig.model_validate(
             {
-                "institution": {"id": "x"},
+                "institution_id": "x",
                 "datasets": {
                     "onboard_files": {"a": [1, 2]},
                     "execute_files": {"a": "ok.csv"},
@@ -192,7 +234,7 @@ def test_files_rejects_non_string_list() -> None:
 
 
 def test_dataset_config_rejects_empty_primary_keys_when_set() -> None:
-    with pytest.raises(ValueError, match="primary_keys"):
+    with pytest.raises(ValidationError, match="primary_keys"):
         DatasetConfig(files=["/a.csv"], primary_keys=[])
 
 
@@ -217,8 +259,7 @@ def test_to_school_mapping_config_onboard_run_id_kwarg(
     p.write_text(
         textwrap.dedent(
             """
-            [institution]
-            id = "synthetic_univ_alpha"
+            institution_id = "synthetic_univ_alpha"
 
             [datasets.onboard_files]
             student = "a.csv"
@@ -237,10 +278,11 @@ def test_to_school_mapping_config_onboard_run_id_kwarg(
     )
     assert school.onboard_run_id == "run_xyz"
     assert school.pipeline_version == default_pipeline_version()
-    root = school.genai_versioned_run_root()
-    assert root is not None
-    assert "run_xyz" in root
-    assert root.endswith("/genai_pipeline/run_xyz")
+    assert school.bronze_volumes_path is not None
+    root = versioned_genai_run_root(school.bronze_volumes_path, "run_xyz")
+    root_str = str(root)
+    assert "run_xyz" in root_str
+    assert root_str.endswith("/genai_pipeline/run_xyz")
 
 
 def test_onboard_without_execute_files_validates_and_maps(
@@ -251,8 +293,7 @@ def test_onboard_without_execute_files_validates_and_maps(
     p.write_text(
         textwrap.dedent(
             """
-            [institution]
-            id = "synthetic_univ_alpha"
+            institution_id = "synthetic_univ_alpha"
 
             [datasets.onboard_files]
             student = "onboard_students.csv"
@@ -275,8 +316,7 @@ def test_execute_without_execute_files_raises(tmp_path: Path) -> None:
     p.write_text(
         textwrap.dedent(
             """
-            [institution]
-            id = "synthetic_univ_alpha"
+            institution_id = "synthetic_univ_alpha"
 
             [datasets.onboard_files]
             student = "onboard_students.csv"
@@ -296,8 +336,7 @@ def test_to_school_mapping_config_onboard_execute_files_are_separate_tables(
     p.write_text(
         textwrap.dedent(
             """
-            [institution]
-            id = "synthetic_univ_alpha"
+            institution_id = "synthetic_univ_alpha"
 
             [datasets.onboard_files]
             student = "onboard_students.csv"
@@ -335,8 +374,7 @@ def test_to_school_mapping_config_onboard_run_id_from_env(
     p.write_text(
         textwrap.dedent(
             """
-            [institution]
-            id = "synthetic_univ_alpha"
+            institution_id = "synthetic_univ_alpha"
 
             [datasets.onboard_files]
             student = "a.csv"

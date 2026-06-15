@@ -36,10 +36,10 @@ def _hitl_opts() -> list[TransformationHITLOption]:
             resolution=None,
         ),
         TransformationHITLOption(
-            option_id="unmappable",
-            label="Unmappable",
-            description="Skip",
-            resolution={"steps": [], "output_dtype": None},
+            option_id="hook_required",
+            label="Hook required",
+            description="Custom hook",
+            resolution={"hook_required": True},
         ),
     ]
 
@@ -134,6 +134,7 @@ def test_apply_transformation_review_approve_strips_metadata(tmp_path: Path):
     )
     plan = out["transformation_maps"]["cohort"]["plans"][0]
     assert plan["steps"][0]["function_name"] == "cast_string"
+    assert plan.get("hook_required") is False
     assert "review_required" not in plan
     assert "flagged_steps" not in plan
     assert plan["confidence"] == pytest.approx(0.65)
@@ -146,13 +147,18 @@ def test_apply_transformation_review_approve_strips_metadata(tmp_path: Path):
     TransformationMap.model_validate(tm_dict)
 
 
-def test_apply_transformation_review_unmappable(tmp_path: Path):
+def test_apply_transformation_review_hook_required(tmp_path: Path):
     data = _reviewable_wrapper()
     cohort_path = tmp_path / "cohort.json"
     item = build_transformation_review_hitl_file_for_entity(
         data, institution_id="test_u", entity_type="cohort", pipeline_version="1"
     ).items[0]
-    resolved = item.model_copy(update={"status": "unmappable"})
+    resolved = item.model_copy(
+        update={
+            "status": "hook_required",
+            "reviewer_note": "STRM century+year+term → conferral proxy",
+        }
+    )
     cohort_path.write_text(
         json.dumps(
             TransformationReviewHITLFile(
@@ -168,9 +174,29 @@ def test_apply_transformation_review_unmappable(tmp_path: Path):
         data, cohort_review_path=cohort_path, course_review_path=None
     )
     plan = out["transformation_maps"]["cohort"]["plans"][0]
-    assert plan["steps"] == []
-    assert plan.get("output_dtype") is None
+    assert plan.get("hook_required") is True
+    assert plan.get("reviewer_notes") == "STRM century+year+term → conferral proxy"
+    assert plan["steps"][0]["function_name"] == "cast_string"
     assert plan["review_status"] == ReviewStatus.corrected_by_hitl.value
+
+
+def test_build_transformation_review_skips_hook_required_only_plans():
+    data = _reviewable_wrapper()
+    data["transformation_maps"]["cohort"]["plans"].append(
+        {
+            "target_field": "custom_field",
+            "output_dtype": "datetime64[ns]",
+            "confidence": 0.5,
+            "hook_required": True,
+            "reviewer_notes": "opaque encoding",
+            "steps": [],
+        }
+    )
+    env = build_transformation_review_hitl_file_for_entity(
+        data, institution_id="test_u", entity_type="cohort", pipeline_version="1"
+    )
+    assert len(env.items) == 1
+    assert env.items[0].target_field == "risk_flag"
 
 
 def test_apply_transformation_review_corrected_uses_item_steps(tmp_path: Path):
@@ -220,7 +246,7 @@ def test_effective_status_from_choice_only():
         pipeline_version="1",
     ).items[0]
     item2 = item.model_copy(update={"status": "pending", "choice": "3"})
-    assert _effective_item_status(item2) == "unmappable"
+    assert _effective_item_status(item2) == "hook_required"
 
 
 def test_check_gate_raises_when_pending(tmp_path: Path):
