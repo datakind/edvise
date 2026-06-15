@@ -22,6 +22,7 @@ print("sys.path:", sys.path)
 
 from edvise.data_audit.raw_course_grade_map import (
     apply_raw_course_grade_map,
+    log_unmapped_gpa_grades,
     resolve_es_grade_map,
 )
 from edvise.data_audit.schemas import (
@@ -308,6 +309,7 @@ class ESDataAuditTask:
 
         # Course exploratory EDA (pre-standardize)
         log_grade_distribution(df_course_validated)
+        log_unmapped_gpa_grades(df_course_validated)
         # Log high null columns
         log_high_null_columns(df_course_validated)
         # Standardize course data

@@ -257,10 +257,10 @@ class FeaturesConfig(pyd.BaseModel):
         default=None,
         description=(
             "Institution-specific grade codes merged with platform defaults at ES data audit "
-            "(see edvise.data_audit.default_grade_map.DEFAULT_ES_GRADE_MAP for common "
-            "status/withdrawal tokens). Values must be canonical ALLOWED_LETTER_GRADES "
-            "or a numeric string in [0, 4]. Letter-to-GPA mappings are per-school, e.g. "
-            '{"A": "4", "B": "3", "C": "2", "D": "1", "F": "0"}. '
+            "(status/withdrawal tokens and standard letter→GPA scale in "
+            "edvise.data_audit.default_grade_map). Values must be canonical "
+            "ALLOWED_LETTER_GRADES or a numeric string in [0, 4]. Institution entries "
+            "override platform defaults on duplicate keys. "
             "Do not map pass/fail tokens (P) to GPA. Applied before course schema validation."
         ),
     )
