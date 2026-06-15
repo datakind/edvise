@@ -103,6 +103,8 @@ def write_transformation_review_hitl_file(
 def _effective_item_status(item: TransformationHITLItem) -> str | None:
     """Resolved status from ``status`` or 1-based ``choice`` index (Streamlit pattern)."""
     if item.status != "pending":
+        if item.status == "unmappable":
+            return "hook_required"
         return item.status
     ch = item.choice
     if ch is None:
@@ -116,7 +118,7 @@ def _effective_item_status(item: TransformationHITLItem) -> str | None:
     if ix == 2:
         return "corrected"
     if ix == 3:
-        return "unmappable"
+        return "hook_required"
     return None
 
 
@@ -142,10 +144,11 @@ def apply_transformation_review_resolutions(
     Deep-copy ``transformation_data`` and merge reviewer resolutions from review JSON files.
 
     Resolution rules (per item, using ``status`` or 1-based ``choice``):
-    - **approved** — leave ``steps`` as in ``transformation_data``; strip pending-review keys;
-      set ``review_status`` to ``corrected_by_hitl`` (manifest HITL convention).
-    - **corrected** — replace ``plan['steps']`` from the item's ``steps`` field; same telemetry.
-    - **unmappable** — ``steps=[]``, ``output_dtype`` null; same telemetry.
+    - **approved** — leave ``steps`` as in ``transformation_data``; ``hook_required`` false;
+      strip pending-review keys; set ``review_status`` to ``corrected_by_hitl``.
+    - **corrected** — replace ``plan['steps']`` from the item's ``steps`` field; ``hook_required`` false.
+    - **hook_required** — ``hook_required`` true; optional ``reviewer_note`` on plan; keep item steps
+      as documentation only; strip pending-review keys.
     """
     out: dict[str, Any] = json.loads(json.dumps(transformation_data))
     tmaps = out.get("transformation_maps")
@@ -173,14 +176,21 @@ def apply_transformation_review_resolutions(
                 )
                 continue
             plan = plans[ix]
+            # Legacy review files may still carry status/option "unmappable".
+            if eff == "unmappable":
+                eff = "hook_required"
             if eff == "approved":
+                plan["hook_required"] = False
                 _strip_review_metadata(plan)
             elif eff == "corrected":
+                plan["hook_required"] = False
                 plan["steps"] = _steps_to_jsonable(item)
                 _strip_review_metadata(plan)
-            elif eff == "unmappable":
-                plan["steps"] = []
-                plan["output_dtype"] = None
+            elif eff == "hook_required":
+                plan["hook_required"] = True
+                note = (item.reviewer_note or "").strip()
+                if note:
+                    plan["reviewer_notes"] = note
                 _strip_review_metadata(plan)
 
     apply_file("cohort", Path(cohort_review_path) if cohort_review_path else None)
