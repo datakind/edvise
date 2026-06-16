@@ -1,3 +1,6 @@
+## 1.2.1 (2026-06-16)
+- fix: calendar year codes inferred as datetime during cleaning (#165)
+
 ## 1.2.0 (2026-06-15)
 - feat: adding training & inference jobs for legacy schools for webapp compatibility (#96)
 - refactor: simplify and refine SMA transformation HITL  (#155)
