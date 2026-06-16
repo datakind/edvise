@@ -352,6 +352,32 @@ def _cast_series_to_nullable_dtype(
         raise ValueError(f"Failed to cast Series to {dtype_str}: {e}")
 
 
+_CALENDAR_YEAR_CODE_MIN = 1800
+_CALENDAR_YEAR_CODE_MAX = 2200
+
+
+def _is_calendar_year_code_series(series: pd.Series) -> bool:
+    """
+    True when every non-null value is a 4-digit token in a plausible calendar-year range.
+
+    Generic ``pd.to_datetime`` treats strings like ``"2021"`` as 2021-01-01; skip datetime
+    inference for these columns so year codes stay nullable Int64 (e.g. ``year_code``).
+    """
+    non_null = series.dropna()
+    if non_null.empty:
+        return False
+    tokens = non_null.astype("string").str.strip()
+    if not bool(tokens.str.fullmatch(r"\d{4}").all()):
+        return False
+    nums = pd.to_numeric(tokens, errors="coerce")
+    if not bool(nums.notna().all()):
+        return False
+    return bool(
+        (nums >= _CALENDAR_YEAR_CODE_MIN).all()
+        and (nums <= _CALENDAR_YEAR_CODE_MAX).all()
+    )
+
+
 def generate_column_training_dtype(
     series: pd.Series, opts: DtypeGenerationOptions | None = None
 ) -> pd.Series:
@@ -399,11 +425,13 @@ def generate_column_training_dtype(
         return count >= opts.min_non_null and frac >= opts.dtype_confidence_threshold
 
     # Skip datetime inference for CIP code columns (they often look like dates but are classification codes)
-    # Check column name if available (Series.name attribute)
+    # and for 4-digit calendar year codes (pd.to_datetime would map "2021" → 2021-01-01).
     col_name = getattr(s, "name", None)
-    skip_datetime_inference = col_name is not None and "cip" in str(col_name).lower()
+    skip_datetime_inference = (
+        col_name is not None and "cip" in str(col_name).lower()
+    ) or _is_calendar_year_code_series(s)
 
-    # Try declared date formats with coercion (skip for CIP columns)
+    # Try declared date formats with coercion (skip when datetime inference is disabled)
     if not skip_datetime_inference:
         for fmt in opts.date_formats:
             dt = pd.to_datetime(s, format=fmt, errors="coerce")
