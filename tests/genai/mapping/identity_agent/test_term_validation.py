@@ -8,7 +8,9 @@ from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
     HookFunctionSpec,
     HookSpec,
 )
-from edvise.genai.mapping.identity_agent.hitl.artifacts import write_identity_term_artifacts
+from edvise.genai.mapping.identity_agent.hitl.artifacts import (
+    write_identity_term_artifacts,
+)
 from edvise.genai.mapping.identity_agent.hitl.resolver import (
     HITLValidationError,
     validate_term_hook_hitl_covers_hook_required,
@@ -51,9 +53,7 @@ def _hook_spec() -> HookSpec:
                 name="season_extractor_shared",
                 signature="def season_extractor_shared(term: str) -> str",
                 description="season",
-                draft=(
-                    "str(term).split('-')[1] if '-' in str(term) else str(term)"
-                ),
+                draft=("str(term).split('-')[1] if '-' in str(term) else str(term)"),
             ),
         ],
     )
@@ -171,9 +171,9 @@ def test_parse_institution_term_contracts_with_hitl_rejects_bad_hook_group(
             "course": _hook_term_contract("course", term_col="semester").model_dump(
                 mode="json"
             ),
-            "semester": _hook_term_contract(
-                "semester", term_col="semester"
-            ).model_dump(mode="json"),
+            "semester": _hook_term_contract("semester", term_col="semester").model_dump(
+                mode="json"
+            ),
         },
         "hitl_items": [_shared_hitl_item().model_dump(mode="json")],
     }
@@ -185,6 +185,7 @@ def test_write_identity_term_artifacts_rejects_bad_hook_group(tmp_path):
     contracts = {
         "student": _split_standard_student(),
         "course": _hook_term_contract("course", term_col="semester"),
+        "semester": _hook_term_contract("semester", term_col="semester"),
     }
     with pytest.raises(ValueError, match="split year_col/season_col"):
         write_identity_term_artifacts(
