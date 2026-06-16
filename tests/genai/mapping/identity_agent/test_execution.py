@@ -683,6 +683,31 @@ def test_apply_term_order_split_year_season_columns():
     assert "_term_order" in out.columns
 
 
+def test_apply_term_order_split_year_datetime_coerced_from_strings():
+    """year_col inferred as datetime64 (legacy schemas) still yields calendar _year."""
+    df = pd.DataFrame(
+        {
+            "year_code": pd.to_datetime(["2021-01-01", "2022-01-01"]),
+            "term_code": ["10", "20"],
+            "k": [1, 2],
+        }
+    )
+    cfg = TermOrderConfig(
+        year_col="year_code",
+        season_col="term_code",
+        season_map=[
+            {"raw": "10", "canonical": "FALL"},
+            {"raw": "20", "canonical": "SPRING"},
+        ],
+        term_extraction="standard",
+    )
+    out = apply_term_order_from_config(df, cfg)
+    assert list(out["_year"]) == [2021, 2022]
+    assert list(out["_edvise_term_season"]) == ["FALL", "SPRING"]
+    assert out["_edvise_term_academic_year"].iloc[0] == "2021-22"
+    assert out["_edvise_term_academic_year"].iloc[1] == "2021-22"
+
+
 def test_apply_term_order_exclude_tokens_prefix():
     """HITL exclude_tokens: drop rows whose raw term values start with a listed prefix."""
     df = pd.DataFrame(
