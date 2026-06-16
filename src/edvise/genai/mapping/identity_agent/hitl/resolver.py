@@ -93,8 +93,12 @@ from edvise.genai.mapping.shared.hitl.json_io import (
 from edvise.genai.mapping.shared.hitl.run_log import RunEvent, append_run_log_event
 from edvise.genai.mapping.shared.hitl.time import utc_now_iso
 from edvise.genai.mapping.identity_agent.term_normalization.schemas import (
+    InstitutionTermContract,
     SeasonMapEntry,
     TermContract,
+)
+from edvise.genai.mapping.identity_agent.term_normalization.validation import (
+    assert_term_hook_groups_compatible,
 )
 
 logger = logging.getLogger(__name__)
@@ -563,6 +567,17 @@ def validate_term_hook_hitl_covers_hook_required(
             "hook_group_tables for its hook_group_id, or on another IDENTITY_TERM row sharing that "
             "hook_group_id. Batch-only hook_spec drafts do not satisfy hook generation."
         )
+
+    try:
+        assert_term_hook_groups_compatible(
+            InstitutionTermContract(
+                institution_id=envelope.institution_id,
+                datasets=term_contract_by_dataset,
+            ),
+            envelope.items,
+        )
+    except ValueError as e:
+        raise HITLValidationError(str(e)) from e
 
 
 # ---------------------------------------------------------------------------
