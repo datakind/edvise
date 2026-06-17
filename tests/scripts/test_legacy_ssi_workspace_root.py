@@ -15,10 +15,13 @@ def test_resolve_ssi_pipelines_workspace_root_from_ds_run_as():
 
 def test_resolve_ssi_pipelines_workspace_root_explicit_override():
     override = "/Workspace/Users/other/student-success-intervention/pipelines"
-    assert resolve_ssi_pipelines_workspace_root(
-        ds_run_as="ignored-when-override-set",
-        workspace_root=override,
-    ) == override
+    assert (
+        resolve_ssi_pipelines_workspace_root(
+            ds_run_as="ignored-when-override-set",
+            workspace_root=override,
+        )
+        == override
+    )
 
 
 def test_resolve_ssi_pipelines_workspace_root_requires_identity():
