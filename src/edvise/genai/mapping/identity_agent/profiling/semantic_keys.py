@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 
+from edvise.genai.mapping.identity_agent.column_roles.file_kinds import FileKind
 from edvise.genai.mapping.identity_agent.column_roles.schemas import (
     ColumnRole,
     ColumnRolesResult,
@@ -25,6 +26,61 @@ def _course_id_columns(roles: ColumnRolesResult) -> list[str]:
     return roles.columns_with_role(ColumnRole.COURSE_ID)
 
 
+def _append_student_keys(
+    keys: list[list[str]],
+    *,
+    learner: str,
+    program: str | None,
+    major: str | None,
+    cohort: str | None,
+) -> None:
+    keys.append([learner])
+    for extra in (program, major, cohort):
+        if extra:
+            keys.append([learner, extra])
+    if program and major:
+        keys.append([learner, program, major])
+
+
+def _append_degree_keys(
+    keys: list[list[str]],
+    *,
+    learner: str | None,
+    term: str | None,
+    program: str | None,
+    major: str | None,
+) -> None:
+    if learner and term:
+        keys.append([learner, term])
+    if learner and program and term:
+        keys.append([learner, program, term])
+    if learner and program:
+        keys.append([learner, program])
+    if learner and program and major:
+        keys.append([learner, program, major])
+    if learner and major and term:
+        keys.append([learner, major, term])
+    if learner:
+        keys.append([learner])
+    elif term:
+        keys.append([term])
+
+
+def _append_role_driven_fallback_keys(
+    keys: list[list[str]],
+    *,
+    learner: str | None,
+    term: str | None,
+) -> None:
+    """``other`` file kind: seed from roles when no template matched."""
+    if learner and term:
+        keys.append([learner, term])
+    elif term:
+        keys.append([term])
+    elif learner:
+        keys.append([learner])
+
+
 def build_semantic_key_column_sets(
     dataset: str,
     roles: ColumnRolesResult,
@@ -32,7 +88,8 @@ def build_semantic_key_column_sets(
     """
     Return ordered semantic key column lists to profile before combinatorial search.
 
-    Keys are deduplicated; order is stable (base grains first, then widenings).
+    Uses ``roles.file_kind`` from ColumnRolesAgent. Keys are deduplicated; order is
+    stable (base grains first, then widenings).
     """
     learner = _first(roles.columns_with_role(ColumnRole.LEARNER_ID))
     term = _first(roles.columns_with_role(ColumnRole.TERM))
@@ -42,23 +99,24 @@ def build_semantic_key_column_sets(
     cohort = _first(roles.columns_with_role(ColumnRole.COHORT))
 
     keys: list[list[str]] = []
-    kind = dataset.strip().lower()
+    kind = roles.file_kind
 
-    if kind == "student":
+    if kind == FileKind.STUDENT:
         if learner:
-            keys.append([learner])
-            for extra in (program, major, cohort):
-                if extra:
-                    keys.append([learner, extra])
-            if program and major:
-                keys.append([learner, program, major])
+            _append_student_keys(
+                keys,
+                learner=learner,
+                program=program,
+                major=major,
+                cohort=cohort,
+            )
         else:
             logger.warning(
-                "semantic_keys: student dataset %s missing learner_id — no base semantic keys",
+                "semantic_keys: student file %s missing learner_id — no base semantic keys",
                 dataset,
             )
 
-    elif kind == "course":
+    elif kind == FileKind.COURSE:
         if learner and course_ids and term:
             keys.append([learner, *course_ids, term])
         if learner and course_ids:
@@ -68,11 +126,11 @@ def build_semantic_key_column_sets(
         if not keys and learner:
             keys.append([learner])
             logger.warning(
-                "semantic_keys: course dataset %s missing course_id and/or term — partial keys only",
+                "semantic_keys: course file %s missing course_id and/or term — partial keys only",
                 dataset,
             )
 
-    elif kind == "semester":
+    elif kind == FileKind.SEMESTER:
         if learner and term:
             keys.append([learner, term])
         elif term:
@@ -80,13 +138,28 @@ def build_semantic_key_column_sets(
         elif learner:
             keys.append([learner])
 
-    else:
-        if learner:
-            keys.append([learner])
-        logger.info(
-            "semantic_keys: unknown dataset kind %r — using learner-only template if present",
-            dataset,
+    elif kind == FileKind.DEGREE:
+        _append_degree_keys(
+            keys,
+            learner=learner,
+            term=term,
+            program=program,
+            major=major,
         )
+
+    else:
+        _append_role_driven_fallback_keys(keys, learner=learner, term=term)
+        if keys:
+            logger.info(
+                "semantic_keys: file_kind=other for %s — role-driven seeds %s",
+                dataset,
+                keys,
+            )
+        else:
+            logger.info(
+                "semantic_keys: file_kind=other for %s — no semantic keys (statistical search only)",
+                dataset,
+            )
 
     return _dedupe_key_lists(keys)
 

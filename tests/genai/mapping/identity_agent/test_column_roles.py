@@ -1,7 +1,9 @@
 import json
 
 import pandas as pd
+import pytest
 
+from edvise.genai.mapping.identity_agent.column_roles.file_kinds import FileKind
 from edvise.genai.mapping.identity_agent.column_roles.fallback import (
     apply_column_role_fallbacks,
 )
@@ -21,8 +23,23 @@ from edvise.genai.mapping.identity_agent.profiling.semantic_keys import (
 )
 
 
+def _roles(**kwargs: object) -> ColumnRolesResult:
+    defaults: dict[str, object] = {
+        "institution_id": "test_u",
+        "dataset": "student",
+        "file_kind": FileKind.STUDENT,
+        "file_kind_confidence": 0.95,
+        "file_kind_rationale": "test fixture",
+    }
+    defaults.update(kwargs)
+    return ColumnRolesResult.model_validate(defaults)
+
+
 def test_parse_column_roles_response():
     payload = {
+        "file_kind": "student",
+        "file_kind_confidence": 0.92,
+        "file_kind_rationale": "demographics table",
         "assignments": [
             {
                 "column": "pidm",
@@ -45,14 +62,35 @@ def test_parse_column_roles_response():
         dataset="student",
         expected_columns=["pidm", "program_at_graduation"],
     )
+    assert result.file_kind == FileKind.STUDENT
+    assert result.file_kind_confidence == 0.92
     assert result.learner_id_column() == "pidm"
     assert result.columns_with_role(ColumnRole.PROGRAM) == ["program_at_graduation"]
 
 
+def test_parse_column_roles_response_requires_file_kind():
+    payload = {
+        "assignments": [
+            {
+                "column": "pidm",
+                "role": "learner_id",
+                "confidence": 0.95,
+                "rationale": "person id",
+            },
+        ],
+        "low_confidence_columns": [],
+    }
+    with pytest.raises(ValueError, match="file_kind"):
+        parse_column_roles_response(
+            json.dumps(payload),
+            institution_id="test_u",
+            dataset="student",
+            expected_columns=["pidm"],
+        )
+
+
 def test_fallback_assigns_learner_id_from_name_pattern():
-    result = ColumnRolesResult(
-        institution_id="test_u",
-        dataset="student",
+    result = _roles(
         assignments=[
             ColumnRoleAssignment(
                 column="student_id",
@@ -66,13 +104,12 @@ def test_fallback_assigns_learner_id_from_name_pattern():
     patched = apply_column_role_fallbacks(result, columns=["student_id"])
     assert patched.learner_id_column() == "student_id"
     assert patched.assignments[0].role == ColumnRole.LEARNER_ID
+    assert patched.file_kind == FileKind.STUDENT
     assert "student_id" in patched.fallback_applied
 
 
 def test_build_semantic_key_column_sets_student():
-    roles = ColumnRolesResult(
-        institution_id="test_u",
-        dataset="student",
+    roles = _roles(
         assignments=[
             ColumnRoleAssignment(
                 column="student_id",
@@ -100,9 +137,9 @@ def test_build_semantic_key_column_sets_student():
 
 def test_build_semantic_key_column_sets_course_composite_course_id():
     """Multiple course_id columns form a composite semantic grain (IIT-shaped)."""
-    roles = ColumnRolesResult(
-        institution_id="indiana_institute_of_technology",
+    roles = _roles(
         dataset="course",
+        file_kind=FileKind.COURSE,
         assignments=[
             ColumnRoleAssignment(
                 column="student_id",
@@ -153,10 +190,63 @@ def test_build_semantic_key_column_sets_course_composite_course_id():
     assert ["student_id", "semester"] in keys
 
 
+def test_build_semantic_key_column_sets_uses_file_kind_not_dataset_key():
+    """Misnamed logical dataset key still gets course seeds when file_kind is course."""
+    roles = _roles(
+        dataset="registration",
+        file_kind=FileKind.COURSE,
+        assignments=[
+            ColumnRoleAssignment(
+                column="student_id",
+                role=ColumnRole.LEARNER_ID,
+                confidence=0.99,
+            ),
+            ColumnRoleAssignment(
+                column="semester",
+                role=ColumnRole.TERM,
+                confidence=0.99,
+            ),
+            ColumnRoleAssignment(
+                column="course_number",
+                role=ColumnRole.COURSE_ID,
+                confidence=0.8,
+            ),
+            ColumnRoleAssignment(
+                column="course_section",
+                role=ColumnRole.COURSE_ID,
+                confidence=0.85,
+            ),
+        ],
+    )
+    keys = build_semantic_key_column_sets("registration", roles)
+    assert keys[0] == [
+        "student_id",
+        "course_number",
+        "course_section",
+        "semester",
+    ]
+
+
+def test_build_semantic_key_column_sets_other_role_driven():
+    roles = _roles(
+        dataset="program_codes",
+        file_kind=FileKind.OTHER,
+        assignments=[
+            ColumnRoleAssignment(
+                column="term_code",
+                role=ColumnRole.TERM,
+                confidence=0.95,
+            ),
+        ],
+    )
+    keys = build_semantic_key_column_sets("program_codes", roles)
+    assert keys == [["term_code"]]
+
+
 def test_build_semantic_key_column_sets_course_single_course_id():
-    roles = ColumnRolesResult(
-        institution_id="test_u",
+    roles = _roles(
         dataset="course",
+        file_kind=FileKind.COURSE,
         assignments=[
             ColumnRoleAssignment(
                 column="student_id",
@@ -190,9 +280,9 @@ def test_profile_candidate_keys_includes_composite_course_semantic_key_first():
             "grade": ["A", "B", "A", "A"],
         }
     )
-    roles = ColumnRolesResult(
-        institution_id="test_u",
+    roles = _roles(
         dataset="course",
+        file_kind=FileKind.COURSE,
         assignments=[
             ColumnRoleAssignment(
                 column="student_id",
@@ -244,9 +334,7 @@ def test_profile_candidate_keys_includes_semantic_keys_first():
             "total_credits": [10.0, 20.0, 30.0, 10.0],
         }
     )
-    roles = ColumnRolesResult(
-        institution_id="test_u",
-        dataset="student",
+    roles = _roles(
         assignments=[
             ColumnRoleAssignment(
                 column="student_id",

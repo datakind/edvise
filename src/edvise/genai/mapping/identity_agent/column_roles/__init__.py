@@ -11,15 +11,19 @@ from .runner import (
     run_column_roles_for_institution,
 )
 from .schemas import ColumnRole, ColumnRoleAssignment, ColumnRolesResult
+from .file_kinds import FILE_KIND_EXPECTED_CONTENTS, FileKind, file_kind_prompt_section
 
 __all__ = [
     "COLUMN_ROLES_CONFIDENCE_THRESHOLD",
     "COLUMN_ROLES_SYSTEM_PROMPT",
+    "FILE_KIND_EXPECTED_CONTENTS",
     "ColumnRole",
     "ColumnRoleAssignment",
     "ColumnRolesResult",
+    "FileKind",
     "build_column_roles_user_message",
     "column_roles_by_dataset_to_jsonable",
+    "file_kind_prompt_section",
     "parse_column_roles_response",
     "run_column_roles_for_dataset",
     "run_column_roles_for_institution",

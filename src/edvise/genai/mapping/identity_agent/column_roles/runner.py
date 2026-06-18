@@ -74,8 +74,9 @@ def run_column_roles_for_dataset(
         logger=logger,
     )
     logger.info(
-        "[column_roles] dataset=%s learner_id=%s low_confidence=%s warnings=%d",
+        "[column_roles] dataset=%s file_kind=%s learner_id=%s low_confidence=%s warnings=%d",
         dataset,
+        result.file_kind.value,
         result.learner_id_column(),
         result.low_confidence_columns,
         len(result.profiler_warnings),

@@ -7,6 +7,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from .file_kinds import FileKind
+
 
 class ColumnRole(str, Enum):
     """Semantic role of a raw column for grain profiling."""
@@ -36,6 +38,15 @@ class ColumnRoleAssignment(BaseModel):
 class ColumnRolesResult(BaseModel):
     institution_id: str
     dataset: str
+    file_kind: FileKind = Field(
+        ...,
+        description="Semantic table class from ColumnRolesAgent (student, course, etc.).",
+    )
+    file_kind_confidence: float = Field(..., ge=0.0, le=1.0)
+    file_kind_rationale: str = Field(
+        default="",
+        description="Brief reason for file_kind (audit only)",
+    )
     assignments: list[ColumnRoleAssignment]
     low_confidence_columns: list[str] = Field(
         default_factory=list,

@@ -101,6 +101,9 @@ def apply_column_role_fallbacks(
     return ColumnRolesResult(
         institution_id=result.institution_id,
         dataset=result.dataset,
+        file_kind=result.file_kind,
+        file_kind_confidence=result.file_kind_confidence,
+        file_kind_rationale=result.file_kind_rationale,
         assignments=ordered,
         low_confidence_columns=sorted(low_confidence),
         profiler_warnings=warnings,
