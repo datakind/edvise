@@ -3,7 +3,8 @@ Run school-specific legacy postprocessing after ``inference_h2o`` or ``training_
 
 **SSI workspace layout (fixed)**
 
-Workspace root defaults to ``…/student-success-intervention/pipelines`` (override with
+Workspace root defaults to
+``/Workspace/Users/<ds_run_as>/student-success-intervention/pipelines`` (override with
 ``--ssi_pipelines_workspace_root``).
 
 - **Postprocessing** (optional) is at
@@ -41,12 +42,11 @@ if os.path.isdir(src_path) and src_path not in sys.path:
 from edvise import configs, dataio
 from edvise.scripts.legacy_preprocessing import (
     DEFAULT_LEGACY_CONFIG_BASENAME,
-    DEFAULT_SSI_PIPELINES_WORKSPACE_ROOT,
-    SSI_PIPELINES_WORKSPACE_ROOT,
     load_module_from_file,
     materialize_legacy_config_with_uc_catalog,
     normalize_fs_path,
     resolve_legacy_training_toml_paths,
+    resolve_ssi_pipelines_workspace_root,
 )
 from edvise.utils.databricks import normalize_legacy_uc_model_short_name
 
@@ -145,15 +145,14 @@ def resolve_ssi_postprocessing_py(
     institution_id: str,
     model_name: str,
     *,
-    workspace_root: str | None = None,
+    workspace_root: str,
 ) -> tuple[Path | None, Path]:
     """
     ``postprocessing.py`` at ``pipelines/<inst>/<model_name>/postprocessing.py``.
 
     Returns ``(postprocessing_py_or_none, institution_base)``. Missing file → ``(None, …)``.
     """
-    root = (workspace_root or "").strip() or DEFAULT_SSI_PIPELINES_WORKSPACE_ROOT
-    root_r = normalize_fs_path(root).resolve()
+    root_r = normalize_fs_path(workspace_root).resolve()
     inst = institution_id.strip()
     mn = (model_name or "").strip()
     if not inst:
@@ -196,6 +195,14 @@ def main() -> None:
         "--ssi_pipelines_workspace_root",
         default="",
         help="Override …/student-success-intervention/pipelines.",
+    )
+    parser.add_argument(
+        "--ds_run_as",
+        default="",
+        help=(
+            "Databricks service principal application id (job run_as). "
+            "Used to resolve the default SSI pipelines workspace root."
+        ),
     )
     parser.add_argument(
         "--run_type",
@@ -288,8 +295,13 @@ def main() -> None:
     if not model_name:
         raise SystemExit("--model_name is required when postprocessing is enabled.")
 
-    ws = (args.ssi_pipelines_workspace_root or "").strip() or None
-    root = ws or DEFAULT_SSI_PIPELINES_WORKSPACE_ROOT
+    try:
+        root = resolve_ssi_pipelines_workspace_root(
+            ds_run_as=args.ds_run_as,
+            workspace_root=args.ssi_pipelines_workspace_root,
+        )
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
 
     py_file, inst_dir = resolve_ssi_postprocessing_py(
         inst,
@@ -324,11 +336,10 @@ def main() -> None:
         "Loading postprocessing from pipelines/%s/%s/postprocessing.py (root=%s)",
         inst,
         model_name,
-        (args.ssi_pipelines_workspace_root or "").strip()
-        or SSI_PIPELINES_WORKSPACE_ROOT,
+        root,
     )
     LOGGER.info("Workspace postprocessing file: %s", py_file)
-    mod = load_module_from_file(py_file, inst_dir)
+    mod = load_module_from_file(py_file, inst_dir, workspace_root=root)
     label = str(py_file)
 
     run = getattr(mod, "run", None)
