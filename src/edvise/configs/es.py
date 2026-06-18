@@ -261,7 +261,8 @@ class FeaturesConfig(pyd.BaseModel):
             "edvise.data_audit.default_grade_map). Values must be canonical "
             "ALLOWED_LETTER_GRADES or a numeric string in [0, 4]. Institution entries "
             "override platform defaults on duplicate keys. "
-            "Do not map pass/fail tokens (P) to GPA. Applied before course schema validation."
+            "Do not map pass/fail tokens (P) to GPA. Applied before course schema validation. "
+            'Example: {"W1": "W", "W2": "W", "OTHER": "O", "NC": "NC"}.'
         ),
     )
 
