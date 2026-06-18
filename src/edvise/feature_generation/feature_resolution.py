@@ -23,6 +23,7 @@ from .column_names import (
     TermFeatureSpec,
     ES_STUDENT_FEATURE_SPEC_DEFAULT,
 )
+from .feature_dependencies import multicol_grade_enabled
 
 _TSpec = t.TypeVar("_TSpec")
 
@@ -161,6 +162,7 @@ def resolve_student_term_aggregate_spec(
     cols: CourseInputColumns,
     *,
     course_flags: CourseFeatureSpec,
+    section_flags: SectionFeatureSpec,
 ) -> StudentTermAggregateSpec:
     g = has_data_col(df, cols.grade)
     pfx = has_data_col(df, cols.course_prefix)
@@ -181,7 +183,9 @@ def resolve_student_term_aggregate_spec(
         summary_aggregations=True,
         dummies=dummies,
         value_equality=bool(value_equality),
-        multicol_grade=bool(g),
+        multicol_grade=multicol_grade_enabled(
+            course_flags=course_flags, section_flags=section_flags
+        ),
     )
 
 
@@ -216,6 +220,9 @@ def resolve_student_term_add_feature_spec(
     )
     will_have_cohort_start = has_cohort_keys
     has_term_prog = has_data_col(df_course, course_cols.term_program_of_study)
+    # ``num_courses_in_term_program_of_study_area`` needs aggregated ``course_subject_areas``,
+    # which requires raw CIP/department (see course.add_features / summary aggs).
+    has_course_subject_areas = has_data_col(df_course, course_cols.course_cip)
     has_cr = has_data_col(
         df_course, course_cols.number_of_credits_earned
     ) and has_data_col(df_course, course_cols.number_of_credits_attempted)
@@ -233,7 +240,7 @@ def resolve_student_term_add_feature_spec(
         ),
         program_of_study_area=has_term_prog,
         credit_fraction_and_intensity=has_cr,
-        num_courses_in_program_area=has_term_prog,
+        num_courses_in_program_area=has_term_prog and has_course_subject_areas,
         num_course_by_category_fracs=True,
         section_student_fractions=bool(section_enrolled and g),
         student_rate_vs_section_fractions=bool(section_enrolled and g),

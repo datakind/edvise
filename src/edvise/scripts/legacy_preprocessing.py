@@ -3,7 +3,8 @@ Run school-specific legacy preprocessing before ``training_h2o`` or ``inference_
 
 **SSI workspace layout (fixed)**
 
-Workspace root defaults to ``…/student-success-intervention/pipelines`` (override with
+Workspace root defaults to
+``/Workspace/Users/<ds_run_as>/student-success-intervention/pipelines`` (override with
 ``--ssi_pipelines_workspace_root``).
 
 - **Preprocessing** is always at
@@ -152,11 +153,7 @@ from edvise.configs.legacy import deep_substitute_uc_catalog_placeholders
 from edvise.dataio.read import from_toml_file
 from edvise.utils.databricks import normalize_legacy_uc_model_short_name
 
-DEFAULT_SSI_PIPELINES_WORKSPACE_ROOT = (
-    "/Workspace/Users/6c8d8d76-1399-4065-aeb5-9474d32773cf/"
-    "student-success-intervention/pipelines"
-)
-SSI_PIPELINES_WORKSPACE_ROOT = DEFAULT_SSI_PIPELINES_WORKSPACE_ROOT
+SSI_PIPELINES_SUBPATH = "student-success-intervention/pipelines"
 
 # Fixed basenames under ``…/bronze_volume/training_inputs/`` on UC.
 DEFAULT_LEGACY_CONFIG_BASENAME = "config.toml"
@@ -175,11 +172,34 @@ def normalize_fs_path(raw: str) -> Path:
     return Path(p)
 
 
+def resolve_ssi_pipelines_workspace_root(
+    *,
+    ds_run_as: str | None = None,
+    workspace_root: str | None = None,
+) -> str:
+    """
+    Resolve the SSI ``pipelines/`` mirror on the Databricks workspace.
+
+    Uses ``--ssi_pipelines_workspace_root`` when set; otherwise derives from
+    ``--ds_run_as`` (same identity as ``training_h2o`` workspace paths).
+    """
+    explicit = (workspace_root or "").strip()
+    if explicit:
+        return explicit
+    run_as = (ds_run_as or "").strip()
+    if run_as:
+        return f"/Workspace/Users/{run_as}/{SSI_PIPELINES_SUBPATH}"
+    raise ValueError(
+        "SSI pipelines workspace root is required: pass --ds_run_as or "
+        "--ssi_pipelines_workspace_root."
+    )
+
+
 def resolve_ssi_preprocessing_py(
     institution_id: str,
     model_name: str,
     *,
-    workspace_root: str | None = None,
+    workspace_root: str,
 ) -> tuple[Path, Path]:
     """
     ``preprocessing.py`` at ``pipelines/<inst>/<model_name>/preprocessing.py``.
@@ -187,8 +207,7 @@ def resolve_ssi_preprocessing_py(
     Returns ``(preprocessing_py, institution_base)`` where ``institution_base`` is
     ``pipelines/<inst>/``.
     """
-    root = (workspace_root or "").strip() or DEFAULT_SSI_PIPELINES_WORKSPACE_ROOT
-    root_r = normalize_fs_path(root).resolve()
+    root_r = normalize_fs_path(workspace_root).resolve()
     inst = institution_id.strip()
     mn = (model_name or "").strip()
     if not inst:
@@ -304,10 +323,13 @@ def _ensure_edvise_src_on_path() -> None:
 
 
 def load_module_from_file(
-    py_file: Path, institution_pipeline_dir: Path
+    py_file: Path,
+    institution_pipeline_dir: Path,
+    *,
+    workspace_root: str,
 ) -> types.ModuleType:
     _ensure_edvise_src_on_path()
-    ssi_root = str(normalize_fs_path(SSI_PIPELINES_WORKSPACE_ROOT).parent)
+    ssi_root = str(normalize_fs_path(workspace_root).parent)
     if ssi_root not in sys.path:
         sys.path.insert(0, ssi_root)
     inst_s = str(institution_pipeline_dir.resolve())
@@ -467,6 +489,14 @@ def main() -> None:
         help="Override …/student-success-intervention/pipelines.",
     )
     parser.add_argument(
+        "--ds_run_as",
+        default="",
+        help=(
+            "Databricks service principal application id (job run_as). "
+            "Used to resolve the default SSI pipelines workspace root."
+        ),
+    )
+    parser.add_argument(
         "--run_type",
         default="train",
         choices=("train", "predict"),
@@ -523,8 +553,13 @@ def main() -> None:
             "(folder under pipelines/<inst>/ with preprocessing.py)."
         )
 
-    ws = (args.ssi_pipelines_workspace_root or "").strip() or None
-    root = ws or DEFAULT_SSI_PIPELINES_WORKSPACE_ROOT
+    try:
+        root = resolve_ssi_pipelines_workspace_root(
+            ds_run_as=args.ds_run_as,
+            workspace_root=args.ssi_pipelines_workspace_root,
+        )
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
 
     if args.run_type == "train":
         db_ws = (args.DB_workspace or "").strip()
@@ -559,8 +594,7 @@ def main() -> None:
         "Loading preprocessing from pipelines/%s/%s/preprocessing.py (root=%s)",
         inst,
         model_name,
-        (args.ssi_pipelines_workspace_root or "").strip()
-        or SSI_PIPELINES_WORKSPACE_ROOT,
+        root,
     )
     py_file, inst_dir = resolve_ssi_preprocessing_py(
         inst,
@@ -568,7 +602,7 @@ def main() -> None:
         workspace_root=root,
     )
     LOGGER.info("Workspace preprocessing file: %s", py_file)
-    mod = load_module_from_file(py_file, inst_dir)
+    mod = load_module_from_file(py_file, inst_dir, workspace_root=root)
     label = str(py_file)
 
     run = getattr(mod, "run", None)

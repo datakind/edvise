@@ -52,6 +52,8 @@ resources:
               - "{{job.parameters.model_name}}"
               - --term_filter
               - "{{job.parameters.term_filter}}"
+              - --ds_run_as
+              - "{{job.parameters.ds_run_as}}"
           job_cluster_key: edvise-legacy-inference-pipeline-cluster
           libraries:
             - pypi:
@@ -163,6 +165,8 @@ resources:
               - "{{job.parameters.db_run_id}}"
               - --job_root_dir
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_gold/gold_volume/inference_jobs/{{job.parameters.db_run_id}}"
+              - --ds_run_as
+              - "{{job.parameters.ds_run_as}}"
           job_cluster_key: edvise-legacy-inference-pipeline-cluster
           libraries:
             - pypi:
@@ -236,6 +240,8 @@ resources:
           default: ${var.DB_workspace}
         - name: model_name
           default: ${var.model_name}
+        - name: ds_run_as
+          default: ${var.ds_run_as}
         - name: gcp_bucket_name
           default: databricks-2052166062819251-unitycatalog
         - name: service_account_executer
