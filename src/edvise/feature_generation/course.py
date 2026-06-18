@@ -6,6 +6,11 @@ import typing as t
 import pandas as pd
 import numpy as np
 
+from edvise.data_audit.default_grade_map import (
+    INCOMPLETE_GRADE_CODES,
+    NON_NUMERIC_GRADE_CODES,
+    NON_PASS_FAIL_GRADE_CODES,
+)
 from . import constants, shared
 from .column_names import (
     CourseFeatureSpec,
@@ -15,44 +20,10 @@ from .column_names import (
 
 LOGGER = logging.getLogger(__name__)
 
-NON_NUMERIC_GRADES = {
-    "A",
-    "F",
-    "I",
-    "M",
-    "O",
-    "P",
-    "W",
-    "S",
-    "PASS",
-    "SAT",
-    "UNSAT",
-    "U",
-    "WD",
-    "IP",
-    "AU",
-    "NG",
-    "NR",
-    "M",
-}
-NON_PASS_FAIL_GRADES = {
-    "A",
-    "I",
-    "M",
-    "O",
-    "W",
-    "AU",
-    "S",
-    "SAT",
-    "UNSAT",
-    "U",
-    "WD",
-    "IP",
-    "NG",
-    "NR",
-    "M",
-}
-NON_COMPLETE_GRADES = {"I", "W", "WD", "IP"}
+# Backward-compatible aliases (canonical definitions in default_grade_map).
+NON_NUMERIC_GRADES = NON_NUMERIC_GRADE_CODES
+NON_PASS_FAIL_GRADES = NON_PASS_FAIL_GRADE_CODES
+NON_COMPLETE_GRADES = INCOMPLETE_GRADE_CODES
 
 GradeSemantics = t.Literal["pdp", "es"]
 

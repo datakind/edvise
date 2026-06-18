@@ -76,3 +76,20 @@ def test_chicago_style_config_gets_plus_minus_from_platform() -> None:
     mapped = apply_raw_course_grade_map(df, chicago)
     assert mapped["grade"].tolist() == ["3.7", "3.3", "2", "4"]
     assert unmapped_gpa_grade_counts(mapped).empty
+
+
+def test_shared_grade_code_sets_cover_audit_and_feature_gen() -> None:
+    from edvise.data_audit.default_grade_map import (
+        INCOMPLETE_GRADE_CODES,
+        LETTER_GPA_GRADE_CODES,
+        NON_GPA_STATUS_GRADE_CODES,
+        NON_NUMERIC_GRADE_CODES,
+        NON_PASS_FAIL_GRADE_CODES,
+    )
+
+    assert "F" in LETTER_GPA_GRADE_CODES
+    assert "P" in NON_GPA_STATUS_GRADE_CODES
+    assert "F" in NON_NUMERIC_GRADE_CODES
+    assert "P" not in NON_PASS_FAIL_GRADE_CODES
+    assert "A" in NON_PASS_FAIL_GRADE_CODES
+    assert INCOMPLETE_GRADE_CODES == frozenset({"I", "W", "WD", "IP"})

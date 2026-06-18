@@ -1,5 +1,5 @@
 """
-Platform-default ES course grade mappings.
+Platform-default ES course grade mappings and shared grade-token classifications.
 
 Two layers merged before institution ``preprocessing.features.grade_map`` (school
 entries override on duplicate keys):
@@ -9,6 +9,9 @@ entries override on duplicate keys):
 
 Schools with different scales override specific letters in bronze ``config.toml``.
 Do not map pass/fail tokens (``P``) to GPA.
+
+Derived frozensets at the bottom are shared with :mod:`edvise.feature_generation.course`
+so audit and feature generation use one canonical grade taxonomy.
 """
 
 from __future__ import annotations
@@ -74,3 +77,18 @@ NON_GPA_STATUS_GRADE_CODES: frozenset[str] = frozenset(
         "O",
     }
 )
+
+# --- Shared with feature_generation.course (do not duplicate in course.py) ---
+
+# Letter or status tokens that must not be parsed as float GPA strings.
+NON_NUMERIC_GRADE_CODES: frozenset[str] = frozenset(
+    LETTER_GPA_GRADE_CODES | NON_GPA_STATUS_GRADE_CODES
+)
+
+# Grades where pass/fail is undefined (audit, in-progress, withdrawal, etc.).
+NON_PASS_FAIL_GRADE_CODES: frozenset[str] = frozenset(
+    (NON_GPA_STATUS_GRADE_CODES | {"A"}) - {"F", "P", "PASS"}
+)
+
+# Incomplete / withdrawn grades for course-completion features.
+INCOMPLETE_GRADE_CODES: frozenset[str] = frozenset({"I", "W", "WD", "IP"})
