@@ -23,6 +23,7 @@ from .column_names import (
     TermFeatureSpec,
     ES_STUDENT_FEATURE_SPEC_DEFAULT,
 )
+from .feature_dependencies import multicol_grade_enabled
 
 _TSpec = t.TypeVar("_TSpec")
 
@@ -161,6 +162,7 @@ def resolve_student_term_aggregate_spec(
     cols: CourseInputColumns,
     *,
     course_flags: CourseFeatureSpec,
+    section_flags: SectionFeatureSpec,
 ) -> StudentTermAggregateSpec:
     g = has_data_col(df, cols.grade)
     pfx = has_data_col(df, cols.course_prefix)
@@ -181,7 +183,9 @@ def resolve_student_term_aggregate_spec(
         summary_aggregations=True,
         dummies=dummies,
         value_equality=bool(value_equality),
-        multicol_grade=bool(g),
+        multicol_grade=multicol_grade_enabled(
+            course_flags=course_flags, section_flags=section_flags
+        ),
     )
 
 

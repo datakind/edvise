@@ -117,6 +117,7 @@ def build_edvise_feature_specs(
             df_course,
             course_cols,
             course_flags=course,
+            section_flags=section,
         ),
         o.student_term_aggregate,
     )
