@@ -1,3 +1,7 @@
+## 1.2.2 (2026-06-18)
+- fix(legacy): setting up staging SA in preprocessing & postprocessing scripts (#168)
+- fix: systemic optional-column guards for ES feature generation (#170)
+
 ## 1.2.1 (2026-06-16)
 - fix: calendar year codes inferred as datetime during cleaning (#165)
 
