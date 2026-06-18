@@ -55,84 +55,6 @@ def term_program_of_study_area_changed_prev_term(
     return _changed_prev_term(df, col=area_col, **kwargs)
 
 
-def _summary_aggregation_named_aggs(
-    df: pd.DataFrame, cols: CourseInputColumns
-) -> dict[str, pd.NamedAgg]:
-    """
-    Build groupby NamedAgg kwargs only for columns present on ``df``.
-
-    Edvise institutions may omit optional raw fields (e.g. ``department``) and thus
-    lack derived ``course_subject_area``; PDP-style frames always include CIP.
-    """
-    kw: dict[str, pd.NamedAgg] = {}
-
-    def _add(key: str, named: pd.NamedAgg) -> None:
-        if named.column in df.columns:
-            kw[key] = named
-
-    if "course_id" in df.columns:
-        _add("num_courses", num_courses_col_agg(col="course_id"))
-        _add("course_ids", course_ids_col_agg())
-        _add("course_id_nunique", course_id_nunique_col_agg())
-    if "course_passed" in df.columns:
-        _add("num_courses_passed", num_courses_passed_col_agg())
-    if "course_completed" in df.columns:
-        _add("num_courses_completed", num_courses_completed_col_agg())
-    if cols.number_of_credits_attempted in df.columns:
-        _add(
-            "num_credits_attempted",
-            num_credits_attempted_col_agg(col=cols.number_of_credits_attempted),
-        )
-    if cols.number_of_credits_earned in df.columns:
-        _add(
-            "num_credits_earned",
-            num_credits_earned_col_agg(col=cols.number_of_credits_earned),
-        )
-    if cols.course_cip and cols.course_cip in df.columns:
-        _add("course_subjects", course_subjects_col_agg(col=cols.course_cip))
-        _add(
-            "course_subject_nunique",
-            course_subject_nunique_col_agg(col=cols.course_cip),
-        )
-    if "course_subject_area" in df.columns:
-        _add("course_subject_areas", course_subject_areas_col_agg())
-        _add(
-            "course_subject_area_nunique",
-            course_subject_area_nunique_col_agg(),
-        )
-    if "course_level" in df.columns:
-        _add("course_level_mean", course_level_mean_col_agg())
-        _add("course_level_std", course_level_std_col_agg())
-    if "course_grade_numeric" in df.columns:
-        _add(
-            "course_grade_numeric_mean",
-            course_grade_numeric_mean_col_agg(),
-        )
-        _add(
-            "course_grade_numeric_std",
-            course_grade_numeric_std_col_agg(),
-        )
-    for out_name, builder in (
-        (
-            "section_num_students_enrolled_mean",
-            section_num_students_enrolled_mean_col_agg,
-        ),
-        (
-            "section_num_students_enrolled_std",
-            section_num_students_enrolled_std_col_agg,
-        ),
-        ("sections_num_students_enrolled", sections_num_students_enrolled_col_agg),
-        ("sections_num_students_passed", sections_num_students_passed_col_agg),
-        (
-            "sections_num_students_completed",
-            sections_num_students_completed_col_agg,
-        ),
-    ):
-        named = builder()
-        _add(out_name, named)
-    return kw
-
-
 def aggregate_from_course_level_features(
     df: pd.DataFrame,
     *,
@@ -195,9 +117,33 @@ def aggregate_from_course_level_features(
     df_passthrough = df_grped.agg(**p_existing)
     dfs: list[pd.DataFrame] = [df_passthrough]
     if s.summary_aggregations:
-        summary_aggs = _summary_aggregation_named_aggs(df, cols)
-        if summary_aggs:
-            dfs.append(df_grped.agg(**summary_aggs))
+        ag = df_grped.agg(
+            num_courses=num_courses_col_agg(col="course_id"),
+            num_courses_passed=num_courses_passed_col_agg(col="course_passed"),
+            num_courses_completed=num_courses_completed_col_agg(col="course_completed"),
+            num_credits_attempted=num_credits_attempted_col_agg(
+                col=cols.number_of_credits_attempted
+            ),
+            num_credits_earned=num_credits_earned_col_agg(
+                col=cols.number_of_credits_earned
+            ),
+            course_ids=course_ids_col_agg(),
+            course_subjects=course_subjects_col_agg(col=cols.course_cip),
+            course_subject_areas=course_subject_areas_col_agg(),
+            course_id_nunique=course_id_nunique_col_agg(),
+            course_subject_nunique=course_subject_nunique_col_agg(col=cols.course_cip),
+            course_subject_area_nunique=course_subject_area_nunique_col_agg(),
+            course_level_mean=course_level_mean_col_agg(),
+            course_level_std=course_level_std_col_agg(),
+            course_grade_numeric_mean=course_grade_numeric_mean_col_agg(),
+            course_grade_numeric_std=course_grade_numeric_std_col_agg(),
+            section_num_students_enrolled_mean=section_num_students_enrolled_mean_col_agg(),
+            section_num_students_enrolled_std=section_num_students_enrolled_std_col_agg(),
+            sections_num_students_enrolled=sections_num_students_enrolled_col_agg(),
+            sections_num_students_passed=sections_num_students_passed_col_agg(),
+            sections_num_students_completed=sections_num_students_completed_col_agg(),
+        )
+        dfs.append(ag)
     if s.dummies:
         dummy_candidates: list[str | None] = [
             cols.course_type,
