@@ -19,6 +19,14 @@ course = "genai_mapping/onboard/FILE_NAME_courses.csv"
 #   "genai_mapping/onboard/FILE_NAME_courses_2014_2025.csv",
 # ]
 
+# Optional: map logical dataset names to semantic templates when the key is not
+# exactly student / course / semester / degree (backwards compatible — omit entirely
+# when keys already use the canonical names).
+#
+# [datasets.entity_kind]
+# registration = "course"
+# degree_awards = "degree"
+
 # Uncomment when wiring the execute pipeline (onboard-only can omit this block):
 # [datasets.execute_files]
 # student = "genai_mapping/execute/FILE_NAME_students.csv"

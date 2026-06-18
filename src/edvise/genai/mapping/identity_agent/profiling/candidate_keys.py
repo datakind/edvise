@@ -333,11 +333,17 @@ def _merge_semantic_and_statistical_candidates(
     dataset: str,
     statistical: list[CandidateKey],
     column_roles: ColumnRolesResult,
+    *,
+    entity_kind: str | None = None,
 ) -> list[CandidateKey]:
     """
     Guarantee semantic grain keys appear in the candidate list (not truncated by top-k search).
     """
-    semantic_sets = build_semantic_key_column_sets(dataset, column_roles)
+    semantic_sets = build_semantic_key_column_sets(
+        dataset,
+        column_roles,
+        entity_kind=entity_kind,
+    )
     merged: list[CandidateKey] = []
     seen: set[frozenset[str]] = set()
 
@@ -431,6 +437,7 @@ def profile_candidate_keys(
     *,
     cleaning: CleaningConfig | None = None,
     column_roles: ColumnRolesResult | None = None,
+    entity_kind: str | None = None,
 ) -> KeyProfileResult:
     """
     Deterministic key profiler. Runs raw column profiling, then detects candidate
@@ -456,6 +463,8 @@ def profile_candidate_keys(
         cleaning: Optional per-school cleaning config (e.g. from ``SchoolMappingConfig.cleaning``).
         column_roles: Optional ColumnRolesAgent output; when set, semantic grain keys are
             profiled first and guaranteed in the candidate list.
+        entity_kind: Optional semantic template override (``DatasetConfig.entity_kind``).
+            When unset, the dataset name and built-in aliases select the template.
 
     Returns:
         KeyProfileResult with raw column stats and per-candidate-key stats
@@ -497,6 +506,7 @@ def profile_candidate_keys(
             dataset,
             candidate_keys,
             column_roles,
+            entity_kind=entity_kind,
         )
         for warning in column_roles.profiler_warnings:
             logger.warning("ColumnRoles: %s", warning)

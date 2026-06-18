@@ -43,6 +43,7 @@ def run_column_roles_for_dataset(
     df: pd.DataFrame,
     llm_complete: Callable[[str, str], str],
     cleaning: CleaningConfig | None = None,
+    entity_kind: str | None = None,
 ) -> ColumnRolesResult:
     """
     Classify columns via LLM using a raw table profile, then apply deterministic fallbacks.
@@ -54,7 +55,12 @@ def run_column_roles_for_dataset(
         dataset=dataset,
         cleaning=cleaning,
     )
-    user = build_column_roles_user_message(institution_id, dataset, raw_table_profile)
+    user = build_column_roles_user_message(
+        institution_id,
+        dataset,
+        raw_table_profile,
+        entity_kind=entity_kind,
+    )
     expected_columns = [c.name for c in raw_table_profile.columns]
 
     def _parse(raw: str) -> ColumnRolesResult:
@@ -92,6 +98,7 @@ def run_column_roles_for_institution(
     """Run :func:`run_column_roles_for_dataset` for each configured dataset."""
     results: dict[str, ColumnRolesResult] = {}
     for name in school.datasets.keys():
+        ds_cfg = school.datasets[name]
         df = load_school_dataset_dataframe(school, name)
         results[name] = run_column_roles_for_dataset(
             institution_id=institution_id,
@@ -99,6 +106,7 @@ def run_column_roles_for_institution(
             df=df,
             llm_complete=llm_complete,
             cleaning=school.cleaning,
+            entity_kind=ds_cfg.entity_kind,
         )
     return results
 

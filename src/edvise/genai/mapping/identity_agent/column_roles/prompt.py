@@ -73,11 +73,18 @@ def build_column_roles_user_message(
     institution_id: str,
     dataset: str,
     raw_table_profile: RawTableProfile,
+    *,
+    entity_kind: str | None = None,
 ) -> str:
+    from edvise.genai.mapping.identity_agent.profiling.entity_kind import (
+        resolve_entity_kind,
+    )
+
+    kind_hint = resolve_entity_kind(dataset, configured_kind=entity_kind)
     payload = {
         "institution_id": institution_id,
         "dataset": dataset,
-        "dataset_kind_hint": dataset,
+        "dataset_kind_hint": kind_hint,
         "row_count": raw_table_profile.row_count,
         "columns": _column_summaries_for_prompt(raw_table_profile),
     }

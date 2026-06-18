@@ -13,6 +13,8 @@ from edvise.genai.mapping.identity_agent.column_roles.schemas import (
     ColumnRolesResult,
 )
 
+from .entity_kind import resolve_entity_kind
+
 logger = logging.getLogger(__name__)
 
 
@@ -25,12 +27,73 @@ def _course_id_columns(roles: ColumnRolesResult) -> list[str]:
     return roles.columns_with_role(ColumnRole.COURSE_ID)
 
 
+def _append_student_keys(
+    keys: list[list[str]],
+    *,
+    learner: str,
+    program: str | None,
+    major: str | None,
+    cohort: str | None,
+) -> None:
+    keys.append([learner])
+    for extra in (program, major, cohort):
+        if extra:
+            keys.append([learner, extra])
+    if program and major:
+        keys.append([learner, program, major])
+
+
+def _append_degree_keys(
+    keys: list[list[str]],
+    *,
+    learner: str | None,
+    term: str | None,
+    program: str | None,
+    major: str | None,
+) -> None:
+    if learner and term:
+        keys.append([learner, term])
+    if learner and program and term:
+        keys.append([learner, program, term])
+    if learner and program:
+        keys.append([learner, program])
+    if learner and program and major:
+        keys.append([learner, program, major])
+    if learner and major and term:
+        keys.append([learner, major, term])
+    if learner:
+        keys.append([learner])
+    elif term:
+        keys.append([term])
+
+
+def _append_role_driven_fallback_keys(
+    keys: list[list[str]],
+    *,
+    learner: str | None,
+    term: str | None,
+) -> None:
+    """Unknown kinds: seed from roles when no template matched."""
+    if learner and term:
+        keys.append([learner, term])
+    elif term:
+        keys.append([term])
+    elif learner:
+        keys.append([learner])
+
+
 def build_semantic_key_column_sets(
     dataset: str,
     roles: ColumnRolesResult,
+    *,
+    entity_kind: str | None = None,
 ) -> list[list[str]]:
     """
     Return ordered semantic key column lists to profile before combinatorial search.
+
+    ``entity_kind`` (from ``DatasetConfig`` / inputs.toml) selects the template;
+    when omitted, :func:`resolve_entity_kind` uses the dataset name and aliases
+    (``student`` / ``course`` / ``semester`` keys behave as before).
 
     Keys are deduplicated; order is stable (base grains first, then widenings).
     """
@@ -42,16 +105,17 @@ def build_semantic_key_column_sets(
     cohort = _first(roles.columns_with_role(ColumnRole.COHORT))
 
     keys: list[list[str]] = []
-    kind = dataset.strip().lower()
+    kind = resolve_entity_kind(dataset, configured_kind=entity_kind)
 
     if kind == "student":
         if learner:
-            keys.append([learner])
-            for extra in (program, major, cohort):
-                if extra:
-                    keys.append([learner, extra])
-            if program and major:
-                keys.append([learner, program, major])
+            _append_student_keys(
+                keys,
+                learner=learner,
+                program=program,
+                major=major,
+                cohort=cohort,
+            )
         else:
             logger.warning(
                 "semantic_keys: student dataset %s missing learner_id — no base semantic keys",
@@ -80,13 +144,30 @@ def build_semantic_key_column_sets(
         elif learner:
             keys.append([learner])
 
-    else:
-        if learner:
-            keys.append([learner])
-        logger.info(
-            "semantic_keys: unknown dataset kind %r — using learner-only template if present",
-            dataset,
+    elif kind == "degree":
+        _append_degree_keys(
+            keys,
+            learner=learner,
+            term=term,
+            program=program,
+            major=major,
         )
+
+    else:
+        _append_role_driven_fallback_keys(keys, learner=learner, term=term)
+        if keys:
+            logger.info(
+                "semantic_keys: unknown entity kind %r for dataset %s — role-driven seeds %s",
+                kind,
+                dataset,
+                keys,
+            )
+        else:
+            logger.info(
+                "semantic_keys: unknown entity kind %r for dataset %s — no semantic keys",
+                kind,
+                dataset,
+            )
 
     return _dedupe_key_lists(keys)
 

@@ -364,6 +364,31 @@ def test_to_school_mapping_config_onboard_execute_files_are_separate_tables(
     assert execute_school.datasets["course"].files == ["execute_course.csv"]
 
 
+def test_to_school_mapping_config_entity_kind_from_toml(tmp_path: Path) -> None:
+    p = tmp_path / "inputs.toml"
+    p.write_text(
+        textwrap.dedent(
+            """
+            institution_id = "synthetic_univ_alpha"
+
+            [datasets.onboard_files]
+            registration = "enrollments.csv"
+            student = "students.csv"
+
+            [datasets.entity_kind]
+            registration = "course"
+            """
+        ).strip(),
+        encoding="utf-8",
+    )
+    raw = IdentityAgentInputsConfig.model_validate(from_toml_file(str(p)))
+    school = raw.to_school_mapping_config(
+        uc_catalog="dev_sst_02", pipeline_mode="onboard"
+    )
+    assert school.datasets["student"].entity_kind is None
+    assert school.datasets["registration"].entity_kind == "course"
+
+
 def test_to_school_mapping_config_onboard_run_id_from_env(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -57,6 +57,7 @@ def build_identity_profiling_run_by_dataset(
 
     for name in school.datasets.keys():
         df = load_school_dataset_dataframe(school, name)
+        ds_cfg = school.datasets[name]
         column_roles = (
             column_roles_by_dataset.get(name) if column_roles_by_dataset else None
         )
@@ -66,6 +67,7 @@ def build_identity_profiling_run_by_dataset(
             dataset=name,
             cleaning=cleaning,
             column_roles=column_roles,
+            entity_kind=ds_cfg.entity_kind,
         )
         key_profile = kp_result.key_profile
         rtp = kp_result.raw_table_profile

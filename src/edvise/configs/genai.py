@@ -49,6 +49,13 @@ class DatasetConfig(StrictBaseModel):
     files: List[str] = Field(..., min_length=1)
     primary_keys: Optional[List[str]] = Field(default=None, min_length=1)
     student_id_alias: Optional[str] = None
+    entity_kind: Optional[str] = Field(
+        default=None,
+        description=(
+            "Semantic template for profiling (student, course, semester, degree). "
+            "When unset, the dataset key name and built-in aliases are used."
+        ),
+    )
 
 
 class SchoolMappingConfig(StrictBaseModel):
@@ -88,6 +95,14 @@ class IdentityAgentDatasets(StrictBaseModel):
     execute_files: Optional[
         Annotated[Dict[str, Union[str, List[str]]], Field(min_length=1)]
     ] = None
+    entity_kind: Optional[Dict[str, str]] = Field(
+        default=None,
+        description=(
+            "Optional map of logical dataset name → semantic kind "
+            "(student, course, semester, degree). Backwards compatible: omit to use "
+            "dataset key names and built-in aliases (registration → course, etc.)."
+        ),
+    )
 
     @field_validator("onboard_files", "execute_files", mode="before")
     @classmethod
@@ -153,6 +168,7 @@ class IdentityAgentInputsConfig(StrictBaseModel):
                 )
             merged_files = dict(ds.execute_files)
 
+        kind_map = dict(ds.entity_kind or {})
         datasets: Dict[str, DatasetConfig] = {}
         for name, spec in merged_files.items():
             paths: List[str] = [spec] if isinstance(spec, str) else list(spec)
@@ -160,7 +176,11 @@ class IdentityAgentInputsConfig(StrictBaseModel):
                 raise ValueError(
                     f"datasets.{pipeline_mode}_files[{name!r}] must list at least one path"
                 )
-            datasets[name] = DatasetConfig(files=paths, primary_keys=None)
+            datasets[name] = DatasetConfig(
+                files=paths,
+                primary_keys=None,
+                entity_kind=kind_map.get(name),
+            )
         rid = resolve_onboard_run_id(onboard_run_id, create_if_missing=False)
         pv = coerce_pipeline_version(pipeline_version)
         return SchoolMappingConfig(
