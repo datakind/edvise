@@ -43,7 +43,11 @@ def apply_column_role_fallbacks(
         confidence: float = 0.75,
     ) -> None:
         prev = assignments.get(column)
-        if prev and prev.role == role and prev.confidence >= COLUMN_ROLES_CONFIDENCE_THRESHOLD:
+        if (
+            prev
+            and prev.role == role
+            and prev.confidence >= COLUMN_ROLES_CONFIDENCE_THRESHOLD
+        ):
             return
         assignments[column] = ColumnRoleAssignment(
             column=column,
@@ -61,12 +65,15 @@ def apply_column_role_fallbacks(
 
     learner_cols = _columns_with_role(ColumnRole.LEARNER_ID)
     learner_ok = bool(learner_cols) and all(
-        assignments[c].confidence >= COLUMN_ROLES_CONFIDENCE_THRESHOLD for c in learner_cols
+        assignments[c].confidence >= COLUMN_ROLES_CONFIDENCE_THRESHOLD
+        for c in learner_cols
     )
     if not learner_ok:
         for col in columns:
             if STUDENT_ANCHOR_NAME_PATTERN.search(str(col)):
-                _set_role(col, ColumnRole.LEARNER_ID, reason="student-anchor name pattern")
+                _set_role(
+                    col, ColumnRole.LEARNER_ID, reason="student-anchor name pattern"
+                )
                 break
         if not _columns_with_role(ColumnRole.LEARNER_ID):
             warnings.append(
@@ -75,7 +82,8 @@ def apply_column_role_fallbacks(
 
     term_cols = _columns_with_role(ColumnRole.TERM)
     term_ok = bool(term_cols) and all(
-        assignments[c].confidence >= COLUMN_ROLES_CONFIDENCE_THRESHOLD for c in term_cols
+        assignments[c].confidence >= COLUMN_ROLES_CONFIDENCE_THRESHOLD
+        for c in term_cols
     )
     if not term_ok:
         for col in columns:
@@ -85,7 +93,9 @@ def apply_column_role_fallbacks(
 
     for col in columns:
         if INDEX_COLUMN_PATTERNS.match(str(col)) and assignments.get(col, None) is None:
-            _set_role(col, ColumnRole.INDEX, reason="index column pattern", confidence=0.95)
+            _set_role(
+                col, ColumnRole.INDEX, reason="index column pattern", confidence=0.95
+            )
 
     ordered = [assignments[c] for c in columns if c in assignments]
     return ColumnRolesResult(

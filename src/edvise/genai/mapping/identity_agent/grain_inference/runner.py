@@ -105,7 +105,9 @@ def run_identity_agents_for_institution_with_hitl(
     confidence_threshold: float = PIPELINE_HITL_CONFIDENCE_THRESHOLD,
     queue_for_hitl_review: Callable[[GrainContract], None] | None = None,
     auto_approve_and_apply: Callable[[GrainContract], None] | None = None,
-) -> tuple[dict[str, GrainContract], list[HITLItem], dict[str, GrainContractVerification]]:
+) -> tuple[
+    dict[str, GrainContract], list[HITLItem], dict[str, GrainContractVerification]
+]:
     """
     For each ``(dataset_name, key_profile)`` in ``institution_profiles``, runs
     :func:`run_identity_agent_with_hitl` with ``dfs[dataset_name]``, merges all per-table

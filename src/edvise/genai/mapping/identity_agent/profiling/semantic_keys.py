@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import logging
 
-from edvise.genai.mapping.identity_agent.column_roles.schemas import ColumnRole, ColumnRolesResult
+from edvise.genai.mapping.identity_agent.column_roles.schemas import (
+    ColumnRole,
+    ColumnRolesResult,
+)
 
 logger = logging.getLogger(__name__)
 

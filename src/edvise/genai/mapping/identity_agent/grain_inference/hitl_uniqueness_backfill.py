@@ -164,7 +164,9 @@ def backfill_hitl_uniqueness_scores_by_table(
             for it in group:
                 by_id[it.item_id] = it
         else:
-            for it in backfill_hitl_uniqueness_scores_from_measured_keys(list(group), df):
+            for it in backfill_hitl_uniqueness_scores_from_measured_keys(
+                list(group), df
+            ):
                 by_id[it.item_id] = it
     return [by_id[it.item_id] for it in items]
 

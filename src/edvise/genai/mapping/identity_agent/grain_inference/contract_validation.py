@@ -38,7 +38,9 @@ class GrainContractVerification:
                 else None
             ),
             "dedup_impact": (
-                self.dedup_impact.to_jsonable() if self.dedup_impact is not None else None
+                self.dedup_impact.to_jsonable()
+                if self.dedup_impact is not None
+                else None
             ),
             "coerced": self.coerced,
             "coercion_reason": self.coercion_reason,
@@ -121,9 +123,7 @@ def verify_grain_contract(
         )
 
     try:
-        dedup_impact = simulate_dedup_impact(
-            prepared, work_contract, prepared=True
-        )
+        dedup_impact = simulate_dedup_impact(prepared, work_contract, prepared=True)
     except (ValueError, KeyError) as e:
         _LOG.warning(
             "[ia grain verify] table=%s dedup simulation failed: %s",

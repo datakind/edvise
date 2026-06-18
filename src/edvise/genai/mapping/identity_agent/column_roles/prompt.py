@@ -46,7 +46,9 @@ Return a single JSON object (no markdown fences) with:
 COLUMN_ROLES_CONFIDENCE_THRESHOLD = PIPELINE_HITL_CONFIDENCE_THRESHOLD
 
 
-def _column_summaries_for_prompt(raw_table_profile: RawTableProfile) -> list[dict[str, Any]]:
+def _column_summaries_for_prompt(
+    raw_table_profile: RawTableProfile,
+) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for col in raw_table_profile.columns:
         rows.append(
@@ -114,7 +116,10 @@ def parse_column_roles_response(
 
     # Reconcile low_confidence with per-assignment confidence.
     for a in assignments:
-        if a.confidence < COLUMN_ROLES_CONFIDENCE_THRESHOLD and a.column not in low_confidence:
+        if (
+            a.confidence < COLUMN_ROLES_CONFIDENCE_THRESHOLD
+            and a.column not in low_confidence
+        ):
             low_confidence.append(a.column)
 
     return ColumnRolesResult(

@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from enum import StrEnum
+from enum import Enum
 from typing import Any
 
 from pydantic import BaseModel, Field
 
 
-class ColumnRole(StrEnum):
+class ColumnRole(str, Enum):
     """Semantic role of a raw column for grain profiling."""
 
     LEARNER_ID = "learner_id"

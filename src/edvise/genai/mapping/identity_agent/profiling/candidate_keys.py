@@ -308,7 +308,8 @@ def _uniqueness_for_columns(cols: list[str], df: pd.DataFrame) -> float:
     if len(cols) == 1:
         return float(df[cols[0]].nunique() / n_rows)
     compound = sum(
-        pd.util.hash_pandas_object(df[c], index=False) * (31**i) for i, c in enumerate(cols)
+        pd.util.hash_pandas_object(df[c], index=False) * (31**i)
+        for i, c in enumerate(cols)
     )
     return float(compound.nunique() / n_rows)
 

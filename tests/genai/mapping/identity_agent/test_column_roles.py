@@ -2,15 +2,23 @@ import json
 
 import pandas as pd
 
-from edvise.genai.mapping.identity_agent.column_roles.fallback import apply_column_role_fallbacks
-from edvise.genai.mapping.identity_agent.column_roles.prompt import parse_column_roles_response
+from edvise.genai.mapping.identity_agent.column_roles.fallback import (
+    apply_column_role_fallbacks,
+)
+from edvise.genai.mapping.identity_agent.column_roles.prompt import (
+    parse_column_roles_response,
+)
 from edvise.genai.mapping.identity_agent.column_roles.schemas import (
     ColumnRole,
     ColumnRoleAssignment,
     ColumnRolesResult,
 )
-from edvise.genai.mapping.identity_agent.profiling.candidate_keys import profile_candidate_keys
-from edvise.genai.mapping.identity_agent.profiling.semantic_keys import build_semantic_key_column_sets
+from edvise.genai.mapping.identity_agent.profiling.candidate_keys import (
+    profile_candidate_keys,
+)
+from edvise.genai.mapping.identity_agent.profiling.semantic_keys import (
+    build_semantic_key_column_sets,
+)
 
 
 def test_parse_column_roles_response():
@@ -127,5 +135,7 @@ def test_profile_candidate_keys_includes_semantic_keys_first():
     )
     first_cols = result.key_profile.candidate_key_profiles[0].candidate_key.columns
     assert first_cols == ["student_id"]
-    col_sets = [p.candidate_key.columns for p in result.key_profile.candidate_key_profiles]
+    col_sets = [
+        p.candidate_key.columns for p in result.key_profile.candidate_key_profiles
+    ]
     assert ["student_id", "program_at_graduation"] in col_sets

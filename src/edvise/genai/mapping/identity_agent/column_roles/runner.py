@@ -12,7 +12,9 @@ from edvise.data_audit.custom_cleaning import CleaningConfig
 from edvise.utils.llm_utils import llm_complete_with_parse_retry
 
 from edvise.genai.mapping.identity_agent.dataset_io import load_school_dataset_dataframe
-from edvise.genai.mapping.identity_agent.profiling.constants import INDEX_COLUMN_PATTERNS
+from edvise.genai.mapping.identity_agent.profiling.constants import (
+    INDEX_COLUMN_PATTERNS,
+)
 from edvise.genai.mapping.identity_agent.profiling.raw_snapshot import profile_raw_table
 
 from .fallback import apply_column_role_fallbacks

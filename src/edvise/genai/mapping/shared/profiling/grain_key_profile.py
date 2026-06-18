@@ -8,7 +8,9 @@ from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 
-from edvise.genai.mapping.identity_agent.profiling.constants import INDEX_COLUMN_PATTERNS
+from edvise.genai.mapping.identity_agent.profiling.constants import (
+    INDEX_COLUMN_PATTERNS,
+)
 from edvise.genai.mapping.shared.profiling.variance import (
     ColumnVarianceProfile,
     WithinGroupVarianceResult,
@@ -16,7 +18,9 @@ from edvise.genai.mapping.shared.profiling.variance import (
 )
 
 if TYPE_CHECKING:
-    from edvise.genai.mapping.identity_agent.grain_inference.schemas import GrainContract
+    from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
+        GrainContract,
+    )
 
 MEASURE_COLUMN_HINTS = re.compile(
     r"(?:credit|gpa|units?|hours?|score|grade|letter_grade|points?|amount|rate|pct|percent|count|attempted|earned)",

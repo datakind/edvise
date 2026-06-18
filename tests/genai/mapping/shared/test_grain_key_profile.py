@@ -20,7 +20,9 @@ from edvise.genai.mapping.shared.profiling.grain_key_profile import (
 )
 
 
-def _iit_shaped_student_frame(*, n_students: int = 100, rows_per_student: int = 3) -> pd.DataFrame:
+def _iit_shaped_student_frame(
+    *, n_students: int = 100, rows_per_student: int = 3
+) -> pd.DataFrame:
     """Multiple rows per (student_id, program_at_graduation) with differing major."""
     rows: list[dict[str, object]] = []
     majors = ["Psychology", "Business", "Criminal Justice"]
@@ -72,7 +74,9 @@ def test_simulate_dedup_impact_true_duplicate_drops_most_rows() -> None:
     assert impact.strategy_applied == "true_duplicate"
 
 
-def test_verify_grain_contract_coerces_true_duplicate_with_categorical_variance() -> None:
+def test_verify_grain_contract_coerces_true_duplicate_with_categorical_variance() -> (
+    None
+):
     df = _iit_shaped_student_frame()
     contract = _bad_iit_contract()
     coerced, verification = verify_grain_contract(contract, df)
