@@ -5,9 +5,16 @@ import typing as t
 import numpy as np
 import pandas as pd
 
-
 from edvise.utils.data_cleaning import convert_to_snake_case
 from . import constants, term, shared
+from .feature_dependencies import (
+    MULTICOL_GRADE_COLUMNS,
+    SECTION_STUDENT_FRACTION_COLUMNS,
+    STUDENT_RATE_VS_SECTION_COLUMNS,
+    columns_present,
+    enable_when,
+    filter_named_aggs,
+)
 from .column_names import (
     CourseInputColumns,
     PDP_COURSE_INPUT_COLUMNS,
@@ -53,6 +60,82 @@ def term_program_of_study_area_changed_prev_term(
 ) -> pd.Series:
     """True if program of study area changed from previous term."""
     return _changed_prev_term(df, col=area_col, **kwargs)
+
+
+def _summary_aggregation_named_aggs(
+    df: pd.DataFrame, cols: CourseInputColumns
+) -> dict[str, pd.NamedAgg]:
+    """
+    Build groupby NamedAgg kwargs only for columns present on ``df``.
+
+    Each aggregation is included when its source column exists; no per-school branching.
+    """
+    kw: dict[str, pd.NamedAgg] = {}
+
+    def _add(key: str, named: pd.NamedAgg) -> None:
+        if named.column in df.columns:
+            kw[key] = named
+
+    if "course_id" in df.columns:
+        _add("num_courses", num_courses_col_agg(col="course_id"))
+        _add("course_ids", course_ids_col_agg())
+        _add("course_id_nunique", course_id_nunique_col_agg())
+    if "course_passed" in df.columns:
+        _add("num_courses_passed", num_courses_passed_col_agg())
+    if "course_completed" in df.columns:
+        _add("num_courses_completed", num_courses_completed_col_agg())
+    if cols.number_of_credits_attempted in df.columns:
+        _add(
+            "num_credits_attempted",
+            num_credits_attempted_col_agg(col=cols.number_of_credits_attempted),
+        )
+    if cols.number_of_credits_earned in df.columns:
+        _add(
+            "num_credits_earned",
+            num_credits_earned_col_agg(col=cols.number_of_credits_earned),
+        )
+    if cols.course_cip and cols.course_cip in df.columns:
+        _add("course_subjects", course_subjects_col_agg(col=cols.course_cip))
+        _add(
+            "course_subject_nunique",
+            course_subject_nunique_col_agg(col=cols.course_cip),
+        )
+    if "course_subject_area" in df.columns:
+        _add("course_subject_areas", course_subject_areas_col_agg())
+        _add(
+            "course_subject_area_nunique",
+            course_subject_area_nunique_col_agg(),
+        )
+    if "course_level" in df.columns:
+        _add("course_level_mean", course_level_mean_col_agg())
+        _add("course_level_std", course_level_std_col_agg())
+    if "course_grade_numeric" in df.columns:
+        _add(
+            "course_grade_numeric_mean",
+            course_grade_numeric_mean_col_agg(),
+        )
+        _add(
+            "course_grade_numeric_std",
+            course_grade_numeric_std_col_agg(),
+        )
+    for out_name, builder in (
+        (
+            "section_num_students_enrolled_mean",
+            section_num_students_enrolled_mean_col_agg,
+        ),
+        (
+            "section_num_students_enrolled_std",
+            section_num_students_enrolled_std_col_agg,
+        ),
+        ("sections_num_students_enrolled", sections_num_students_enrolled_col_agg),
+        ("sections_num_students_passed", sections_num_students_passed_col_agg),
+        (
+            "sections_num_students_completed",
+            sections_num_students_completed_col_agg,
+        ),
+    ):
+        _add(out_name, builder())
+    return filter_named_aggs(df, kw)
 
 
 def aggregate_from_course_level_features(
@@ -117,33 +200,9 @@ def aggregate_from_course_level_features(
     df_passthrough = df_grped.agg(**p_existing)
     dfs: list[pd.DataFrame] = [df_passthrough]
     if s.summary_aggregations:
-        ag = df_grped.agg(
-            num_courses=num_courses_col_agg(col="course_id"),
-            num_courses_passed=num_courses_passed_col_agg(col="course_passed"),
-            num_courses_completed=num_courses_completed_col_agg(col="course_completed"),
-            num_credits_attempted=num_credits_attempted_col_agg(
-                col=cols.number_of_credits_attempted
-            ),
-            num_credits_earned=num_credits_earned_col_agg(
-                col=cols.number_of_credits_earned
-            ),
-            course_ids=course_ids_col_agg(),
-            course_subjects=course_subjects_col_agg(col=cols.course_cip),
-            course_subject_areas=course_subject_areas_col_agg(),
-            course_id_nunique=course_id_nunique_col_agg(),
-            course_subject_nunique=course_subject_nunique_col_agg(col=cols.course_cip),
-            course_subject_area_nunique=course_subject_area_nunique_col_agg(),
-            course_level_mean=course_level_mean_col_agg(),
-            course_level_std=course_level_std_col_agg(),
-            course_grade_numeric_mean=course_grade_numeric_mean_col_agg(),
-            course_grade_numeric_std=course_grade_numeric_std_col_agg(),
-            section_num_students_enrolled_mean=section_num_students_enrolled_mean_col_agg(),
-            section_num_students_enrolled_std=section_num_students_enrolled_std_col_agg(),
-            sections_num_students_enrolled=sections_num_students_enrolled_col_agg(),
-            sections_num_students_passed=sections_num_students_passed_col_agg(),
-            sections_num_students_completed=sections_num_students_completed_col_agg(),
-        )
-        dfs.append(ag)
+        summary_aggs = _summary_aggregation_named_aggs(df, cols)
+        if summary_aggs:
+            dfs.append(df_grped.agg(**summary_aggs))
     if s.dummies:
         dummy_candidates: list[str | None] = [
             cols.course_type,
@@ -190,7 +249,7 @@ def aggregate_from_course_level_features(
             )
             dfs.append(df_val_equals)
             dfs.append(df_dummy_equals)
-    if s.multicol_grade:
+    if enable_when(s.multicol_grade, df, *MULTICOL_GRADE_COLUMNS):
         df_grade_aggs = multicol_grade_aggs_by_group(
             df, min_passing_grade=min_passing_grade, grp_cols=student_term_id_cols
         )
@@ -247,15 +306,24 @@ def add_features(
         batch1["term_is_while_student_enrolled_at_other_inst"] = (
             term_is_while_student_enrolled_at_other_inst
         )
-    if s.program_of_study_area:
+    if enable_when(s.program_of_study_area, df, cols.term_program_of_study):
         batch1["term_program_of_study_area"] = term_program_of_study_area
-    if s.credit_fraction_and_intensity:
+    if enable_when(
+        s.credit_fraction_and_intensity,
+        df,
+        "num_credits_attempted",
+        "num_credits_earned",
+    ):
         batch1["frac_credits_earned"] = shared.frac_credits_earned
         batch1["student_term_enrollment_intensity"] = ft.partial(
             student_term_enrollment_intensity,
             min_num_credits_full_time=min_num_credits_full_time,
         )
-    if s.num_courses_in_program_area and s.program_of_study_area:
+    if (
+        s.num_courses_in_program_area
+        and s.program_of_study_area
+        and "course_subject_areas" in df.columns
+    ):
         batch1["num_courses_in_term_program_of_study_area"] = ft.partial(
             num_courses_in_study_area,
             study_area_col="term_program_of_study_area",
@@ -281,7 +349,7 @@ def add_features(
             for nc_col, fc_col in num_frac_courses_cols
         }
         out = out.assign(**frac_d) if frac_d else out
-    if s.section_student_fractions:
+    if enable_when(s.section_student_fractions, out, *SECTION_STUDENT_FRACTION_COLUMNS):
         out = out.assign(
             **{
                 "frac_sections_students_passed": ft.partial(
@@ -294,7 +362,9 @@ def add_features(
                 ),
             }
         )
-    if s.student_rate_vs_section_fractions:
+    if enable_when(
+        s.student_rate_vs_section_fractions, out, *STUDENT_RATE_VS_SECTION_COLUMNS
+    ):
         out = out.assign(
             **{
                 "student_pass_rate_above_sections_avg": ft.partial(
@@ -309,19 +379,19 @@ def add_features(
                 ),
             }
         )
-    if s.program_change_from_prior_term:
-        out = out.assign(
-            **{
-                "term_program_of_study_changed_prev_term": ft.partial(
-                    term_program_of_study_changed_prev_term,
-                    student_id_cols=[cols.student_id],
-                ),
-                "term_program_of_study_area_changed_prev_term": ft.partial(
-                    term_program_of_study_area_changed_prev_term,
-                    student_id_cols=[cols.student_id],
-                ),
-            }
-        )
+    if s.program_change_from_prior_term and cols.term_program_of_study in out.columns:
+        change_assigns: dict[str, t.Any] = {
+            "term_program_of_study_changed_prev_term": ft.partial(
+                term_program_of_study_changed_prev_term,
+                student_id_cols=[cols.student_id],
+            ),
+        }
+        if "term_program_of_study_area" in out.columns:
+            change_assigns["term_program_of_study_area_changed_prev_term"] = ft.partial(
+                term_program_of_study_area_changed_prev_term,
+                student_id_cols=[cols.student_id],
+            )
+        out = out.assign(**change_assigns)
     return out
 
 
@@ -643,34 +713,45 @@ def multicol_grade_aggs_by_group(
     grade_numeric_col: str = "course_grade_numeric",
     section_grade_numeric_col: str = "section_course_grade_numeric_mean",
 ) -> pd.DataFrame:
+    base_cols = [c for c in grp_cols if c in df.columns]
+    work_cols = [
+        c
+        for c in (grade_col, grade_numeric_col, section_grade_numeric_col)
+        if c in df.columns
+    ]
+    if not columns_present(df, grade_col, grade_numeric_col):
+        return df.loc[:, base_cols].drop_duplicates().reset_index(drop=True)
+
+    assigns: dict[str, t.Any] = {
+        "course_grade_is_failing_or_withdrawal": ft.partial(
+            _course_grade_is_failing_or_withdrawal,
+            min_passing_grade=min_passing_grade,
+            grade_col=grade_col,
+            grade_numeric_col=grade_numeric_col,
+        ),
+    }
+    aggs: dict[str, tuple[str, str]] = {
+        "num_courses_grade_is_failing_or_withdrawal": (
+            "course_grade_is_failing_or_withdrawal",
+            "sum",
+        ),
+    }
+    if section_grade_numeric_col in df.columns:
+        assigns["course_grade_above_section_avg"] = ft.partial(
+            _course_grade_above_section_avg,
+            grade_numeric_col=grade_numeric_col,
+            section_grade_numeric_col=section_grade_numeric_col,
+        )
+        aggs["num_courses_grade_above_section_avg"] = (
+            "course_grade_above_section_avg",
+            "sum",
+        )
+
     return (
-        df.loc[:, grp_cols + [grade_col, grade_numeric_col, section_grade_numeric_col]]
-        # compute intermediate column values all at once, which is efficient
-        .assign(
-            course_grade_is_failing_or_withdrawal=ft.partial(
-                _course_grade_is_failing_or_withdrawal,
-                min_passing_grade=min_passing_grade,
-                grade_col=grade_col,
-                grade_numeric_col=grade_numeric_col,
-            ),
-            course_grade_above_section_avg=ft.partial(
-                _course_grade_above_section_avg,
-                grade_numeric_col=grade_numeric_col,
-                section_grade_numeric_col=section_grade_numeric_col,
-            ),
-        )
+        df.loc[:, base_cols + work_cols]
+        .assign(**assigns)
         .groupby(by=grp_cols, observed=True, as_index=False)
-        # so that we can efficiently aggregate those intermediate values per group
-        .agg(
-            num_courses_grade_is_failing_or_withdrawal=(
-                "course_grade_is_failing_or_withdrawal",
-                "sum",
-            ),
-            num_courses_grade_above_section_avg=(
-                "course_grade_above_section_avg",
-                "sum",
-            ),
-        )
+        .agg(**aggs)
     )
 
 
