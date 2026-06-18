@@ -23,8 +23,8 @@ from edvise.genai.mapping.shared.utilities import (
 
 MLFLOW_AI_GATEWAY_ON_WORKSPACE_PATH: Final[str] = "/ai-gateway/mlflow/v1"
 
-DEFAULT_GATEWAY_MODEL_ID: str = "claude-sonnet-edvise-genai"
-DEFAULT_COLUMN_ROLES_GATEWAY_MODEL_ID: str = "claude-haiku-test-genai-data-cleaning"
+DEFAULT_GATEWAY_CLAUDE_SONNET_MODEL_ID: str = "claude-sonnet-edvise-genai"
+DEFAULT_GATEWAY_CLAUDE_HAIKU_MODEL_ID: str = "claude-haiku-edvise-genai"
 
 # System + user are concatenated into one role=user message (IA / SMA).
 LLM_COMPLETE_SYSTEM_USER_SEP: Final[str] = "\n\n---\n\n"
@@ -199,14 +199,14 @@ def resolve_ai_gateway_base_url() -> str:
 
 
 def resolve_gateway_model_id() -> str:
-    """``GATEWAY_MODEL_ID`` env, else :data:`DEFAULT_GATEWAY_MODEL_ID`."""
-    return os.environ.get("GATEWAY_MODEL_ID", DEFAULT_GATEWAY_MODEL_ID)
+    """``GATEWAY_MODEL_ID`` env, else :data:`DEFAULT_GATEWAY_CLAUDE_SONNET_MODEL_ID`."""
+    return os.environ.get("GATEWAY_MODEL_ID", DEFAULT_GATEWAY_CLAUDE_SONNET_MODEL_ID)
 
 
 def resolve_column_roles_gateway_model_id() -> str:
-    """``COLUMN_ROLES_GATEWAY_MODEL_ID`` env, else :data:`DEFAULT_COLUMN_ROLES_GATEWAY_MODEL_ID`."""
+    """``COLUMN_ROLES_GATEWAY_MODEL_ID`` env, else :data:`DEFAULT_GATEWAY_CLAUDE_HAIKU_MODEL_ID`."""
     return os.environ.get(
-        "COLUMN_ROLES_GATEWAY_MODEL_ID", DEFAULT_COLUMN_ROLES_GATEWAY_MODEL_ID
+        "COLUMN_ROLES_GATEWAY_MODEL_ID", DEFAULT_GATEWAY_CLAUDE_HAIKU_MODEL_ID
     )
 
 

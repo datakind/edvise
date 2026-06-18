@@ -9,8 +9,8 @@ messages plus :class:`~profiling.schemas.RankedCandidateProfiles`. Step 1 stats 
 from ..dataset_io import load_school_dataset_dataframe
 from . import deduplication
 from edvise.genai.mapping.shared.databricks_ai_gateway import (
-    DEFAULT_COLUMN_ROLES_GATEWAY_MODEL_ID,
-    DEFAULT_GATEWAY_MODEL_ID,
+    DEFAULT_GATEWAY_CLAUDE_HAIKU_MODEL_ID,
+    DEFAULT_GATEWAY_CLAUDE_SONNET_MODEL_ID,
     build_mlflow_ai_gateway_base_url,
     create_openai_client_for_databricks_gateway,
     make_databricks_gateway_llm_complete,
@@ -68,8 +68,8 @@ from .schemas import (
 )
 
 __all__ = [
-    "DEFAULT_COLUMN_ROLES_GATEWAY_MODEL_ID",
-    "DEFAULT_GATEWAY_MODEL_ID",
+    "DEFAULT_GATEWAY_CLAUDE_HAIKU_MODEL_ID",
+    "DEFAULT_GATEWAY_CLAUDE_SONNET_MODEL_ID",
     "build_mlflow_ai_gateway_base_url",
     "PIPELINE_HITL_CONFIDENCE_THRESHOLD",
     "IdentityProfilingDatasetResult",
