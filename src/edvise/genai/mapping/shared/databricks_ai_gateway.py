@@ -24,7 +24,7 @@ from edvise.genai.mapping.shared.utilities import (
 MLFLOW_AI_GATEWAY_ON_WORKSPACE_PATH: Final[str] = "/ai-gateway/mlflow/v1"
 
 DEFAULT_GATEWAY_MODEL_ID: str = "claude-sonnet-edvise-genai"
-DEFAULT_COLUMN_ROLES_GATEWAY_MODEL_ID: str = "claude-haiku-edvise-genai"
+DEFAULT_COLUMN_ROLES_GATEWAY_MODEL_ID: str = "claude-haiku-test-genai-data-cleaning"
 
 # System + user are concatenated into one role=user message (IA / SMA).
 LLM_COMPLETE_SYSTEM_USER_SEP: Final[str] = "\n\n---\n\n"
