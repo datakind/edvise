@@ -25,7 +25,11 @@ Return a single JSON object (no markdown fences) with:
 ## Roles (exact strings)
 - `learner_id` — person/student identifier (student_id, pidm, banner_id, emplid, sis_id, etc.)
 - `term` — academic term, semester, session, strm, enroll term
-- `course_id` — course/class/section identifier (catalog number, class_nbr, crn, course_code)
+- `course_id` — course/class/section identifier component (catalog number, section, prefix,
+  class_nbr, crn, course_code). On course/enrollment tables the grain often spans **multiple**
+  columns — tag **each** key component as `course_id` (e.g. `course_prefix`, `course_number`,
+  `course_section`). Do not tag human-readable titles (`course_name`, `course_title`) as
+  `course_id`; those are `metadata`.
 - `program` — degree program, program_at_graduation, intended_program, college
 - `major` — major, concentration, field of study
 - `cohort` — cohort year, entry term, admit term, class year
@@ -41,6 +45,7 @@ Return a single JSON object (no markdown fences) with:
 - High-cardinality opaque IDs matching person patterns → `learner_id` even if not named student_id.
 - Do not invent columns; use exact names from the input.
 - Be conservative: if unsure between `measure` and `metadata`, prefer `measure` for numeric dtypes.
+- Multiple columns may share the same role in one table (especially composite `course_id`).
 """.strip()
 
 COLUMN_ROLES_CONFIDENCE_THRESHOLD = PIPELINE_HITL_CONFIDENCE_THRESHOLD

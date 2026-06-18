@@ -98,6 +98,144 @@ def test_build_semantic_key_column_sets_student():
     assert ["student_id", "program_at_graduation", "major_at_graduation"] in keys
 
 
+def test_build_semantic_key_column_sets_course_composite_course_id():
+    """Multiple course_id columns form a composite semantic grain (IIT-shaped)."""
+    roles = ColumnRolesResult(
+        institution_id="indiana_institute_of_technology",
+        dataset="course",
+        assignments=[
+            ColumnRoleAssignment(
+                column="student_id",
+                role=ColumnRole.LEARNER_ID,
+                confidence=0.99,
+            ),
+            ColumnRoleAssignment(
+                column="semester",
+                role=ColumnRole.TERM,
+                confidence=0.99,
+            ),
+            ColumnRoleAssignment(
+                column="course_prefix",
+                role=ColumnRole.COURSE_ID,
+                confidence=0.85,
+            ),
+            ColumnRoleAssignment(
+                column="course_number",
+                role=ColumnRole.COURSE_ID,
+                confidence=0.8,
+            ),
+            ColumnRoleAssignment(
+                column="course_section",
+                role=ColumnRole.COURSE_ID,
+                confidence=0.85,
+            ),
+            ColumnRoleAssignment(
+                column="course_name",
+                role=ColumnRole.METADATA,
+                confidence=0.95,
+            ),
+        ],
+    )
+    keys = build_semantic_key_column_sets("course", roles)
+    assert keys[0] == [
+        "student_id",
+        "course_prefix",
+        "course_number",
+        "course_section",
+        "semester",
+    ]
+    assert [
+        "student_id",
+        "course_prefix",
+        "course_number",
+        "course_section",
+    ] in keys
+    assert ["student_id", "semester"] in keys
+
+
+def test_build_semantic_key_column_sets_course_single_course_id():
+    roles = ColumnRolesResult(
+        institution_id="test_u",
+        dataset="course",
+        assignments=[
+            ColumnRoleAssignment(
+                column="student_id",
+                role=ColumnRole.LEARNER_ID,
+                confidence=0.99,
+            ),
+            ColumnRoleAssignment(
+                column="term",
+                role=ColumnRole.TERM,
+                confidence=0.99,
+            ),
+            ColumnRoleAssignment(
+                column="crn",
+                role=ColumnRole.COURSE_ID,
+                confidence=0.95,
+            ),
+        ],
+    )
+    keys = build_semantic_key_column_sets("course", roles)
+    assert keys[0] == ["student_id", "crn", "term"]
+    assert ["student_id", "crn"] in keys
+
+
+def test_profile_candidate_keys_includes_composite_course_semantic_key_first():
+    df = pd.DataFrame(
+        {
+            "student_id": ["a", "a", "b", "b"],
+            "course_number": [100, 100, 200, 200],
+            "course_section": ["AA", "AB", "AA", "AA"],
+            "semester": ["2024-10", "2024-10", "2024-10", "2025-20"],
+            "grade": ["A", "B", "A", "A"],
+        }
+    )
+    roles = ColumnRolesResult(
+        institution_id="test_u",
+        dataset="course",
+        assignments=[
+            ColumnRoleAssignment(
+                column="student_id",
+                role=ColumnRole.LEARNER_ID,
+                confidence=0.99,
+            ),
+            ColumnRoleAssignment(
+                column="semester",
+                role=ColumnRole.TERM,
+                confidence=0.99,
+            ),
+            ColumnRoleAssignment(
+                column="course_number",
+                role=ColumnRole.COURSE_ID,
+                confidence=0.8,
+            ),
+            ColumnRoleAssignment(
+                column="course_section",
+                role=ColumnRole.COURSE_ID,
+                confidence=0.85,
+            ),
+            ColumnRoleAssignment(
+                column="grade",
+                role=ColumnRole.MEASURE,
+                confidence=0.95,
+            ),
+        ],
+    )
+    result = profile_candidate_keys(
+        df,
+        institution_id="test_u",
+        dataset="course",
+        column_roles=roles,
+    )
+    first_cols = result.key_profile.candidate_key_profiles[0].candidate_key.columns
+    assert first_cols == [
+        "student_id",
+        "course_number",
+        "course_section",
+        "semester",
+    ]
+
+
 def test_profile_candidate_keys_includes_semantic_keys_first():
     df = pd.DataFrame(
         {

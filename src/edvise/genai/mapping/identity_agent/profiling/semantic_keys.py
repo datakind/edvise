@@ -20,6 +20,11 @@ def _first(columns: list[str]) -> str | None:
     return columns[0] if columns else None
 
 
+def _course_id_columns(roles: ColumnRolesResult) -> list[str]:
+    """All ``course_id`` columns in assignment order (composite identifiers)."""
+    return roles.columns_with_role(ColumnRole.COURSE_ID)
+
+
 def build_semantic_key_column_sets(
     dataset: str,
     roles: ColumnRolesResult,
@@ -31,7 +36,7 @@ def build_semantic_key_column_sets(
     """
     learner = _first(roles.columns_with_role(ColumnRole.LEARNER_ID))
     term = _first(roles.columns_with_role(ColumnRole.TERM))
-    course_id = _first(roles.columns_with_role(ColumnRole.COURSE_ID))
+    course_ids = _course_id_columns(roles)
     program = _first(roles.columns_with_role(ColumnRole.PROGRAM))
     major = _first(roles.columns_with_role(ColumnRole.MAJOR))
     cohort = _first(roles.columns_with_role(ColumnRole.COHORT))
@@ -54,10 +59,10 @@ def build_semantic_key_column_sets(
             )
 
     elif kind == "course":
-        if learner and course_id and term:
-            keys.append([learner, course_id, term])
-        if learner and course_id:
-            keys.append([learner, course_id])
+        if learner and course_ids and term:
+            keys.append([learner, *course_ids, term])
+        if learner and course_ids:
+            keys.append([learner, *course_ids])
         if learner and term:
             keys.append([learner, term])
         if not keys and learner:
