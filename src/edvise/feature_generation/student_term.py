@@ -309,7 +309,10 @@ def add_features(
     if enable_when(s.program_of_study_area, df, cols.term_program_of_study):
         batch1["term_program_of_study_area"] = term_program_of_study_area
     if enable_when(
-        s.credit_fraction_and_intensity, df, "num_credits_attempted", "num_credits_earned"
+        s.credit_fraction_and_intensity,
+        df,
+        "num_credits_attempted",
+        "num_credits_earned",
     ):
         batch1["frac_credits_earned"] = shared.frac_credits_earned
         batch1["student_term_enrollment_intensity"] = ft.partial(

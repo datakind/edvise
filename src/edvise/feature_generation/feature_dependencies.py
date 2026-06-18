@@ -32,7 +32,11 @@ def filter_named_aggs(
 
 # --- Downstream inputs required by student-term aggregate / add steps ---
 
-MULTICOL_GRADE_COLUMNS = ("grade", "course_grade_numeric", "section_course_grade_numeric_mean")
+MULTICOL_GRADE_COLUMNS = (
+    "grade",
+    "course_grade_numeric",
+    "section_course_grade_numeric_mean",
+)
 
 SECTION_STUDENT_FRACTION_COLUMNS = (
     "sections_num_students_enrolled",
