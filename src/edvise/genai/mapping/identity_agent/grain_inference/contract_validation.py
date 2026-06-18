@@ -78,8 +78,19 @@ def verify_grain_contract(
     Profile the contract key, simulate dedup impact, and coerce ``true_duplicate`` to
     ``policy_required`` when duplicate groups vary on non-measure columns.
     """
+    from edvise.genai.mapping.identity_agent.execution.contract_utilities import (
+        canonicalize_grain_contract_learner_id_alias,
+    )
+
     prepared = prepare_profiling_frame(df)
-    key_cols = list(contract.post_clean_primary_key)
+    canonical_learner = (
+        "learner_id" if "learner_id" in prepared.columns else "student_id"
+    )
+    profile_contract = canonicalize_grain_contract_learner_id_alias(
+        contract,
+        canonical_column=canonical_learner,
+    )
+    key_cols = list(profile_contract.post_clean_primary_key)
 
     try:
         key_profile = profile_key(prepared, key_cols)

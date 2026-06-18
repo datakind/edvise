@@ -116,3 +116,46 @@ def test_verify_grain_contract_leaves_true_duplicate_when_only_measures_vary() -
     assert out.dedup_policy.strategy == "true_duplicate"
     assert verification.dedup_impact is not None
     assert verification.dedup_impact.rows_dropped == 1
+
+
+def test_profile_key_resolves_uppercase_headers_and_term_desc_prefix() -> None:
+    df = pd.DataFrame(
+        {
+            "STUDENT_ID": ["a", "a", "b"],
+            "term_descr": ["Fall 2020", "Fall 2020", "Spring 2021"],
+        }
+    )
+    profile = profile_key(df, ["student_id", "term_desc"])
+    assert profile.key_columns == ["STUDENT_ID", "term_descr"]
+    assert profile.uniqueness_score == pytest.approx(0.6667, abs=0.0001)
+
+
+def test_verify_grain_contract_resolves_raw_headers_for_profiling() -> None:
+    df = pd.DataFrame(
+        {
+            "STUDENT_ID": ["a", "a"],
+            "term_descr": ["Fall 2020", "Fall 2020"],
+            "major": ["Psych", "Business"],
+        }
+    )
+    contract = GrainContract(
+        institution_id="ucf",
+        table="student",
+        learner_id_alias=None,
+        post_clean_primary_key=["student_id", "term_desc"],
+        dedup_policy=DedupPolicy(strategy="true_duplicate", notes=""),
+        row_selection_required=False,
+        join_keys_for_2a=["student_id", "term_desc"],
+        confidence=0.85,
+        hitl_flag=True,
+        reasoning="test",
+    )
+    out, verification = verify_grain_contract(contract, df)
+    assert verification.error is None
+    assert verification.contract_key_profile is not None
+    assert verification.contract_key_profile.key_columns == [
+        "STUDENT_ID",
+        "term_descr",
+    ]
+    assert verification.coerced is True
+    assert out.dedup_policy.strategy == "policy_required"

@@ -114,13 +114,19 @@ class DedupImpact:
 
 def profile_key(df: pd.DataFrame, key_cols: list[str]) -> KeyProfileSummary:
     """Profile uniqueness and within-group variance for ``key_cols`` on ``df``."""
-    missing = [c for c in key_cols if c not in df.columns]
-    if missing:
-        raise ValueError(f"profile_key: missing columns {missing!r}")
-    variance = compute_within_group_variance(df, key_cols)
+    from edvise.genai.mapping.identity_agent.execution.contract_utilities import (
+        resolve_grain_key_columns,
+    )
+
+    cols = list(df.columns)
+    try:
+        resolved_keys = resolve_grain_key_columns(key_cols, cols)
+    except ValueError as e:
+        raise ValueError(f"profile_key: {e}") from e
+    variance = compute_within_group_variance(df, resolved_keys)
     return KeyProfileSummary(
-        key_columns=list(key_cols),
-        uniqueness_score=round(_uniqueness_score(key_cols, df), 4),
+        key_columns=list(resolved_keys),
+        uniqueness_score=round(_uniqueness_score(resolved_keys, df), 4),
         non_unique_rows=variance.non_unique_rows,
         affected_groups=variance.affected_groups,
         group_size_distribution=variance.group_size_distribution,
