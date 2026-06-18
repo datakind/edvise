@@ -309,11 +309,7 @@ def add_features(
             student_term_enrollment_intensity,
             min_num_credits_full_time=min_num_credits_full_time,
         )
-    if (
-        s.num_courses_in_program_area
-        and s.program_of_study_area
-        and "course_subject_areas" in df.columns
-    ):
+    if s.num_courses_in_program_area and s.program_of_study_area:
         batch1["num_courses_in_term_program_of_study_area"] = ft.partial(
             num_courses_in_study_area,
             study_area_col="term_program_of_study_area",
