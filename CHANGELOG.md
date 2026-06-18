@@ -1,3 +1,16 @@
+## 1.2.1 (2026-06-16)
+- fix: calendar year codes inferred as datetime during cleaning (#165)
+
+## 1.2.0 (2026-06-15)
+- feat: adding training & inference jobs for legacy schools for webapp compatibility (#96)
+- refactor: simplify and refine SMA transformation HITL  (#155)
+- fix: load ES project config in training_h2o when schema_type is edvise (#156)
+- fix: wire optional UC dataio converters into ES data audit (#157)
+- fix: genai mapping staging deploy git source (#158)
+- fix: allowing SMA to have less than 3 options for HITL from prompt guidance (#161)
+- refactor: refining genai config and including template (#162)
+- fix: resolve package-relative features table path in training validation (#164)
+
 ## 1.1.0 (2026-05-29)
 - feat: genai mapping hitl dashboard, production scripts/DABs, prompt improvements & grain resolution  (#150)
 - feat: config toggle for GenAI parquets vs bronze raw CSV in data_audit (#154)

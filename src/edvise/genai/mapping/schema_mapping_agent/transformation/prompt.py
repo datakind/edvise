@@ -260,14 +260,12 @@ CONFIDENCE SCORING
   entry_term rules): strip/cast only — document semantic caveats in notes, not HITL.
 - **0.7–0.8** — inferred mapping from sample_values, ambiguous format, or an **ad-hoc** semantic
   proxy not justified by the manifest rules (see below).
-- **≤ {t}** — `review_required` must be true; always set when:
-  - `map_values` mapping was inferred from sample_values rather than explicit schema evidence;
-  - format was ambiguous and a utility chain was chosen by best-guess;
-  - manifest `source_column` for a **conferral / completion datetime** target is an IdentityAgent
-    `_edvise_term_*` column (the manifest validator should have rejected this; if it slipped through,
-    emit `hook_required: true` with empty `steps` and flag the manifest fix in `reviewer_notes` —
-    see COHORT degree- and certificate-related DATETIME rules);
-  - term code column required season fragment extraction and mapping.
+- **≤ {t}** — set `review_required: true` OR `hook_required: true` (never both); use:
+  - `review_required` when a utility chain is plausible but parameters need confirmation (e.g.
+    inferred `map_values` from sample_values);
+  - `hook_required` when built-ins cannot express the encoding (opaque STRM/CYYT, suffix outside
+    EXECUTOR SUFFIX TABLE, impossible paired columns on a single lookup Series) — see conferral rules.
+  - manifest `source_column` for conferral targets on `_edvise_term_*` → `hook_required: true`, not review.
 
 MAPPING PROXY VS MANIFEST-CONTRACTED SOURCE
 - **Do not** treat IdentityAgent term columns on student/lookup rows as `proxy_source` when the
@@ -297,17 +295,20 @@ FLAGGED STEPS (`flagged_steps` on the plan)
 - Multiple steps may be flagged in one plan.
 - Flagged steps are **evidence only** — reviewer resolution is always at the **plan** level.
 
-HITL OPTIONS (`hitl_options` on the plan)
-- Every plan with `review_required: true` must include **exactly three** options **in order**:
-  1. **approve** — reviewer accepts the proposed steps as-is.
-     `resolution`: `{{"approved": true}}`
-  2. **correct** — reviewer supplies corrected steps.
-     `resolution`: null (out-of-band correction) **or** pre-filled with the proposed steps for in-place editing.
-  3. **unmappable** — reviewer decides the field cannot be mapped.
-     `resolution`: `{{"steps": [], "output_dtype": null}}`
-- **Label** and **description** must be specific — name the target field and what is being confirmed
-  (e.g. "Confirm season fragment mapping for deg_comp_term", not a generic "Approve mapping").
-- Omit `hitl_options` (null) when `review_required` is omitted.
+STEP 2b REVIEW ROUTING (mutually exclusive)
+- Manifest unmappability is Step 2a only — never emit a Step 2b HITL "unmappable" option.
+- `hook_required: true` → custom hook for the **whole target field** (plan-level, not one step).
+  Set `review_required: null`, omit `hitl_options` and `flagged_steps`. Document intent in `reviewer_notes`.
+- `review_required: true` → built-in utility chain needs human confirmation. Set `hook_required: false` or omit.
+
+HITL OPTIONS (`hitl_options` on the plan) — only when `review_required` is true
+- Exactly **three** options **in order**:
+  1. **approve** — proposed steps and mappings are correct. `resolution`: `{{"approved": true}}`
+  2. **correct** — same chain shape; reviewer fixes flagged step parameters (usually `map_values.mapping`).
+     `resolution`: null
+  3. **hook_required** — escalate to custom hook for this field. `resolution`: `{{"hook_required": true}}`
+- **Label** and **description** must be field-specific (e.g. confirm STRM→season mapping for deg_comp_term).
+- Omit `hitl_options` when `review_required` is omitted or when `hook_required` is true.
 
 See schema definitions for `FlaggedStep`, `TransformationHITLOption`, `TransformationHITLItem`, and
 `TransformationReview` in the transformation map schema context.
@@ -451,8 +452,8 @@ STRUCTURE
   and optional refinement
 - Generate separate transformation maps for cohort and course entities
 - When `review_required` is true: set `confidence`, non-empty `flagged_steps`, and exactly three
-  `hitl_options` (approve / correct / unmappable) per CONFIDENCE AND HITL RULES below; omit both
-  `flagged_steps` and `hitl_options` when `review_required` is omitted
+  `hitl_options` (approve / correct / hook_required) per CONFIDENCE AND HITL RULES below; omit
+  `flagged_steps` and `hitl_options` when `review_required` is omitted or `hook_required` is true
 
 TRANSFORMATION STEPS
 - Use only utilities from the transformation_utilities library
@@ -562,7 +563,7 @@ TRANSFORMATION MAP COMPACTNESS
 - Include all required top-level keys and all required plan records
 - For each plan, omit optional fields when their value would be null (e.g., reviewer_notes)
 - For each step, omit optional fields when their value would be null (e.g., rationale, extra_columns, default)
-- Do not omit steps array — use empty array [] for unmappable fields
+- Empty `steps` only for manifest-unmapped targets (2a) or `hook_required` plans — not a reviewer HITL outcome
 
 TARGET SCHEMA AUTHORITY
 - Use the target schema definitions as the authoritative source for expected output types and allowed values

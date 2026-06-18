@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import pandas as pd
+import pandas.api.types as ptypes
 
 from edvise.utils.data_cleaning import convert_to_snake_case
 
@@ -93,6 +94,13 @@ def _norm_token(t: str | None) -> str | None:
     if s == "":
         return None
     return " ".join(s.lower().split())
+
+
+def _calendar_year_from_column(series: pd.Series) -> pd.Series:
+    """Extract calendar year from a split ``year_col`` (Int64, string year, or datetime)."""
+    if ptypes.is_datetime64_any_dtype(series):
+        return series.dt.year.astype("Int64")
+    return pd.to_numeric(series, errors="coerce").astype("Int64")
 
 
 def _resolve_season_token(t_norm: str | None, norm_keys: list[str]) -> str | None:
@@ -273,7 +281,7 @@ def add_edvise_term_order(
         for c in (year_col, season_col):
             if c not in out.columns:
                 raise KeyError(f"DataFrame must contain column '{c}'")
-        out[cols.year] = pd.to_numeric(out[year_col], errors="coerce").astype("Int64")
+        out[cols.year] = _calendar_year_from_column(out[year_col])
         s_season = out[season_col].astype("string").str.strip()
 
         def _cell_to_season_norm(val: object) -> str | None:

@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from edvise.modeling.inference import (
     _get_mapped_feature_name,
+    is_feature_defined_in_table,
     select_top_features_for_display,
     generate_ranked_feature_table,
     top_shap_features,
@@ -355,6 +356,35 @@ def test_get_mapped_feature_name_no_metadata(feature_col, features_table, exp):
     obs = _get_mapped_feature_name(feature_col, features_table, metadata=False)
     assert isinstance(obs, str)
     assert obs == exp
+
+
+@pytest.mark.parametrize(
+    ["feature_col", "features_table", "exp_defined"],
+    [
+        ("academic_term", {"academic_term": {"name": "academic term"}}, True),
+        ("foo_bar", {"academic_term": {"name": "academic term"}}, False),
+        (
+            "num_courses_course_subject_area_51",
+            {
+                r"^num_courses_course_subject_area_(.*)$": {
+                    "name": "number of courses taken in subject area {} this term"
+                }
+            },
+            True,
+        ),
+        (
+            "cummax_in_12_creds_took_course_id_englb_101",
+            {
+                r"^cummax_in_12_creds_took_course_id_(.*)$": {
+                    "name": "course with id '{}' taken within student's first 12 credits"
+                }
+            },
+            True,
+        ),
+    ],
+)
+def test_is_feature_defined_in_table(feature_col, features_table, exp_defined):
+    assert is_feature_defined_in_table(feature_col, features_table) is exp_defined
 
 
 @pytest.mark.parametrize(
