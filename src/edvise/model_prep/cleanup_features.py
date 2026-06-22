@@ -208,6 +208,7 @@ class ESCleanup(BaseCleanup):
         "cohort_start_dt",
         # Edvise raw pell column (replaced by derived "pell" feature)
         "pell_recipient_year1",
+        "pell_recipient_year_1",  # snake_case after feature gen; use student_is_pell_recipient_first_year
         # Edvise raw cohort dates feeding credential-year derivation
         "matriculation_date",
         "bachelors_degree_conferral_date",

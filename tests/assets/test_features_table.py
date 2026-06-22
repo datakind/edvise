@@ -38,6 +38,21 @@ def test_all_features_have_name_and_desc(feature_table_data):
         )
 
 
+ES_COHORT_FEATURE_KEYS = [
+    "entry_term",
+    "intended_program_type",
+    "declared_major_at_entry",
+    "pell_recipient_year_1",
+]
+
+
+@pytest.mark.parametrize("feature_key", ES_COHORT_FEATURE_KEYS)
+def test_es_cohort_features_defined(feature_table_data, feature_key):
+    assert feature_key in feature_table_data, (
+        f"ES cohort feature '{feature_key}' missing from features table"
+    )
+
+
 # Add regex test cases to this as needed! This helps us make sure
 # that are regex patterns work *as intended* in our features table
 VALID_FEATURE_NAMES = [
