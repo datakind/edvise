@@ -1,7 +1,7 @@
 """
-edvise_genai_override_manifest.py — Apply a post-gate SMA manifest mapping override.
+edvise_genai_override_manifest.py — Apply post-gate SMA manifest mapping override(s).
 
-Usage (local paths or Unity Catalog ``/Volumes/…`` paths):
+Single field (local paths or Unity Catalog ``/Volumes/…`` paths):
 
     python edvise_genai_override_manifest.py \\
         --manifest-path /path/to/manifest_map.json \\
@@ -10,16 +10,21 @@ Usage (local paths or Unity Catalog ``/Volumes/…`` paths):
         --target-field learner_id \\
         --correction-json /path/to/override.json \\
         --overridden-by ops@example.org \\
-        --original-db-run-id db-run-123 \\
-        [--institution-id u9] \\
-        [--reviewer-notes "fixed column name"]
+        --original-db-run-id db-run-123
 
-To leave a field unmapped instead of supplying an override file:
+Multiple fields in one run (one manifest write / volume round-trip):
 
-    python edvise_genai_override_manifest.py ... --unmap
+    python edvise_genai_override_manifest.py \\
+        --manifest-path /path/to/manifest_map.json \\
+        --override-log-path /path/to/mapping_override_log.json \\
+        --overrides-json /path/to/overrides.json \\
+        --overridden-by ops@example.org \\
+        --original-db-run-id db-run-123
 
-After an override, re-run SMA step 2b for the institution/run to regenerate
-``transformation_map.json`` (see ``rerun_scope`` in ``mapping_override_log.json``).
+See :func:`~edvise.genai.mapping.schema_mapping_agent.manifest.hitl.override.load_overrides_json`
+for the batch JSON shape.
+
+After overrides, re-run SMA step 2b to regenerate ``transformation_map.json``.
 """
 
 from __future__ import annotations
@@ -46,14 +51,16 @@ if os.path.isdir(_src_root) and _src_root not in sys.path:
 from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.override import (  # noqa: E402
     ManifestOverrideError,
     load_correction_json,
+    load_overrides_json,
     override_manifest_mapping_at_path,
+    override_manifest_mappings_at_path,
     unmapped_field_mapping_record,
 )
 
 
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        description="Apply a post-gate SMA manifest mapping override.",
+        description="Apply post-gate SMA manifest mapping override(s).",
     )
     p.add_argument(
         "--manifest-path",
@@ -66,25 +73,30 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Path to mapping_override_log.json (local or /Volumes/…).",
     )
     p.add_argument(
+        "--overrides-json",
+        help=(
+            "Batch overrides file (JSON array or {\"overrides\": [...]}). "
+            "When set, single-field flags below are not used."
+        ),
+    )
+    p.add_argument(
         "--entity-type",
-        required=True,
         choices=("cohort", "course"),
-        help="Entity slice to update inside the manifest envelope.",
+        help="Entity slice for a single-field override.",
     )
     p.add_argument(
         "--target-field",
-        required=True,
-        help="Edvise schema target field to override.",
+        help="Edvise schema target field for a single-field override.",
     )
-    corr = p.add_mutually_exclusive_group(required=True)
+    corr = p.add_mutually_exclusive_group(required=False)
     corr.add_argument(
         "--correction-json",
-        help="JSON file with a FieldMappingRecord-shaped override.",
+        help="JSON file with a FieldMappingRecord-shaped override (single field).",
     )
     corr.add_argument(
         "--unmap",
         action="store_true",
-        help="Mark the target field as unmapped (null source_column/source_table).",
+        help="Mark the target field as unmapped (single field).",
     )
     p.add_argument(
         "--overridden-by",
@@ -112,7 +124,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--reviewer-notes",
         default=None,
-        help="Optional free-text notes stored on the overridden mapping row.",
+        help="Optional notes for a single-field override.",
     )
     return p
 
@@ -120,12 +132,43 @@ def _build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
 
-    if args.unmap:
-        corrected = unmapped_field_mapping_record(args.target_field)
-    else:
-        corrected = load_correction_json(args.correction_json)
-
     try:
+        if args.overrides_json:
+            overrides = load_overrides_json(args.overrides_json)
+            count = override_manifest_mappings_at_path(
+                args.manifest_path,
+                overrides,
+                override_log_path=args.override_log_path,
+                overridden_by=args.overridden_by,
+                original_db_run_id=args.original_db_run_id,
+                original_task_run_id=args.original_task_run_id,
+                institution_id=args.institution_id,
+            )
+            print(
+                f"✓ Applied {count} override(s). "
+                "Re-run SMA step 2b to regenerate transformation_map.json."
+            )
+            return 0
+
+        if not args.entity_type or not args.target_field:
+            print(
+                "Single-field mode requires --entity-type and --target-field, "
+                "or use --overrides-json for batch mode.",
+                file=sys.stderr,
+            )
+            return 1
+        if not args.unmap and not args.correction_json:
+            print(
+                "Single-field mode requires --correction-json or --unmap.",
+                file=sys.stderr,
+            )
+            return 1
+
+        if args.unmap:
+            corrected = unmapped_field_mapping_record(args.target_field)
+        else:
+            corrected = load_correction_json(args.correction_json)
+
         override_manifest_mapping_at_path(
             args.manifest_path,
             args.entity_type,

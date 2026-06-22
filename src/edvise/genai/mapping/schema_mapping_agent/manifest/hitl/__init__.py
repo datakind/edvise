@@ -13,11 +13,16 @@ from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.artifacts import (
     write_sma_manifest_artifact,
 )
 from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.override import (
+    ManifestMappingOverrideRequest,
     ManifestOverrideError,
     load_correction_json,
+    load_overrides_json,
     override_manifest_mapping,
     override_manifest_mapping_at_path,
     override_manifest_mapping_on_volume,
+    override_manifest_mappings,
+    override_manifest_mappings_at_path,
+    override_manifest_mappings_on_volume,
     unmapped_field_mapping_record,
 )
 from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.resolver import (
@@ -40,11 +45,16 @@ from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.schemas import (
 __all__ = [
     "apply_manifest_mapping_override",
     "HITL_CONFIDENCE_THRESHOLD",
+    "ManifestMappingOverrideRequest",
     "ManifestOverrideError",
     "load_correction_json",
+    "load_overrides_json",
     "override_manifest_mapping",
     "override_manifest_mapping_at_path",
     "override_manifest_mapping_on_volume",
+    "override_manifest_mappings",
+    "override_manifest_mappings_at_path",
+    "override_manifest_mappings_on_volume",
     "unmapped_field_mapping_record",
     "InstitutionSMAHITLItems",
     "SMAFailureMode",
