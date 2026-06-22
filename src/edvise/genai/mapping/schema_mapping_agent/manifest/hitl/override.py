@@ -1,9 +1,9 @@
 """
-Post-gate SMA (2a) manifest mapping repair helpers.
+Post-gate SMA manifest mapping override helpers.
 
-Wraps :func:`~edvise.genai.mapping.schema_mapping_agent.manifest.hitl.resolver.apply_2a_manifest_repair`
-for local disk paths and Unity Catalog volume paths. After a repair, re-run SMA step 2b
-(``rerun_scope="2b_full"`` in ``repair_log.json``) to regenerate the transformation map.
+Wraps :func:`~edvise.genai.mapping.schema_mapping_agent.manifest.hitl.resolver.apply_manifest_mapping_override`
+for local disk paths and Unity Catalog volume paths. After an override, re-run SMA step 2b
+(``rerun_scope="2b_full"`` in ``mapping_override_log.json``) to regenerate the transformation map.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.resolver import (
-    apply_2a_manifest_repair,
+    apply_manifest_mapping_override,
 )
 from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import FieldMappingRecord
 from edvise.genai.mapping.shared.unity_volume_files import (
@@ -24,8 +24,8 @@ from edvise.genai.mapping.shared.unity_volume_files import (
 )
 
 
-class ManifestRepairError(Exception):
-    """Raised when a manifest repair cannot be applied."""
+class ManifestOverrideError(Exception):
+    """Raised when a manifest mapping override cannot be applied."""
 
 
 def unmapped_field_mapping_record(target_field: str) -> FieldMappingRecord:
@@ -36,7 +36,7 @@ def unmapped_field_mapping_record(target_field: str) -> FieldMappingRecord:
     """
     tf = str(target_field).strip()
     if not tf:
-        raise ManifestRepairError("target_field must be non-empty")
+        raise ManifestOverrideError("target_field must be non-empty")
     return FieldMappingRecord.model_validate(
         {
             "target_field": tf,
@@ -50,52 +50,52 @@ def unmapped_field_mapping_record(target_field: str) -> FieldMappingRecord:
 
 
 def load_correction_json(path: str | Path) -> FieldMappingRecord:
-    """Load a :class:`FieldMappingRecord` correction from a JSON file."""
+    """Load a :class:`FieldMappingRecord` override from a JSON file."""
     p = Path(path)
     if not p.is_file():
-        raise ManifestRepairError(f"Correction file not found: {p}")
+        raise ManifestOverrideError(f"Override file not found: {p}")
     try:
         data = json.loads(p.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
-        raise ManifestRepairError(f"Invalid JSON in correction file {p}: {exc}") from exc
+        raise ManifestOverrideError(f"Invalid JSON in override file {p}: {exc}") from exc
     if not isinstance(data, dict):
-        raise ManifestRepairError(
-            f"Correction file must contain a JSON object: {p}"
+        raise ManifestOverrideError(
+            f"Override file must contain a JSON object: {p}"
         )
     try:
         return FieldMappingRecord.model_validate(data)
     except Exception as exc:
-        raise ManifestRepairError(
-            f"Correction file is not a valid FieldMappingRecord: {p}"
+        raise ManifestOverrideError(
+            f"Override file is not a valid FieldMappingRecord: {p}"
         ) from exc
 
 
-def repair_manifest_mapping(
+def override_manifest_mapping(
     manifest_path: str | Path,
     entity_type: Literal["cohort", "course"],
     target_field: str,
     corrected: FieldMappingRecord | dict[str, Any],
     *,
-    repair_log_path: str | Path,
-    repaired_by: str,
+    override_log_path: str | Path,
+    overridden_by: str,
     original_db_run_id: str,
     original_task_run_id: str | None = None,
     reviewer_notes: str | None = None,
     institution_id: str | None = None,
 ) -> None:
     """
-    Apply a single 2a manifest mapping repair on local disk paths.
+    Apply a single manifest mapping override on local disk paths.
 
-    See :func:`apply_2a_manifest_repair` for merge semantics (original ``confidence`` and
-    ``rationale`` are preserved; ``review_status`` becomes ``corrected_by_repair``).
+    See :func:`apply_manifest_mapping_override` for merge semantics (original ``confidence`` and
+    ``rationale`` are preserved; ``review_status`` becomes ``corrected_by_override``).
     """
-    apply_2a_manifest_repair(
+    apply_manifest_mapping_override(
         Path(manifest_path),
         entity_type,
         target_field,
         corrected,
-        repair_log_path=Path(repair_log_path),
-        repaired_by=repaired_by,
+        override_log_path=Path(override_log_path),
+        overridden_by=overridden_by,
         original_db_run_id=original_db_run_id,
         original_task_run_id=original_task_run_id,
         reviewer_notes=reviewer_notes,
@@ -103,7 +103,7 @@ def repair_manifest_mapping(
     )
 
 
-def _empty_repair_log_json(institution_id: str) -> str:
+def _empty_mapping_override_log_json(institution_id: str) -> str:
     payload = {"institution_id": institution_id, "events": []}
     return json.dumps(payload, indent=2) + "\n"
 
@@ -115,67 +115,67 @@ def _read_volume_text_or_default(
         return read_unity_file_text(uc_path)
     except Exception as exc:
         if default_text is None:
-            raise ManifestRepairError(
+            raise ManifestOverrideError(
                 f"Could not read Unity Catalog file {uc_path!r}: {exc}"
             ) from exc
         return default_text
 
 
-def repair_manifest_mapping_on_volume(
+def override_manifest_mapping_on_volume(
     manifest_uc_path: str,
     entity_type: Literal["cohort", "course"],
     target_field: str,
     corrected: FieldMappingRecord | dict[str, Any],
     *,
-    repair_log_uc_path: str,
-    repaired_by: str,
+    override_log_uc_path: str,
+    overridden_by: str,
     original_db_run_id: str,
     original_task_run_id: str | None = None,
     reviewer_notes: str | None = None,
     institution_id: str | None = None,
 ) -> None:
     """
-    Download ``manifest_map.json`` and ``repair_log.json`` from UC volumes, apply the repair,
-    then upload both files back in place.
+    Download ``manifest_map.json`` and ``mapping_override_log.json`` from UC volumes, apply the
+    override, then upload both files back in place.
     """
     manifest_uc_path = str(manifest_uc_path).strip()
-    repair_log_uc_path = str(repair_log_uc_path).strip()
+    override_log_uc_path = str(override_log_uc_path).strip()
     if not is_unity_catalog_volume_path(manifest_uc_path):
-        raise ManifestRepairError(
+        raise ManifestOverrideError(
             f"manifest_uc_path must be a /Volumes/… path, got {manifest_uc_path!r}"
         )
-    if not is_unity_catalog_volume_path(repair_log_uc_path):
-        raise ManifestRepairError(
-            f"repair_log_uc_path must be a /Volumes/… path, got {repair_log_uc_path!r}"
+    if not is_unity_catalog_volume_path(override_log_uc_path):
+        raise ManifestOverrideError(
+            f"override_log_uc_path must be a /Volumes/… path, got {override_log_uc_path!r}"
         )
 
-    repair_default: str | None = None
+    override_default: str | None = None
     if institution_id:
-        repair_default = _empty_repair_log_json(institution_id)
+        override_default = _empty_mapping_override_log_json(institution_id)
 
     with tempfile.TemporaryDirectory() as td:
         tmp = Path(td)
         local_manifest = tmp / "manifest_map.json"
-        local_repair_log = tmp / "repair_log.json"
+        local_override_log = tmp / "mapping_override_log.json"
 
         local_manifest.write_text(
             _read_volume_text_or_default(manifest_uc_path),
             encoding="utf-8",
         )
-        local_repair_log.write_text(
+        local_override_log.write_text(
             _read_volume_text_or_default(
-                repair_log_uc_path, default_text=repair_default
+                override_log_uc_path, default_text=override_default
             ),
             encoding="utf-8",
         )
 
-        repair_manifest_mapping(
+        override_manifest_mapping(
             local_manifest,
             entity_type,
             target_field,
             corrected,
-            repair_log_path=local_repair_log,
-            repaired_by=repaired_by,
+            override_log_path=local_override_log,
+            overridden_by=overridden_by,
             original_db_run_id=original_db_run_id,
             original_task_run_id=original_task_run_id,
             reviewer_notes=reviewer_notes,
@@ -186,38 +186,38 @@ def repair_manifest_mapping_on_volume(
             manifest_uc_path, local_manifest.read_text(encoding="utf-8")
         )
         write_unity_file_text(
-            repair_log_uc_path, local_repair_log.read_text(encoding="utf-8")
+            override_log_uc_path, local_override_log.read_text(encoding="utf-8")
         )
 
 
-def repair_manifest_mapping_at_path(
+def override_manifest_mapping_at_path(
     manifest_path: str | Path,
     entity_type: Literal["cohort", "course"],
     target_field: str,
     corrected: FieldMappingRecord | dict[str, Any],
     *,
-    repair_log_path: str | Path,
-    repaired_by: str,
+    override_log_path: str | Path,
+    overridden_by: str,
     original_db_run_id: str,
     original_task_run_id: str | None = None,
     reviewer_notes: str | None = None,
     institution_id: str | None = None,
 ) -> None:
     """
-    Apply a repair using either local paths or Unity Catalog ``/Volumes/…`` paths.
+    Apply an override using either local paths or Unity Catalog ``/Volumes/…`` paths.
 
-    When ``manifest_path`` is a volume path, ``repair_log_path`` must also be a volume path.
+    When ``manifest_path`` is a volume path, ``override_log_path`` must also be a volume path.
     """
     manifest_str = str(manifest_path).strip()
-    repair_str = str(repair_log_path).strip()
+    override_str = str(override_log_path).strip()
     if is_unity_catalog_volume_path(manifest_str):
-        repair_manifest_mapping_on_volume(
+        override_manifest_mapping_on_volume(
             manifest_str,
             entity_type,
             target_field,
             corrected,
-            repair_log_uc_path=repair_str,
-            repaired_by=repaired_by,
+            override_log_uc_path=override_str,
+            overridden_by=overridden_by,
             original_db_run_id=original_db_run_id,
             original_task_run_id=original_task_run_id,
             reviewer_notes=reviewer_notes,
@@ -225,13 +225,13 @@ def repair_manifest_mapping_at_path(
         )
         return
 
-    repair_manifest_mapping(
+    override_manifest_mapping(
         manifest_str,
         entity_type,
         target_field,
         corrected,
-        repair_log_path=repair_str,
-        repaired_by=repaired_by,
+        override_log_path=override_str,
+        overridden_by=overridden_by,
         original_db_run_id=original_db_run_id,
         original_task_run_id=original_task_run_id,
         reviewer_notes=reviewer_notes,
@@ -240,10 +240,10 @@ def repair_manifest_mapping_at_path(
 
 
 __all__ = [
-    "ManifestRepairError",
+    "ManifestOverrideError",
     "load_correction_json",
-    "repair_manifest_mapping",
-    "repair_manifest_mapping_at_path",
-    "repair_manifest_mapping_on_volume",
+    "override_manifest_mapping",
+    "override_manifest_mapping_at_path",
+    "override_manifest_mapping_on_volume",
     "unmapped_field_mapping_record",
 ]

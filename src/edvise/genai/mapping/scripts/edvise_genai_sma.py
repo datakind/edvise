@@ -111,7 +111,7 @@ class SMAPaths:
     transformation_map: Path
     transform_hooks: Path  # optional, placeholder
     run_log: Path
-    repair_log: Path
+    mapping_override_log: Path
     pandera_validation_errors: Path
 
     # IA outputs this job reads from (same execute or onboard run segment)
@@ -180,7 +180,7 @@ def resolve_run_paths(
         transformation_map=run_root / "transformation_map.json",
         transform_hooks=run_root / "transform_hooks.py",
         run_log=run_root / "run_log.json",
-        repair_log=run_root / "repair_log.json",
+        mapping_override_log=run_root / "mapping_override_log.json",
         pandera_validation_errors=run_root / "pandera_validation_errors.json",
         # IA outputs — same run segment under ``runs/onboard/...`` or ``runs/execute/...``
         ia_enriched_schema_contract=ia_run_root / "enriched_schema_contract.json",

@@ -32,9 +32,9 @@ from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import (
 from edvise.genai.mapping.shared.hitl import raise_if_hitl_pending
 from edvise.genai.mapping.shared.hitl.json_io import write_pydantic_json
 from edvise.genai.mapping.shared.hitl.run_log import (
-    ManifestRepairEvent,
+    MappingOverrideEvent,
     SMARRunEvent,
-    append_repair_event,
+    append_mapping_override_event,
     append_run_log_event,
 )
 from edvise.genai.mapping.shared.hitl.time import utc_now_iso
@@ -127,21 +127,21 @@ def _save_manifest_for_entity(
         write_pydantic_json(manifest_path, fm)
 
 
-def _merge_2a_repair_mapping(
+def _merge_mapping_override(
     original: FieldMappingRecord,
     corrected: FieldMappingRecord,
     *,
     reviewer_notes: str | None,
 ) -> FieldMappingRecord:
     """
-    Apply a 2a manifest repair: use ``corrected`` for structural mapping fields,
+    Apply a manifest mapping override: use ``corrected`` for structural mapping fields,
     keep ``confidence`` and ``rationale`` from ``original``, set review telemetry.
     """
     return corrected.model_copy(
         update={
             "confidence": original.confidence,
             "rationale": original.rationale,
-            "review_status": ReviewStatus.corrected_by_repair,
+            "review_status": ReviewStatus.corrected_by_override,
             "reviewer_notes": reviewer_notes,
         }
     )
@@ -289,26 +289,26 @@ def resolve_sma_items(
     return applied_count
 
 
-def apply_2a_manifest_repair(
+def apply_manifest_mapping_override(
     manifest_path: str | Path,
     entity_type: Literal["cohort", "course"],
     target_field: str,
     corrected_field_mapping: FieldMappingRecord | dict[str, Any],
     *,
-    repair_log_path: str | Path,
-    repaired_by: str,
+    override_log_path: str | Path,
+    overridden_by: str,
     original_db_run_id: str,
     original_task_run_id: str | None = None,
     reviewer_notes: str | None = None,
-    repair_task_run_id: str | None = None,
+    override_task_run_id: str | None = None,
     institution_id: str | None = None,
 ) -> None:
     """
-    Apply a post-gate 2a manifest correction and append :class:`ManifestRepairEvent`.
+    Apply a post-gate manifest mapping override and append :class:`MappingOverrideEvent`.
 
     The written mapping row uses ``corrected_field_mapping`` for all fields except
     ``confidence`` and ``rationale``, which are taken from the existing manifest entry.
-    Sets ``review_status`` to :attr:`ReviewStatus.corrected_by_repair`.
+    Sets ``review_status`` to :attr:`ReviewStatus.corrected_by_override`.
 
     ``manifest_path`` may be a :class:`MappingManifestEnvelope` or a standalone
     :class:`FieldMappingManifest`; when standalone, pass ``institution_id`` (required).
@@ -337,20 +337,20 @@ def apply_2a_manifest_repair(
     if original.target_field != corrected.target_field:
         raise SMAHITLResolverError(
             f"corrected_field_mapping.target_field {corrected.target_field!r} must match "
-            f"repair target {target_field!r}"
+            f"override target {target_field!r}"
         )
 
-    merged = _merge_2a_repair_mapping(
+    merged = _merge_mapping_override(
         original, corrected, reviewer_notes=reviewer_notes
     )
     fm.mappings[idx] = merged
     _save_manifest_for_entity(manifest_path, env_wrapper, fm, entity_key)
 
-    event = ManifestRepairEvent(
+    event = MappingOverrideEvent(
         timestamp=datetime.now(timezone.utc),
-        repaired_by=repaired_by,
+        overridden_by=overridden_by,
         agent="schema_mapping_agent",
-        repair_type="2a_manifest",
+        override_type="manifest_mapping",
         entity_type=entity_type,
         target_field=target_field,
         original_value=original.model_dump(mode="json"),
@@ -359,11 +359,13 @@ def apply_2a_manifest_repair(
         rerun_scope="2b_full",
         original_db_run_id=original_db_run_id,
         original_task_run_id=original_task_run_id,
-        repair_task_run_id=repair_task_run_id,
+        override_task_run_id=override_task_run_id,
     )
-    append_repair_event(Path(repair_log_path), resolved_institution_id, event)
+    append_mapping_override_event(
+        Path(override_log_path), resolved_institution_id, event
+    )
     logger.info(
-        "SMA 2a manifest repair applied target_field=%s institution_id=%s",
+        "SMA manifest mapping override applied target_field=%s institution_id=%s",
         target_field,
         resolved_institution_id,
     )
@@ -371,7 +373,7 @@ def apply_2a_manifest_repair(
 
 __all__ = [
     "SMAHITLResolverError",
-    "apply_2a_manifest_repair",
+    "apply_manifest_mapping_override",
     "check_sma_hitl_gate",
     "resolve_sma_items",
 ]

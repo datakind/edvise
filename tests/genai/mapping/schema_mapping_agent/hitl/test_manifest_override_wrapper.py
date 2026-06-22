@@ -1,4 +1,4 @@
-"""Tests for :mod:`edvise.genai.mapping.schema_mapping_agent.manifest.hitl.repair`."""
+"""Tests for :mod:`edvise.genai.mapping.schema_mapping_agent.manifest.hitl.override`."""
 
 from __future__ import annotations
 
@@ -11,12 +11,12 @@ import pytest
 from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.artifacts import (
     write_sma_manifest_artifact,
 )
-from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.repair import (
-    ManifestRepairError,
+from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.override import (
+    ManifestOverrideError,
     load_correction_json,
-    repair_manifest_mapping,
-    repair_manifest_mapping_at_path,
-    repair_manifest_mapping_on_volume,
+    override_manifest_mapping,
+    override_manifest_mapping_at_path,
+    override_manifest_mapping_on_volume,
     unmapped_field_mapping_record,
 )
 from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import (
@@ -25,7 +25,7 @@ from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import (
     ReviewStatus,
 )
 from edvise.genai.mapping.shared.hitl.json_io import read_pydantic_json
-from edvise.genai.mapping.shared.hitl.run_log import RepairLog
+from edvise.genai.mapping.shared.hitl.run_log import MappingOverrideLog
 
 
 def _fmr(**overrides: object) -> FieldMappingRecord:
@@ -70,26 +70,26 @@ def test_load_correction_json(tmp_path: Path) -> None:
 def test_load_correction_json_invalid_raises(tmp_path: Path) -> None:
     p = tmp_path / "bad.json"
     p.write_text('"not-an-object"')
-    with pytest.raises(ManifestRepairError, match="JSON object"):
+    with pytest.raises(ManifestOverrideError, match="JSON object"):
         load_correction_json(p)
 
 
-def test_repair_manifest_mapping_local_wrapper(tmp_path: Path) -> None:
+def test_override_manifest_mapping_local_wrapper(tmp_path: Path) -> None:
     fm = FieldMappingManifest(
         entity_type="cohort",
         target_schema="RawEdviseStudentDataSchema",
         mappings=[_fmr()],
     )
     manifest_path = write_sma_manifest_artifact(tmp_path, fm, basename="m.json")
-    repair_log_path = tmp_path / "repair_log.json"
+    override_log_path = tmp_path / "mapping_override_log.json"
 
-    repair_manifest_mapping(
+    override_manifest_mapping(
         manifest_path,
         "cohort",
         "learner_id",
         _fmr(source_column="student_id_v2"),
-        repair_log_path=repair_log_path,
-        repaired_by="ops",
+        override_log_path=override_log_path,
+        overridden_by="ops",
         original_db_run_id="db-1",
         institution_id="u9",
         reviewer_notes="fixed",
@@ -97,29 +97,29 @@ def test_repair_manifest_mapping_local_wrapper(tmp_path: Path) -> None:
 
     out = read_pydantic_json(manifest_path, FieldMappingManifest)
     assert out.mappings[0].source_column == "student_id_v2"
-    assert out.mappings[0].review_status == ReviewStatus.corrected_by_repair
+    assert out.mappings[0].review_status == ReviewStatus.corrected_by_override
 
-    log = read_pydantic_json(repair_log_path, RepairLog)
+    log = read_pydantic_json(override_log_path, MappingOverrideLog)
     assert log.institution_id == "u9"
     assert len(log.events) == 1
 
 
-def test_repair_manifest_mapping_at_path_routes_local(tmp_path: Path) -> None:
+def test_override_manifest_mapping_at_path_routes_local(tmp_path: Path) -> None:
     fm = FieldMappingManifest(
         entity_type="cohort",
         target_schema="RawEdviseStudentDataSchema",
         mappings=[_fmr()],
     )
     manifest_path = write_sma_manifest_artifact(tmp_path, fm, basename="m.json")
-    repair_log_path = tmp_path / "repair_log.json"
+    override_log_path = tmp_path / "mapping_override_log.json"
 
-    repair_manifest_mapping_at_path(
+    override_manifest_mapping_at_path(
         manifest_path,
         "cohort",
         "learner_id",
         unmapped_field_mapping_record("learner_id"),
-        repair_log_path=repair_log_path,
-        repaired_by="ops",
+        override_log_path=override_log_path,
+        overridden_by="ops",
         original_db_run_id="db-1",
         institution_id="u9",
     )
@@ -129,17 +129,16 @@ def test_repair_manifest_mapping_at_path_routes_local(tmp_path: Path) -> None:
     assert out.mappings[0].source_table is None
 
 
-def test_repair_manifest_mapping_on_volume_round_trip(tmp_path: Path) -> None:
+def test_override_manifest_mapping_on_volume_round_trip(tmp_path: Path) -> None:
     fm = FieldMappingManifest(
         entity_type="cohort",
         target_schema="RawEdviseStudentDataSchema",
         mappings=[_fmr()],
     )
     manifest_path = write_sma_manifest_artifact(tmp_path, fm, basename="m.json")
-    repair_log_path = tmp_path / "repair_log.json"
 
     manifest_uc = "/Volumes/cat/sch/vol/manifest_map.json"
-    repair_uc = "/Volumes/cat/sch/vol/repair_log.json"
+    override_uc = "/Volumes/cat/sch/vol/mapping_override_log.json"
     store: dict[str, str] = {}
 
     def _read(path: str) -> str:
@@ -154,27 +153,27 @@ def test_repair_manifest_mapping_on_volume_round_trip(tmp_path: Path) -> None:
 
     with (
         patch(
-            "edvise.genai.mapping.schema_mapping_agent.manifest.hitl.repair.read_unity_file_text",
+            "edvise.genai.mapping.schema_mapping_agent.manifest.hitl.override.read_unity_file_text",
             side_effect=_read,
         ),
         patch(
-            "edvise.genai.mapping.schema_mapping_agent.manifest.hitl.repair.write_unity_file_text",
+            "edvise.genai.mapping.schema_mapping_agent.manifest.hitl.override.write_unity_file_text",
             side_effect=_write,
         ),
     ):
-        repair_manifest_mapping_on_volume(
+        override_manifest_mapping_on_volume(
             manifest_uc,
             "cohort",
             "learner_id",
             _fmr(source_column="fixed"),
-            repair_log_uc_path=repair_uc,
-            repaired_by="ops",
+            override_log_uc_path=override_uc,
+            overridden_by="ops",
             original_db_run_id="db-1",
             institution_id="u9",
         )
 
     updated = FieldMappingManifest.model_validate_json(store[manifest_uc])
     assert updated.mappings[0].source_column == "fixed"
-    assert repair_uc in store
-    log = RepairLog.model_validate_json(store[repair_uc])
+    assert override_uc in store
+    log = MappingOverrideLog.model_validate_json(store[override_uc])
     assert log.institution_id == "u9"

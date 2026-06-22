@@ -1,7 +1,7 @@
 """
 Read and write file contents on Unity Catalog volumes via the Databricks Files API.
 
-Used by GenAI mapping repair helpers and the HITL Streamlit app (paths under
+Used by GenAI mapping override helpers and the HITL Streamlit app (paths under
 ``.../genai_mapping/runs/...`` on institution silver volumes).
 """
 
