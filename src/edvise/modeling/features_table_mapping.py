@@ -27,12 +27,6 @@ ES_ONLY_FEATURES_TABLE_COLUMNS: tuple[str, ...] = (
     "credits_earned_dual_enrollment",
 )
 
-# PDP table keys for Edvise columns renamed via :data:`_ES_ADDITIONAL_STUDENT_TOKEN_MAP`.
-ES_MAPPED_FEATURES_TABLE_COLUMNS: tuple[str, ...] = (
-    "student_age",
-    "first_gen",
-)
-
 
 def build_es_to_pdp_feature_token_map() -> dict[str, str]:
     """

@@ -301,6 +301,19 @@ def test_raw_edvise_student_schema_bad_pell_maps_to_null() -> None:
     assert pd.isna(validated_df["pell_recipient_year1"].iloc[0])
 
 
+def test_raw_edvise_student_schema_pell_recipient_year_1_alias_canonicalized() -> None:
+    """snake_case alias pell_recipient_year_1 is renamed to pell_recipient_year1."""
+    row = _minimal_valid_student_row()
+    row["pell_recipient_year_1"] = "Y"
+    cols = [c for c in STUDENT_COLUMNS if c != "pell_recipient_year1"] + [
+        "pell_recipient_year_1"
+    ]
+    df = pd.DataFrame([row]).reindex(columns=cols)
+    validated_df = RawEdviseStudentDataSchema.validate(df, lazy=True)
+    assert "pell_recipient_year_1" not in validated_df.columns
+    assert validated_df["pell_recipient_year1"].iloc[0] == "Y"
+
+
 def test_raw_edvise_student_schema_conferred_credential_free_text() -> None:
     """conferred_credential_type is free-form string in the raw schema."""
     row = _minimal_valid_student_row()

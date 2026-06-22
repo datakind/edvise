@@ -16,7 +16,10 @@ def test_build_es_to_pdp_feature_token_map_includes_course_and_cohort_tokens():
     assert token_map["instructional_modality"] == "delivery_method"
     assert token_map["gen_ed_flag"] == "core_course"
     assert token_map["gateway_or_developmental_flag"] == "math_or_english_gateway"
-    assert token_map["instructor_appointment_status"] == "course_instructor_employment_status"
+    assert (
+        token_map["instructor_appointment_status"]
+        == "course_instructor_employment_status"
+    )
     assert token_map["entry_term"] == "cohort_term"
     assert token_map["entry_year"] == "cohort"
     assert token_map["learner_age"] == "student_age"
@@ -51,7 +54,9 @@ def test_map_feature_col_for_features_table(feature_col, schema_type, exp):
 
 def test_is_feature_defined_in_table_with_es_mapping():
     features_table = {
-        "num_courses_delivery_method_f": {"name": "number of face to face courses taken this term"}
+        "num_courses_delivery_method_f": {
+            "name": "number of face to face courses taken this term"
+        }
     }
     assert is_feature_defined_in_table(
         "num_courses_instructional_modality_f",

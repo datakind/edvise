@@ -20,6 +20,9 @@ print("sys.path:", sys.path)
 
 from edvise.configs.es import ESProjectConfig
 from edvise.dataio.read import read_config
+from edvise.data_audit.schemas._edvise_shared import (
+    canonicalize_edvise_cohort_column_names,
+)
 from edvise.feature_generation.column_names import (
     ES_COHORT_INPUT_COLUMNS,
     ES_COURSE_INPUT_COLUMNS,
@@ -57,6 +60,7 @@ class ESFeatureGenerationTask:
         os.makedirs(current_run_path_local, exist_ok=True)
 
         df_course, df_cohort = read_standardized_silver_pair(current_run_path)
+        df_cohort = canonicalize_edvise_cohort_column_names(df_cohort)
 
         require_cols(
             df_course,
