@@ -9,6 +9,7 @@ import pandas as pd
 
 from edvise import feature_generation, utils
 from edvise.dataio.read import read_resolved_parquet
+from edvise.data_audit.schemas._edvise_shared import canonicalize_edvise_cohort_column_names
 from edvise.feature_generation.column_names import (
     CohortInputColumns,
     CourseFeatureSpec,
@@ -147,12 +148,14 @@ def make_student_term_dataset(
     )
 
     cumulative_ids = [k for k in merge_on if k in df_student_terms.columns]
-    return feature_generation.cumulative.add_features(
-        df_student_terms,
-        student_id_cols=cumulative_ids,
-        sort_cols=[
-            course_input_columns.academic_year,
-            course_input_columns.academic_term,
-        ],
-        spec=cumulative_feature_spec,
-    ).rename(columns=utils.data_cleaning.convert_to_snake_case)
+    return canonicalize_edvise_cohort_column_names(
+        feature_generation.cumulative.add_features(
+            df_student_terms,
+            student_id_cols=cumulative_ids,
+            sort_cols=[
+                course_input_columns.academic_year,
+                course_input_columns.academic_term,
+            ],
+            spec=cumulative_feature_spec,
+        ).rename(columns=utils.data_cleaning.convert_to_snake_case)
+    )

@@ -302,6 +302,9 @@ def grade_series_normalized(series: pd.Series) -> pd.Series:
 # but the Edvise schema field is ``pell_recipient_year1``.
 EDVISE_COHORT_COLUMN_ALIASES: dict[str, str] = {
     "pell_recipient_year_1": "pell_recipient_year1",
+    "certificate_1_date": "certificate1_date",
+    "certificate_2_date": "certificate2_date",
+    "certificate_3_date": "certificate3_date",
 }
 
 

@@ -189,14 +189,11 @@ class ESCleanup(BaseCleanup):
         num_credit_check: int = 12,
     ) -> pd.DataFrame:
         df = canonicalize_edvise_cohort_column_names(df)
-        df = super().clean_up_labeled_dataset_cols_and_vals(
+        return super().clean_up_labeled_dataset_cols_and_vals(
             df,
             num_credits_col=num_credits_col,
             num_credit_check=num_credit_check,
         )
-        if "student_is_pell_recipient_first_year" in df.columns:
-            df = drop_columns_safely(df, cols_to_drop=["pell_recipient_year1"])
-        return df
 
     cols_to_drop: t.ClassVar[list[str]] = [
         # metadata
@@ -225,6 +222,8 @@ class ESCleanup(BaseCleanup):
         "sections_num_students_completed",
         "term_start_dt",
         "cohort_start_dt",
+        # Edvise raw pell column (replaced by student_is_pell_recipient_first_year)
+        "pell_recipient_year1",
         # Edvise raw cohort dates feeding credential-year derivation
         "matriculation_date",
         "bachelors_degree_conferral_date",
