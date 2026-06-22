@@ -20,7 +20,13 @@ from edvise.genai.mapping.identity_agent.hitl.schemas import (
     InstitutionHITLItems,
 )
 from edvise.genai.mapping.identity_agent.profiling import RankedCandidateProfiles
-from edvise.genai.mapping.identity_agent.term_normalization.schemas import TermContract
+from edvise.genai.mapping.identity_agent.term_normalization.schemas import (
+    InstitutionTermContract,
+    TermContract,
+)
+from edvise.genai.mapping.identity_agent.term_normalization.validation import (
+    assert_term_hook_groups_compatible,
+)
 
 
 def build_grain_config_for_resolver(
@@ -120,6 +126,11 @@ def write_identity_term_artifacts(
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    inst_contract = InstitutionTermContract(
+        institution_id=institution_id,
+        datasets=dict(contracts_by_dataset),
+    )
+    assert_term_hook_groups_compatible(inst_contract, hitl_items)
     cfg = build_term_config_for_resolver(institution_id, contracts_by_dataset)
     env = InstitutionHITLItems(
         institution_id=institution_id,
