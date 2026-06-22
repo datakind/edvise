@@ -158,9 +158,14 @@ def run_onboard_start(
     school_config: Any,
     llm_complete: Callable[[str, str], str],
     *,
+    column_roles_llm_complete: Callable[[str, str], str] | None = None,
     catalog: str,
     onboard_run_id: str,
 ) -> None:
+    from edvise.genai.mapping.identity_agent.column_roles import (
+        run_column_roles_for_institution,
+        write_column_roles_artifacts,
+    )
     from edvise.genai.mapping.identity_agent.grain_inference import (
         build_identity_profiling_run_by_dataset,
         write_identity_profiling_artifacts,
@@ -190,10 +195,26 @@ def run_onboard_start(
     paths.run_root.mkdir(parents=True, exist_ok=True)
     paths.cleaned_datasets.mkdir(parents=True, exist_ok=True)
 
-    # §3 — Profile
+    # §3a — Column role classification (lightweight LLM; Haiku by default)
+    roles_llm = column_roles_llm_complete or llm_complete
+    LOGGER.info("[onboard/start] ColumnRolesAgent")
+    column_roles_by_dataset = run_column_roles_for_institution(
+        institution_id=institution_id,
+        school=school_config,
+        llm_complete=roles_llm,
+    )
+    write_column_roles_artifacts(
+        paths.profiling_output.parent,
+        institution_id,
+        column_roles_by_dataset,
+        filename="column_roles_run.json",
+    )
+
+    # §3b — Profile (semantic keys + combinatorial KeyProfiler)
     run_by_dataset = build_identity_profiling_run_by_dataset(
         institution_id=institution_id,
         school=school_config,
+        column_roles_by_dataset=column_roles_by_dataset,
     )
     write_identity_profiling_artifacts(
         paths.profiling_output.parent,
@@ -214,7 +235,7 @@ def run_onboard_start(
     raw_table_profiles_by_table = {
         name: run_by_dataset[name]["raw_table_profile"] for name in run_by_dataset
     }
-    contracts_by_dataset, grain_hitl_items = (
+    contracts_by_dataset, grain_hitl_items, verifications_by_dataset = (
         run_identity_agents_for_institution_with_hitl(
             institution_id=institution_id,
             institution_profiles=institution_profiles,
@@ -225,6 +246,13 @@ def run_onboard_start(
             queue_for_hitl_review=lambda c: log_grain_hitl_queue(c, logger=LOGGER),
             auto_approve_and_apply=lambda c: log_grain_auto_approve(c, logger=LOGGER),
         )
+    )
+    for name, verification in verifications_by_dataset.items():
+        run_by_dataset[name]["grain_verification"] = verification.to_jsonable()
+    write_identity_profiling_artifacts(
+        paths.profiling_output.parent,
+        institution_id,
+        run_by_dataset,
     )
 
     # §5 — Pass 2: Term batch LLM
@@ -278,6 +306,7 @@ def run_onboard_start(
         key_profiles_by_table={
             name: run_by_dataset[name]["key_profile"] for name in run_by_dataset
         },
+        dfs_by_table=dfs,
     )
     write_identity_term_artifacts(
         paths.run_root,
@@ -985,6 +1014,8 @@ def run(
     from edvise.genai.mapping.identity_agent.grain_inference import (
         create_openai_client_for_databricks_gateway,
         make_databricks_gateway_llm_complete,
+        resolve_column_roles_gateway_model_id,
+        resolve_gateway_model_id,
         wrap_llm_complete_with_retries,
     )
 
@@ -1081,6 +1112,18 @@ def run(
             make_databricks_gateway_llm_complete(gateway_client),
             log=LOGGER,
         )
+        column_roles_llm_complete = wrap_llm_complete_with_retries(
+            make_databricks_gateway_llm_complete(
+                gateway_client,
+                model=resolve_column_roles_gateway_model_id(),
+            ),
+            log=LOGGER,
+        )
+        LOGGER.info(
+            "[onboard] column_roles model=%s grain/term model=%s",
+            resolve_column_roles_gateway_model_id(),
+            resolve_gateway_model_id(),
+        )
 
         try:
             if resume_from == "start":
@@ -1089,6 +1132,7 @@ def run(
                     paths,
                     school_config,
                     llm_complete,
+                    column_roles_llm_complete=column_roles_llm_complete,
                     catalog=catalog,
                     onboard_run_id=onboard_run_id_s,
                 )
