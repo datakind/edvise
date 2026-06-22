@@ -207,10 +207,7 @@ def _resolve_grain_key_to_existing_column(name: str, columns: list[str]) -> str:
     candidates = [
         c
         for c in columns
-        if (
-            c.startswith(normalized)
-            or convert_to_snake_case(c).startswith(normalized)
-        )
+        if (c.startswith(normalized) or convert_to_snake_case(c).startswith(normalized))
         and c != normalized
         and convert_to_snake_case(c) != normalized
         and (
