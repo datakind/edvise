@@ -16,7 +16,8 @@ from edvise.genai.mapping.identity_agent.execution import (
     merge_grain_learner_id_alias_into_school_config,
 )
 from edvise.genai.mapping.identity_agent.execution import contract_utilities as cu
-from edvise.genai.mapping.identity_agent.grain_inference.deduplication import (
+from edvise.genai.mapping.shared.grain.dedup_execution import (
+    _categorical_value_rank,
     drop_duplicate_keys,
 )
 from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
@@ -187,8 +188,8 @@ def test_apply_categorical_priority_substring_and_longest_token():
     assert len(out) == 1
     assert "M.S." in out["deg"].iloc[0]
     # Longest included token wins (else "M.A." would match inside "M.B.A.").
-    assert cu._categorical_value_rank("Business, M.B.A.", ["M.A.", "M.B.A."]) == 1
-    assert cu._categorical_value_rank("Business, M.B.A.", ["M.B.A.", "M.A."]) == 0
+    assert _categorical_value_rank("Business, M.B.A.", ["M.A.", "M.B.A."]) == 1
+    assert _categorical_value_rank("Business, M.B.A.", ["M.B.A.", "M.A."]) == 0
 
 
 def test_temporal_collapse_keep_last():
@@ -680,6 +681,31 @@ def test_apply_term_order_split_year_season_columns():
     assert list(out["_year"]) == [2020, 2021]
     assert list(out["_season"]) == ["fa", "sp"]
     assert "_term_order" in out.columns
+
+
+def test_apply_term_order_split_year_datetime_coerced_from_strings():
+    """year_col inferred as datetime64 (legacy schemas) still yields calendar _year."""
+    df = pd.DataFrame(
+        {
+            "year_code": pd.to_datetime(["2021-01-01", "2022-01-01"]),
+            "term_code": ["10", "20"],
+            "k": [1, 2],
+        }
+    )
+    cfg = TermOrderConfig(
+        year_col="year_code",
+        season_col="term_code",
+        season_map=[
+            {"raw": "10", "canonical": "FALL"},
+            {"raw": "20", "canonical": "SPRING"},
+        ],
+        term_extraction="standard",
+    )
+    out = apply_term_order_from_config(df, cfg)
+    assert list(out["_year"]) == [2021, 2022]
+    assert list(out["_edvise_term_season"]) == ["FALL", "SPRING"]
+    assert out["_edvise_term_academic_year"].iloc[0] == "2021-22"
+    assert out["_edvise_term_academic_year"].iloc[1] == "2021-22"
 
 
 def test_apply_term_order_exclude_tokens_prefix():

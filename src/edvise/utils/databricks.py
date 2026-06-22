@@ -2,8 +2,10 @@ import logging
 import os
 import mlflow
 import typing as t
+import pathlib
 from typing import Any
 import pydantic as pyd
+from mlflow.tracking import MlflowClient
 
 LOGGER = logging.getLogger(__name__)
 
@@ -18,6 +20,119 @@ mlflow.autolog(disable=True)
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logging.getLogger("py4j").setLevel(logging.WARNING)  # Ignore Databricks logger
+
+
+def local_fs_path(path: str) -> str:
+    """Convert Databricks dbfs path to local filesystem path."""
+    return (
+        path.replace("dbfs:/", "/dbfs/")
+        if path and isinstance(path, str) and path.startswith("dbfs:/")
+        else path
+    )
+
+
+def get_dbutils_or_none() -> t.Any | None:
+    """Best-effort Databricks ``dbutils`` import (returns ``None`` off-cluster)."""
+    try:
+        from databricks.sdk.runtime import dbutils  # type: ignore
+
+        return dbutils
+    except Exception:
+        return None
+
+
+def normalize_legacy_uc_model_short_name(
+    model_name: str,
+    *,
+    workspace: str = "",
+    institution: str = "",
+) -> str:
+    """
+    Legacy jobs accept either the short registered name or the full UC three-level name
+    ``{catalog}.{institution}_gold.{short}``. Downstream code expects ``short`` (SSI
+    folder name and MLflow model suffix).
+    """
+    mn = (model_name or "").strip()
+    if not mn:
+        return mn
+    ws = (workspace or "").strip()
+    inst = (institution or "").strip()
+    if ws and inst:
+        prefix = f"{ws}.{inst}_gold."
+        if mn.startswith(prefix):
+            return mn[len(prefix) :]
+    if mn.count(".") >= 2:
+        return mn.rsplit(".", 1)[-1]
+    return mn
+
+
+def get_latest_uc_model_run_id(
+    model_name: str,
+    workspace: str,
+    institution: str,
+    *,
+    registry_uri: str = "databricks-uc",
+) -> str:
+    """
+    Return latest Unity Catalog model version run_id for a given model.
+    """
+    model_name = normalize_legacy_uc_model_short_name(
+        model_name, workspace=workspace, institution=institution
+    )
+    client = MlflowClient(registry_uri=registry_uri)
+    full_model_name = f"{workspace}.{institution}_gold.{model_name}"
+    versions = client.search_model_versions(f"name='{full_model_name}'")
+    if not versions:
+        raise ValueError(f"No registered versions found for model: {full_model_name}")
+    latest_version = max(versions, key=lambda v: int(v.version))
+    return str(latest_version.run_id)
+
+
+def find_file_in_run_folder(
+    run_root: str,
+    *,
+    file_name: str | None = None,
+    keyword: str | None = None,
+    extra_subdirs: tuple[str, ...] = ("training", "inference"),
+) -> str:
+    """
+    Find a file under a run root and commonly used artifact subdirectories.
+    """
+    candidates = [run_root, *(os.path.join(run_root, sub) for sub in extra_subdirs)]
+
+    if file_name:
+        for cand in candidates:
+            base = pathlib.Path(local_fs_path(cand))
+            if not base.exists():
+                continue
+            exact = base / file_name
+            if exact.exists():
+                return str(exact)
+
+    if keyword:
+        needle = keyword.lower()
+        for cand in candidates:
+            base = pathlib.Path(local_fs_path(cand))
+            if not base.exists():
+                continue
+            matches = [f for f in base.rglob("*.toml") if needle in f.name.lower()]
+            if matches:
+                return str(matches[0])
+    else:
+        for cand in candidates:
+            base = pathlib.Path(local_fs_path(cand))
+            if not base.exists():
+                continue
+            matches = list(base.rglob("*.toml"))
+            if matches:
+                return str(matches[0])
+
+    msg = f"No matching file found under run root {run_root}."
+    if file_name:
+        msg += f" Tried exact name={file_name!r}."
+    if keyword:
+        msg += f" Tried keyword={keyword!r}."
+    raise FileNotFoundError(msg)
 
 
 def get_spark_session() -> SparkSession:

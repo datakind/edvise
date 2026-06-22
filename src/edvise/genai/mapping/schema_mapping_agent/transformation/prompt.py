@@ -14,7 +14,11 @@ from edvise.genai.mapping.shared.token_audit.prompt_token_audit import (
     audit_prompt_sections,
 )
 
-from .schemas import get_transformation_map_schema_context
+from .schemas import (
+    RAW_EDVISE_FIELDS_FORBIDDING_MAP_VALUES,
+    get_transformation_map_schema_context,
+)
+from .utilities import COMPACT_TERM_CODE_SUFFIX_TO_SEASON
 
 from ..manifest.prompts import (
     extract_schema_descriptor,
@@ -102,7 +106,10 @@ Those five are the **only** RawEdvise columns that carry completion **timing** a
 
 def _step2b_cross_table_degree_datetime_rules() -> str:
     """Step 2b: degree conferral / certificate dates from a single source column."""
-    return """
+    _executor_suffix_json = json.dumps(
+        COMPACT_TERM_CODE_SUFFIX_TO_SEASON, sort_keys=True, indent=2
+    )
+    return f"""
 COHORT degree- and certificate-related DATETIME fields
 
 Targets: `bachelors_degree_conferral_date`, `associates_degree_conferral_date`,
@@ -138,6 +145,19 @@ the season map covers all observed fragments. Still flag `review_required: true`
 `reason: inferred_season_mapping` when the match between term config and conferral
 column encoding is uncertain. Do NOT apply a season_map from a different encoding
 scheme (e.g. entry term Season_YYYY season_map applied to a YYYYMM conferral column).
+When the plan chains to ``compact_term_code_to_conferral_date``, every **full** token
+after ``map_values`` must be ``YYYY`` + a suffix from the **EXECUTOR SUFFIX TABLE** below
+(IdentityAgent ``season_map`` may use institution-specific spellings — you must **translate**
+those into allowed compact suffixes, e.g. never emit ``MW`` or other codes outside the table).
+
+**EXECUTOR SUFFIX TABLE** for ``compact_term_code_to_conferral_date`` (must match runtime;
+case-insensitive; token = 4-digit calendar year + suffix with **no** separator):
+```json
+{_executor_suffix_json}
+```
+Only these suffix spellings (and their ASCII case variants) parse to a conferral proxy.
+Any other suffix → null at execution. If the institution needs a season outside this set,
+use ``hook_required: true`` with empty ``steps`` rather than inventing suffixes.
 
 This branch applies whether the manifest's `source_table` is an award/degree lookup
 (joined from student) or the wide student row directly. Step 2a handles join + filter +
@@ -240,14 +260,12 @@ CONFIDENCE SCORING
   entry_term rules): strip/cast only — document semantic caveats in notes, not HITL.
 - **0.7–0.8** — inferred mapping from sample_values, ambiguous format, or an **ad-hoc** semantic
   proxy not justified by the manifest rules (see below).
-- **≤ {t}** — `review_required` must be true; always set when:
-  - `map_values` mapping was inferred from sample_values rather than explicit schema evidence;
-  - format was ambiguous and a utility chain was chosen by best-guess;
-  - manifest `source_column` for a **conferral / completion datetime** target is an IdentityAgent
-    `_edvise_term_*` column (the manifest validator should have rejected this; if it slipped through,
-    emit `hook_required: true` with empty `steps` and flag the manifest fix in `reviewer_notes` —
-    see COHORT degree- and certificate-related DATETIME rules);
-  - term code column required season fragment extraction and mapping.
+- **≤ {t}** — set `review_required: true` OR `hook_required: true` (never both); use:
+  - `review_required` when a utility chain is plausible but parameters need confirmation (e.g.
+    inferred `map_values` from sample_values);
+  - `hook_required` when built-ins cannot express the encoding (opaque STRM/CYYT, suffix outside
+    EXECUTOR SUFFIX TABLE, impossible paired columns on a single lookup Series) — see conferral rules.
+  - manifest `source_column` for conferral targets on `_edvise_term_*` → `hook_required: true`, not review.
 
 MAPPING PROXY VS MANIFEST-CONTRACTED SOURCE
 - **Do not** treat IdentityAgent term columns on student/lookup rows as `proxy_source` when the
@@ -277,17 +295,20 @@ FLAGGED STEPS (`flagged_steps` on the plan)
 - Multiple steps may be flagged in one plan.
 - Flagged steps are **evidence only** — reviewer resolution is always at the **plan** level.
 
-HITL OPTIONS (`hitl_options` on the plan)
-- Every plan with `review_required: true` must include **exactly three** options **in order**:
-  1. **approve** — reviewer accepts the proposed steps as-is.
-     `resolution`: `{{"approved": true}}`
-  2. **correct** — reviewer supplies corrected steps.
-     `resolution`: null (out-of-band correction) **or** pre-filled with the proposed steps for in-place editing.
-  3. **unmappable** — reviewer decides the field cannot be mapped.
-     `resolution`: `{{"steps": [], "output_dtype": null}}`
-- **Label** and **description** must be specific — name the target field and what is being confirmed
-  (e.g. "Confirm season fragment mapping for deg_comp_term", not a generic "Approve mapping").
-- Omit `hitl_options` (null) when `review_required` is omitted.
+STEP 2b REVIEW ROUTING (mutually exclusive)
+- Manifest unmappability is Step 2a only — never emit a Step 2b HITL "unmappable" option.
+- `hook_required: true` → custom hook for the **whole target field** (plan-level, not one step).
+  Set `review_required: null`, omit `hitl_options` and `flagged_steps`. Document intent in `reviewer_notes`.
+- `review_required: true` → built-in utility chain needs human confirmation. Set `hook_required: false` or omit.
+
+HITL OPTIONS (`hitl_options` on the plan) — only when `review_required` is true
+- Exactly **three** options **in order**:
+  1. **approve** — proposed steps and mappings are correct. `resolution`: `{{"approved": true}}`
+  2. **correct** — same chain shape; reviewer fixes flagged step parameters (usually `map_values.mapping`).
+     `resolution`: null
+  3. **hook_required** — escalate to custom hook for this field. `resolution`: `{{"hook_required": true}}`
+- **Label** and **description** must be field-specific (e.g. confirm STRM→season mapping for deg_comp_term).
+- Omit `hitl_options` when `review_required` is omitted or when `hook_required` is true.
 
 See schema definitions for `FlaggedStep`, `TransformationHITLOption`, `TransformationHITLItem`, and
 `TransformationReview` in the transformation map schema context.
@@ -415,6 +436,9 @@ def _step2b_utilities() -> str:
 
 
 def _step2b_rules() -> str:
+    _raw_edvise_no_map_values = ", ".join(
+        sorted(RAW_EDVISE_FIELDS_FORBIDDING_MAP_VALUES)
+    )
     return f"""<rules>
 STRUCTURE
 - Match the reference transformation map shape: transformation_maps with cohort + course sections,
@@ -428,8 +452,8 @@ STRUCTURE
   and optional refinement
 - Generate separate transformation maps for cohort and course entities
 - When `review_required` is true: set `confidence`, non-empty `flagged_steps`, and exactly three
-  `hitl_options` (approve / correct / unmappable) per CONFIDENCE AND HITL RULES below; omit both
-  `flagged_steps` and `hitl_options` when `review_required` is omitted
+  `hitl_options` (approve / correct / hook_required) per CONFIDENCE AND HITL RULES below; omit
+  `flagged_steps` and `hitl_options` when `review_required` is omitted or `hook_required` is true
 
 TRANSFORMATION STEPS
 - Use only utilities from the transformation_utilities library
@@ -517,10 +541,15 @@ CONSTANT FIELDS
 - The column parameter in fill_constant is used only for length — the value parameter is the constant string
 
 MAP VALUES USAGE
-- map_values is appropriate only for fields whose target schema enforces a constrained
+- **Do not use map_values** on these RawEdvise targets — the pipeline rejects such plans;
+  preserve institution source wording (use strip_whitespace, cast_string, or empty steps only): {_raw_edvise_no_map_values}.
+- Intermediate map_values on **datetime conferral / certificate targets** is allowed when required by
+  **COHORT degree- and certificate-related DATETIME** (token shaping before parsers such as
+  compact_term_code_to_conferral_date). That pattern is not value-remapping of free-text cohort or term-snapshot labels.
+- Otherwise, map_values is appropriate only where the target schema enforces a constrained
   allowed-value set: category fields (academic_term, entry_term, pell_recipient_year1,
   term_pell_recipient), learner_age (isin LEARNER_AGE_BUCKETS), and grade
-  (ALLOWED_LETTER_GRADES or numeric 0.0–4.0). These are the only fields where source
+  (ALLOWED_LETTER_GRADES or numeric 0.0–4.0). These are the main fields where source
   values can violate a schema constraint that map_values can fix.
 - Every other field in RawEdviseStudentDataSchema and RawEdviseCourseDataSchema is either
   free text (StringDtype, nullable=True, no value constraint) or a dtype-only field
@@ -534,7 +563,7 @@ TRANSFORMATION MAP COMPACTNESS
 - Include all required top-level keys and all required plan records
 - For each plan, omit optional fields when their value would be null (e.g., reviewer_notes)
 - For each step, omit optional fields when their value would be null (e.g., rationale, extra_columns, default)
-- Do not omit steps array — use empty array [] for unmappable fields
+- Empty `steps` only for manifest-unmapped targets (2a) or `hook_required` plans — not a reviewer HITL outcome
 
 TARGET SCHEMA AUTHORITY
 - Use the target schema definitions as the authoritative source for expected output types and allowed values

@@ -5,7 +5,9 @@ from itertools import combinations
 
 import pandas as pd
 
-from edvise.configs.custom import CleaningConfig
+from edvise.data_audit.custom_cleaning import CleaningConfig
+
+from edvise.genai.mapping.shared.profiling.variance import compute_within_group_variance
 
 from .constants import (
     EARLY_STOP_UNIQUENESS,
@@ -21,13 +23,11 @@ from .constants import (
     MAX_NULL_RATE_TIER2,
     MIN_DISCRIMINATOR_NUNIQUE,
     NEAR_BEST_STOP_DELTA,
-    PROFILE_MAX_WORK_ROWS,
     SAMPLE_GROUP_SIZE,
     STUDENT_ANCHOR_NAME_PATTERN,
     TIER1_MIN_NUNIQUE_ABS,
     TOP_K_CANDIDATES,
     TOP_K_CANDIDATES_LARGE_TABLE,
-    WITHIN_GROUP_SAMPLE_VALUES,
 )
 from .raw_snapshot import profile_raw_table
 from .schemas import (
@@ -305,13 +305,11 @@ def _detect_candidate_keys(df: pd.DataFrame) -> list[CandidateKey]:
 
 def _profile_against_key(df: pd.DataFrame, candidate: CandidateKey) -> CandidateProfile:
     key_cols = list(candidate.columns)
-    non_key_cols = [c for c in df.columns if c not in key_cols]
     logger.info("Profiling against candidate key: %s", key_cols)
 
-    sizes = df.groupby(key_cols, sort=False).size()
-    dup_sizes = sizes[sizes > 1]
+    result = compute_within_group_variance(df, key_cols, profile_cols=None)
 
-    if len(dup_sizes) == 0:
+    if result.non_unique_rows == 0:
         return CandidateProfile(
             candidate_key=candidate,
             non_unique_rows=0,
@@ -321,52 +319,31 @@ def _profile_against_key(df: pd.DataFrame, candidate: CandidateKey) -> Candidate
             sampled=False,
         )
 
-    non_unique_rows = int(dup_sizes.sum())
-    affected_groups = len(dup_sizes)
-    size_dist = {int(k): int(v) for k, v in dup_sizes.value_counts().items()}
     logger.info(
         "  Non-unique rows: %d / %d (%.1f%%)",
-        non_unique_rows,
+        result.non_unique_rows,
         len(df),
-        100 * non_unique_rows / len(df),
+        100 * result.non_unique_rows / len(df),
     )
-
-    sampled = False
-    keys_df = dup_sizes.index.to_frame(index=False)
-    if len(keys_df) > SAMPLE_GROUP_SIZE:
-        keys_df = keys_df.sample(SAMPLE_GROUP_SIZE, random_state=42)
-        sampled = True
+    if result.affected_groups > SAMPLE_GROUP_SIZE:
         logger.info("  Sampling %d groups for variance profiling", SAMPLE_GROUP_SIZE)
 
-    work = df.merge(keys_df, on=key_cols, how="inner")
-    if len(work) > PROFILE_MAX_WORK_ROWS:
-        work = work.sample(PROFILE_MAX_WORK_ROWS, random_state=43)
-        sampled = True
-
-    # Per non-key column: what fraction of non-unique groups have variance?
-    # Raw signal for IdentityAgent to reason about grain — no interpretation here.
-    variance_profiles = []
-    for col in non_key_cols:
-        nunique = work.groupby(key_cols, sort=False)[col].nunique()
-        pct_varying = round((nunique > 1).mean(), 4)
-        sample_vals = work[col].dropna().unique()[:WITHIN_GROUP_SAMPLE_VALUES].tolist()
-        variance_profiles.append(
-            ColumnVarianceProfile(
-                column=col,
-                pct_groups_with_variance=pct_varying,
-                sample_values=sample_vals,
-            )
+    variance_profiles = [
+        ColumnVarianceProfile(
+            column=p.column,
+            pct_groups_with_variance=p.pct_groups_with_variance,
+            sample_values=p.sample_values,
         )
-
-    variance_profiles.sort(key=lambda p: p.pct_groups_with_variance, reverse=True)
+        for p in result.column_profiles
+    ]
 
     return CandidateProfile(
         candidate_key=candidate,
-        non_unique_rows=non_unique_rows,
-        affected_groups=affected_groups,
-        group_size_distribution=size_dist,
+        non_unique_rows=result.non_unique_rows,
+        affected_groups=result.affected_groups,
+        group_size_distribution=result.group_size_distribution,
         within_group_variance=variance_profiles,
-        sampled=sampled,
+        sampled=result.sampled,
     )
 
 

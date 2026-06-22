@@ -87,11 +87,11 @@ REFERENCE_INSTITUTION = {
 #     "name": "Synthetic Coastal Community College",
 # }
 
-MODELS = [
+_DEFAULT_EVAL_MODELS: tuple[str, ...] = (
     "claude-opus-test-genai-ai-data-cleaning",
     "claude-sonnet-test-genai-ai-data-cleaning",
     "claude-haiku-test-genai-data-cleaning",
-]
+)
 
 # Short label per gateway model → output folders like {base}_2a_{SHOT_TAG}, {base}_2b_{SHOT_TAG}
 MODEL_BASE_SLUG = {
@@ -99,6 +99,9 @@ MODEL_BASE_SLUG = {
     "claude-sonnet-test-genai-ai-data-cleaning": "sonnet",
     "claude-haiku-test-genai-data-cleaning": "haiku",
 }
+
+# Mutable list so notebooks can do ``MODELS[:] = [...]`` (same object as ``transformation.eval`` imports).
+MODELS: list[str] = list(_DEFAULT_EVAL_MODELS)
 
 # Set to "2shot" (or another tag) before run() when evaluating a multi-turn / 2-shot prompt variant
 SHOT_TAG = "1shot"
@@ -147,6 +150,49 @@ def folder_slug_2b(model: str) -> str:
     """Per-model artifact folder name under ``…/genai_mapping/eval/`` for Step 2b."""
     base = MODEL_BASE_SLUG.get(model, model.replace("-", "_"))
     return f"{base}_2b_{SHOT_TAG}"
+
+
+def apply_eval_models_from_env() -> None:
+    """If ``EDVISE_EVAL_MODELS`` is set, replace ``MODELS`` in place (Step 2a + 2b).
+
+    Comma-separated entries; each entry is a short slug (``opus``, ``sonnet``, ``haiku``)
+    or a full gateway model id from ``_DEFAULT_EVAL_MODELS``. Order is preserved;
+    duplicates are dropped.
+
+    Called automatically at the start of ``run()`` in manifest and transformation eval.
+    """
+    raw = os.environ.get("EDVISE_EVAL_MODELS", "").strip()
+    if not raw:
+        return
+    slug_to_model = {MODEL_BASE_SLUG[m]: m for m in _DEFAULT_EVAL_MODELS}
+    id_lower_to_model = {m.lower(): m for m in _DEFAULT_EVAL_MODELS}
+    allowed = set(_DEFAULT_EVAL_MODELS)
+    resolved: list[str] = []
+    seen: set[str] = set()
+    for part in raw.split(","):
+        token = part.strip()
+        if not token:
+            continue
+        key = token.lower()
+        if key in slug_to_model:
+            mid = slug_to_model[key]
+        elif token in allowed:
+            mid = token
+        elif key in id_lower_to_model:
+            mid = id_lower_to_model[key]
+        else:
+            slugs = ", ".join(sorted(slug_to_model))
+            raise ValueError(
+                f"EDVISE_EVAL_MODELS: unknown entry {token!r}. "
+                f"Use comma-separated slugs ({slugs}) or a full gateway model id from the eval defaults."
+            )
+        if mid not in seen:
+            seen.add(mid)
+            resolved.append(mid)
+    if not resolved:
+        raise ValueError("EDVISE_EVAL_MODELS produced an empty model list.")
+    MODELS[:] = resolved
+    logger.info("EDVISE_EVAL_MODELS active → %s", MODELS)
 
 
 # Models that support assistant message prefill (for JSON output formatting)
@@ -1484,6 +1530,7 @@ def _resolve_target_schema_contract_for_eval(target_id: str) -> Path:
 # ── main execution ───────────────────────────────────────────────────────────
 def run():
     """Run evaluation on all models."""
+    apply_eval_models_from_env()
     # ── paths ─────────────────────────────────────────────────────────────
     RUN_ID = datetime.now().strftime("%Y%m%d_%H%M%S")
     target_id = TARGET_INSTITUTION["id"]

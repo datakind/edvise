@@ -194,6 +194,44 @@ def test_prefill_sma_hitl_direct_edit_if_missing():
     assert prefill_sma_hitl_direct_edit_if_missing(filled) is filled
 
 
+def test_sma_hitl_item_accepts_two_options_when_only_unmapped_is_valid():
+    """Unmappable fields may emit leave_unmapped + direct_edit only (2-5 envelope)."""
+    cur = _fmr()
+    opt_unmapped = SMAHITLOption(
+        option_id="leave_unmapped",
+        label="Leave unmapped",
+        description="No numeric source column available.",
+        reentry=SMAReentryDepth.TERMINAL,
+        field_mapping=cur.model_copy(
+            update={
+                "source_column": None,
+                "source_table": None,
+                "join": None,
+                "row_selection": None,
+                "confidence": 1.0,
+            }
+        ),
+    )
+    opt_de = SMAHITLOption(
+        option_id="direct_edit",
+        label="Direct edit mapping",
+        description="Manually edit the field mapping JSON.",
+        reentry=SMAReentryDepth.DIRECT_EDIT,
+        field_mapping=None,
+    )
+    item = SMAHITLItem(
+        item_id="x_cohort_credits_earned_dual_enrollment_low_confidence",
+        institution_id="x",
+        entity_type="cohort",
+        target_field="credits_earned_dual_enrollment",
+        failure_mode=SMAFailureMode.LOW_CONFIDENCE,
+        hitl_question="Can this field be mapped?",
+        current_field_mapping=cur,
+        options=[opt_unmapped, opt_de],
+    )
+    assert len(item.options) == 2
+
+
 def test_manifest_lazy_import_from_manifest_package():
     """Lazy ``manifest.hitl`` resolves to Step 2a manifest HITL package."""
     from edvise.genai.mapping.schema_mapping_agent.manifest import hitl as sma_hitl

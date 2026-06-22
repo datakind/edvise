@@ -1,0 +1,705 @@
+import re
+import typing as t
+import warnings
+
+import pydantic as pyd
+
+from edvise.data_audit.custom_cleaning import CleaningConfig
+
+# allowed primary metrics for h2o
+_ALLOWED_PRIMARY_METRICS = {
+    "logloss",
+    "auc",
+    "aucpr",
+    "rmse",
+    "mae",
+    "mean_per_class_error",
+}
+
+# Unity Catalog workspace catalog placeholder in legacy TOMLs (replaced at runtime).
+_UC_CATALOG_PLACEHOLDER = "CATALOG"
+
+
+def substitute_uc_catalog_in_string(value: str, uc_catalog: str) -> str:
+    """
+    Replace the ``CATALOG`` placeholder with the runtime workspace catalog name.
+
+    Handles:
+
+    - Three-part table names: ``CATALOG.schema.table``
+    - Volume paths: ``/Volumes/CATALOG/...`` and ``dbfs:/Volumes/CATALOG/...``
+    """
+    if _UC_CATALOG_PLACEHOLDER not in value:
+        return value
+    out = value.replace(
+        f"dbfs:/Volumes/{_UC_CATALOG_PLACEHOLDER}/",
+        f"dbfs:/Volumes/{uc_catalog}/",
+    )
+    out = out.replace(f"/Volumes/{_UC_CATALOG_PLACEHOLDER}/", f"/Volumes/{uc_catalog}/")
+    if out.startswith(f"{_UC_CATALOG_PLACEHOLDER}."):
+        out = f"{uc_catalog}.{out[len(_UC_CATALOG_PLACEHOLDER) + 1 :]}"
+    return out
+
+
+def deep_substitute_uc_catalog_placeholders(obj: t.Any, uc_catalog: str) -> t.Any:
+    """Apply :func:`substitute_uc_catalog_in_string` to every string in nested dict/list structures."""
+    if isinstance(obj, str):
+        return substitute_uc_catalog_in_string(obj, uc_catalog)
+    if isinstance(obj, dict):
+        return {
+            k: deep_substitute_uc_catalog_placeholders(v, uc_catalog)
+            for k, v in obj.items()
+        }
+    if isinstance(obj, list):
+        return [deep_substitute_uc_catalog_placeholders(x, uc_catalog) for x in obj]
+    return obj
+
+
+def _strip_computed_fields_for_roundtrip(obj: t.Any) -> t.Any:
+    """Remove pydantic ``computed_field`` keys so ``model_validate`` accepts the dict."""
+    if isinstance(obj, dict):
+        return {
+            k: _strip_computed_fields_for_roundtrip(v)
+            for k, v in obj.items()
+            if k not in ("non_feature_cols", "mlflow_model_uri")
+        }
+    if isinstance(obj, list):
+        return [_strip_computed_fields_for_roundtrip(x) for x in obj]
+    return obj
+
+
+def apply_runtime_uc_catalog(
+    cfg: "LegacyProjectConfig", uc_catalog: str
+) -> "LegacyProjectConfig":
+    """
+    Return a copy of ``cfg`` with ``CATALOG`` placeholders resolved to ``uc_catalog``.
+
+    Typically ``uc_catalog`` is the job's ``--DB_workspace`` (e.g. ``dev_sst_02``).
+    """
+    catalog = uc_catalog.strip()
+    if not catalog:
+        return cfg
+    dumped = deep_substitute_uc_catalog_placeholders(
+        cfg.model_dump(mode="python"), catalog
+    )
+    dumped = _strip_computed_fields_for_roundtrip(dumped)
+    return LegacyProjectConfig.model_validate(dumped)
+
+
+class LegacyProjectConfig(pyd.BaseModel):
+    """Configuration schema for SST legacy (non-PDP) projects."""
+
+    institution_id: str = pyd.Field(
+        ...,
+        description=(
+            "Unique (ASCII-only) identifier for institution; used in naming things "
+            "such as source directories, catalog schemas, keys in shared configs, etc."
+        ),
+    )
+    institution_name: str = pyd.Field(
+        ...,
+        description=(
+            "Readable 'display' name for institution, distinct from the 'id'; "
+            "probably just the school's 'official', public name"
+        ),
+    )
+
+    # shared parameters
+    student_id_col_pre_val: str = pyd.Field(
+        "student_id",
+        description=(
+            "Student identifier column name in *raw* inputs before schema validation; "
+            "e.g. misjoin checks. After validation, data use ``student_id_col``."
+        ),
+    )
+    student_id_col: str = "student_id"
+    target_col: str = "target"
+    split_col: str = "split"
+    sample_weight_col: t.Optional[str] = "sample_weight"
+    student_group_cols: t.Optional[list[str]] = pyd.Field(
+        default=["age_group", "race", "gender"],
+        description=(
+            "One or more column names in datasets containing student 'groups' "
+            "to use for model bias assessment, but *not* as model features"
+        ),
+    )
+    student_group_aliases: dict[str, str] = pyd.Field(
+        default_factory=dict,
+        description=(
+            "Mapping from raw column name (e.g., GENDER_DESC) to "
+            "friendly label (e.g., 'Gender') for use in model cards"
+        ),
+    )
+    pred_col: str = "pred"
+    pred_prob_col: str = "pred_prob"
+    pos_label: t.Optional[bool | str] = True
+    random_state: t.Optional[int] = 12345
+    pipeline_version: str = "v0.1.2"
+
+    # key artifacts produced by project pipeline
+    datasets: "AllDatasetStagesConfig" = pyd.Field(
+        description=(
+            "Key datasets produced by the pipeline represented here in this config"
+        ),
+    )
+    model: t.Optional["ModelConfig"] = pyd.Field(
+        default=None,
+        description=(
+            "Essential metadata for identifying and loading trained model artifacts, "
+            "as produced by the pipeline represented here in this config"
+        ),
+    )
+
+    # key steps in project pipeline
+    preprocessing: t.Optional["PreprocessingConfig"] = None
+    modeling: t.Optional["ModelingConfig"] = None
+    inference: t.Optional["InferenceConfig"] = None
+    postprocessing: t.Optional["PostprocessingConfig"] = None
+
+    @pyd.computed_field  # type: ignore[misc]
+    @property
+    def non_feature_cols(self) -> list[str]:
+        return (
+            [self.student_id_col, self.target_col]
+            + ([self.split_col] if self.split_col else [])
+            + ([self.sample_weight_col] if self.sample_weight_col else [])
+            + (self.student_group_cols or [])
+        )
+
+    @pyd.field_validator("institution_id", mode="after")
+    @classmethod
+    def check_institution_id_isascii(cls, value: str) -> str:
+        if not re.search(r"^\w+$", value, flags=re.ASCII):
+            raise ValueError(f"institution_id='{value}' is not ASCII-only")
+        return value
+
+    # NOTE: this is for *pydantic* model -- not ML model -- configuration
+    model_config = pyd.ConfigDict(extra="forbid", strict=True)
+
+    @pyd.model_validator(mode="after")
+    def check_sample_weight_requires_random_state(self):
+        if self.sample_weight_col and self.random_state is None:
+            raise ValueError(
+                "random_state must be specified if sample_weight_col is provided"
+            )
+        return self
+
+    @pyd.model_validator(mode="after")
+    def validate_student_group_aliases(self) -> "LegacyProjectConfig":
+        missing = [
+            col
+            for col in (self.student_group_cols or [])
+            if col not in (self.student_group_aliases or {})
+        ]
+        if missing:
+            raise ValueError(f"Missing student_group_aliases for: {missing}")
+        return self
+
+    @pyd.model_validator(mode="after")
+    def _normalize_and_validate_primary_metric(self) -> "LegacyProjectConfig":
+        if (
+            self.modeling
+            and self.modeling.training
+            and self.modeling.training.primary_metric
+        ):
+            pm = self.modeling.training.primary_metric
+
+            # Normalize legacy spelling to H2O spelling
+            if pm in {"logloss", "log_loss"}:
+                pm = "logloss"
+
+            if pm not in _ALLOWED_PRIMARY_METRICS:
+                raise ValueError(
+                    f"Unsupported primary_metric '{pm}' for H2O. "
+                    f"Allowed: {sorted(_ALLOWED_PRIMARY_METRICS)}"
+                )
+
+            self.modeling.training.primary_metric = pm
+        return self
+
+    @pyd.model_validator(mode="after")
+    def _validate_inference_background_sample(self) -> "LegacyProjectConfig":
+        if self.inference and self.inference.background_data_sample is not None:
+            n = self.inference.background_data_sample
+            if not (500 <= n <= 2000):
+                raise ValueError(
+                    "For H2O, inference.background_data_sample must be between 500 and 2000."
+                )
+        return self
+
+
+class DatasetConfig(pyd.BaseModel):
+    train_file_path: t.Optional[str] = pyd.Field(
+        default=None,
+        description="Absolute path to training dataset on disk.",
+    )
+    predict_file_path: t.Optional[str] = pyd.Field(
+        default=None,
+        description="Absolute path to prediction/inference dataset on disk.",
+    )
+    train_table_path: t.Optional[str] = pyd.Field(
+        default=None,
+        description="Unity Catalog table path for training dataset, e.g., 'catalog.schema.table'.",
+    )
+    predict_table_path: t.Optional[str] = pyd.Field(
+        default=None,
+        description="Unity Catalog table path for prediction/inference dataset.",
+    )
+    file_path: t.Optional[str] = None
+    table_path: t.Optional[str] = None
+
+    primary_keys: t.Optional[t.List[str]] = pyd.Field(
+        default=None,
+        description="Primary keys utilized for data validation, if applicable",
+    )
+    drop_cols: t.Optional[t.List[str]] = pyd.Field(
+        default=None,
+        description="Columns to be dropped during pre-processing, if applicable",
+    )
+    non_null_cols: t.Optional[t.List[str]] = pyd.Field(
+        default=None,
+        description="Columns to be validated as non-null, if applicable",
+    )
+    predict_file_keyword: t.Optional[str] = pyd.Field(
+        default=None,
+        description=(
+            "Legacy inference: case-insensitive substring matched against filenames "
+            "under the institution bronze ``gcs_uploads`` folder (and the parent "
+            "directory of ``train_file_path`` when set). Newest match wins. Resolved "
+            "at predict-time in ``legacy_preprocessing``."
+        ),
+    )
+
+    @pyd.model_validator(mode="after")
+    def validate_paths(self) -> "DatasetConfig":
+        any_paths = [
+            self.train_file_path,
+            self.predict_file_path,
+            self.train_table_path,
+            self.predict_table_path,
+            self.file_path,  # Legacy, not used in pipeline/DB workflow
+            self.table_path,  # Legacy, not used in pipeline/DB workflow
+        ]
+        has_predict_discovery = bool((self.predict_file_keyword or "").strip())
+        if not any(any_paths) and not has_predict_discovery:
+            raise ValueError(
+                "At least one dataset path must be specified: "
+                "`train_file_path`, `predict_file_path`, "
+                "`train_table_path`, `predict_table_path`, "
+                "`file_path`, `table_path`, or legacy inference discovery via "
+                "`predict_file_keyword`."
+            )
+        return self
+
+    def get_path(self, mode: t.Literal["train", "predict"]) -> t.Optional[str]:
+        """Convenience accessor for the train/predict path."""
+        if mode == "train":
+            return self.train_file_path or self.train_table_path
+        elif mode == "predict":
+            return self.predict_file_path or self.predict_table_path
+        else:
+            raise ValueError(f"Unknown mode: {mode}")
+
+
+class ModelingDatasetConfig(pyd.BaseModel):
+    """Dataset config for training - only allows train-related paths."""
+
+    train_file_path: t.Optional[str] = pyd.Field(
+        default=None,
+        description="Absolute path to training dataset on disk.",
+    )
+    train_table_path: t.Optional[str] = pyd.Field(
+        default=None,
+        description="Unity Catalog table path for training dataset, e.g., 'catalog.schema.table'.",
+    )
+    # Legacy support
+    file_path: t.Optional[str] = None
+    table_path: t.Optional[str] = None
+
+    @pyd.model_validator(mode="after")
+    def validate_paths(self) -> "ModelingDatasetConfig":
+        any_paths = [
+            self.train_file_path,
+            self.train_table_path,
+            self.file_path,
+            self.table_path,
+        ]
+        if not any(any_paths):
+            raise ValueError(
+                "At least one training dataset path must be specified: "
+                "`train_file_path`, `train_table_path`, `file_path`, or `table_path`"
+            )
+        return self
+
+
+class ModelFeaturesDatasetConfig(pyd.BaseModel):
+    """Dataset config for inference - only allows predict-related paths."""
+
+    predict_file_path: t.Optional[str] = pyd.Field(
+        default=None,
+        description="Absolute path to prediction/inference dataset on disk.",
+    )
+    predict_table_path: t.Optional[str] = pyd.Field(
+        default=None,
+        description="Unity Catalog table path for prediction/inference dataset.",
+    )
+    # Legacy support
+    file_path: t.Optional[str] = None
+    table_path: t.Optional[str] = None
+
+    @pyd.model_validator(mode="after")
+    def validate_paths(self) -> "ModelFeaturesDatasetConfig":
+        any_paths = [
+            self.predict_file_path,
+            self.predict_table_path,
+            self.file_path,
+            self.table_path,
+        ]
+        if not any(any_paths):
+            raise ValueError(
+                "At least one prediction dataset path must be specified: "
+                "`predict_file_path`, `predict_table_path`, `file_path`, or `table_path`"
+            )
+        return self
+
+
+class SilverDatasetConfig(pyd.BaseModel):
+    """Silver layer datasets with explicit naming for training and inference."""
+
+    modeling: ModelingDatasetConfig = pyd.Field(
+        description="Training dataset with features, target, and split columns"
+    )
+    model_features: ModelFeaturesDatasetConfig = pyd.Field(
+        description="Inference dataset with features only, ready for model predictions"
+    )
+
+    # Allow additional legacy datasets beyond the two required ones
+    model_config = pyd.ConfigDict(extra="allow")
+
+
+class AllDatasetStagesConfig(pyd.BaseModel):
+    bronze: dict[str, DatasetConfig]
+    silver: SilverDatasetConfig
+    gold: dict[str, DatasetConfig]
+
+
+class ModelConfig(pyd.BaseModel):
+    experiment_id: str
+    run_id: str
+    calibrate_underpred: t.Optional[bool] = False
+
+    @pyd.computed_field  # type: ignore[misc]
+    @property
+    def mlflow_model_uri(self) -> str:
+        return f"runs:/{self.run_id}/model"
+
+
+class PreprocessingConfig(pyd.BaseModel):
+    cleaning: t.Optional["CleaningConfig"] = None
+    selection: "SelectionConfig"
+    checkpoint: "CheckpointConfig"
+    target: "TargetConfig"
+    splits: dict[t.Literal["train", "test", "validate"], float] = pyd.Field(
+        default={"train": 0.6, "test": 0.2, "validate": 0.2},
+        description=(
+            "Mapping of name to fraction of the full datset belonging to a given 'split', "
+            "which is a randomized subset used for different parts of the modeling process"
+        ),
+    )
+    sample_class_weight: t.Optional[t.Literal["balanced"] | dict[object, int]] = (
+        pyd.Field(
+            default=None,
+            description=(
+                "Weights associated with classes in the form ``{class_label: weight}`` "
+                "or 'balanced' to automatically adjust weights inversely proportional "
+                "to class frequencies in the input data. "
+                "If null (default), then sample weights are not computed."
+            ),
+        )
+    )
+
+    @pyd.field_validator("splits", mode="after")
+    @classmethod
+    def check_split_fractions(cls, value: dict) -> dict:
+        if (sum_fracs := sum(value.values())) != 1.0:
+            raise pyd.ValidationError(
+                f"split fractions must sum up to 1.0, but input sums up to {sum_fracs}"
+            )
+        return value
+
+
+class CheckpointConfig(pyd.BaseModel):
+    name: str = pyd.Field(default="checkpoint")
+    params: dict[str, object] = pyd.Field(default_factory=dict)
+    unit: t.Literal["credit", "year", "term", "semester"]
+    value: int = pyd.Field(
+        default=30,
+        description=(
+            "Number of checkpoint units (e.g. 1 year, 1 term/semester, 30 credits)"
+        ),
+    )
+    optional_desc: t.Optional[str] = pyd.Field(
+        default=None,
+        description=(
+            "Optional description of the checkpoint beyond the unit and value. "
+            "Used to provide further context for the particular institution and model. "
+        ),
+    )
+
+    @pyd.field_validator("value")
+    @classmethod
+    def check_value_positive(cls, v):
+        if v is not None and v <= 0:
+            raise ValueError("Value must be greater than zero.")
+        return v
+
+    @pyd.field_validator("name", mode="after")
+    @classmethod
+    def check_name_is_lowercase(cls, value: str) -> str:
+        if value != value.lower():
+            raise ValueError(
+                f"checkpoint.name='{value}' must be lowercase. "
+                "Unity Catalog will lowercase model names automatically. "
+                "To ensure consistency across our codebase, we require lowercase names."
+            )
+        return value
+
+
+class TargetConfig(pyd.BaseModel):
+    name: str = pyd.Field(default="target")
+    category: t.Literal["graduation", "retention"]
+    params: dict[str, object] = pyd.Field(default_factory=dict)
+    unit: t.Literal["credit", "year", "term", "semester", "pct_completion"]
+    value: int = pyd.Field(
+        default=120,
+        description=(
+            "Number of target units (e.g. 4 years, 4 terms, 120 credits, 150 completion %)"
+        ),
+    )
+    optional_desc: t.Optional[str] = pyd.Field(
+        default=None,
+        description=(
+            "Optional description of the target beyond the unit and value. "
+            "Used to provide further context for the particular institution and model. "
+        ),
+    )
+
+    @pyd.field_validator("value")
+    @classmethod
+    def check_value_positive(cls, v):
+        if v is not None and v <= 0:
+            raise ValueError("Value must be greater than zero.")
+        return v
+
+    @pyd.field_validator("name", mode="after")
+    @classmethod
+    def check_name_is_lowercase(cls, value: str) -> str:
+        if value != value.lower():
+            raise ValueError(
+                f"target.name='{value}' must be lowercase. "
+                "Unity Catalog will lowercase model names automatically. "
+                "To ensure consistency across our codebase, we require lowercase names."
+            )
+        return value
+
+
+class SelectionConfig(pyd.BaseModel):
+    student_criteria: dict[str, object] = pyd.Field(
+        default_factory=dict,
+        description=(
+            "Column name in modeling dataset mapped to one or more values that it must equal "
+            "in order for the corresponding student to be considered 'eligible'. "
+            "Multiple criteria are combined with a logical 'AND'."
+        ),
+    )
+    student_criteria_aliases: dict[str, str] = pyd.Field(
+        default_factory=dict,
+        description="Human-readable display names for student_criteria keys",
+    )
+
+    @pyd.model_validator(mode="after")
+    def validate_criteria_aliases(self) -> "SelectionConfig":
+        criteria_keys = self.student_criteria.keys()
+        alias_keys = self.student_criteria_aliases or {}
+
+        missing = [k for k in criteria_keys if k not in alias_keys]
+        if missing:
+            raise ValueError(
+                f"Missing display aliases in `student_criteria_aliases` for: {missing}"
+            )
+        return self
+
+
+class ModelingConfig(pyd.BaseModel):
+    feature_selection: t.Optional["FeatureSelectionConfig"] = None
+    training: "TrainingConfig"
+    evaluation: t.Optional["EvaluationConfig"] = None
+    bias_mitigation: t.Optional["BiasMitigationConfig"] = None
+
+
+class FeatureSelectionConfig(pyd.BaseModel):
+    """
+    See Also:
+        - :func:`modeling.feature_selection.select_features()`
+    """
+
+    force_include_cols: t.Optional[list[str]] = None
+    incomplete_threshold: float = 0.5
+    low_variance_threshold: float = 0.0
+    collinear_threshold: t.Optional[float] = 10.0
+
+
+class TrainingConfig(pyd.BaseModel):
+    """
+    References:
+        - https://docs.h2o.ai/h2o/latest-stable/h2o-docs/automl.html
+    """
+
+    exclude_cols: t.Optional[list[str]] = pyd.Field(
+        default=None,
+        description="One or more column names in dataset to exclude from training.",
+    )
+    time_col: t.Optional[str] = pyd.Field(
+        default=None,
+        description=(
+            "Column name in dataset used to split train/test/validate sets chronologically, "
+            "as an alternative to the randomized assignment in ``split_col`` ."
+        ),
+    )
+    exclude_frameworks: t.Optional[list[str]] = pyd.Field(
+        default=None,
+        description="List of algorithm frameworks that H2O AutoML excludes from training.",
+    )
+    primary_metric: str = pyd.Field(
+        default="logloss",
+        description="Metric used to evaluate and rank model performance.",
+    )
+    timeout_minutes: t.Optional[int] = pyd.Field(
+        default=None,
+        description="Maximum time to wait for H2O AutoML trials to complete.",
+    )
+    cohort: t.Optional[list[str]] = pyd.Field(
+        default=[],
+        description="List of cohorts used in training. e.g. ['Fall 2024-25']",
+    )
+    classification_threshold: float = pyd.Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Classification threshold for converting probabilities to binary predictions. "
+            "Must be a multiple of 0.05 (e.g., 0.40, 0.45, 0.50). "
+            "This constraint ensures easier interpretation for institutional stakeholders and simplifies implementation. "
+            "Lower thresholds (e.g., 0.4) increase recall and sensitivity to the positive class (students needing support), "
+            "resulting in more students identified for intervention. Higher thresholds (e.g., 0.6) increase precision "
+            "and reduce false positives. Default is 0.5."
+        ),
+    )
+
+    @pyd.field_validator("classification_threshold", mode="after")
+    @classmethod
+    def validate_classification_threshold_multiple_of_5(cls, v: float) -> float:
+        """Ensure classification_threshold is a multiple of 0.05 (5%)."""
+        # Check if v is a multiple of 0.05 by checking if (v * 20) is an integer
+        # This avoids floating point precision issues with modulo
+        if abs(v * 20 - round(v * 20)) > 1e-10:
+            raise ValueError(
+                f"classification_threshold must be a multiple of 0.05 (5%) for easier interpretation "
+                f"by institutional stakeholders and simplified implementation. Got {v}. "
+                f"Valid values: 0.00, 0.05, 0.10, ..., 0.95, 1.00"
+            )
+        return v
+
+
+class EvaluationConfig(pyd.BaseModel):
+    topn_runs_included: int = pyd.Field(
+        default=3,
+        description="Number of top-scoring mlflow runs to include for detailed evaluation",
+    )
+
+
+class BiasMitigationConfig(pyd.BaseModel):
+    student_group_col: str = pyd.Field(
+        default="student_group",
+        description="Column name in dataset to have a custom threshold set.",
+    )
+    student_group_col_alias: str = pyd.Field(
+        default="Student Group",
+        description="Human-readable display name for student_group column.",
+    )
+    student_group: str = pyd.Field(
+        default="freshmen",
+        description="Value in student_group column that has a custom threshold based on bias considerations.",
+    )
+    custom_threshold: float = pyd.Field(
+        default=0.5,
+        description="Threshold for student group based on bias considerations.",
+    )
+
+
+class PostprocessingConfig(pyd.BaseModel):
+    enabled: bool = pyd.Field(
+        default=False,
+        description=(
+            "When true, legacy inference runs the school's postprocessing.py after inference_h2o."
+        ),
+    )
+
+
+class InferenceConfig(pyd.BaseModel):
+    num_top_features: int = pyd.Field(default=5)
+    min_prob_pos_label: t.Optional[float] = 0.5
+    background_data_sample: t.Optional[int] = 500
+    quartiles_table_path: t.Optional[str] = pyd.Field(
+        default=None,
+        description=(
+            "Optional Unity Catalog Delta table (catalog.schema.table) storing "
+            "training-time support_score quartile bin edges per model checkpoint. "
+            "Consumed at inference for advisor risk labels when present."
+        ),
+    )
+    term: t.Optional[list[str]] = pyd.Field(
+        default=None,
+        description="List of terms to use for inference. Students will be selected if they meet the checkpoint in one of these terms. "
+        "Typically most often the most recent term. e.g. ['fall 2024-25', 'spring 2024-25']",
+    )
+
+    cohort: t.Optional[list[str]] = pyd.Field(
+        default=None,
+        description="DEPRECATED: Use 'term' instead. This field will be removed in a future version.",
+    )
+
+    @pyd.model_validator(mode="after")
+    def migrate_cohort_to_term(self) -> "InferenceConfig":
+        """Migrate deprecated cohort field to term and ensure one is provided."""
+        # Case 1: Both provided - term takes precedence
+        if self.cohort is not None and self.term is not None:
+            warnings.warn(
+                "Both 'cohort' and 'term' are provided. 'cohort' is deprecated and will be ignored. "
+                "Please use only 'term' in your configuration.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            # term already has the right value, cohort will be ignored
+            return self
+
+        # Case 2: Only cohort provided - migrate to term
+        if self.cohort is not None and self.term is None:
+            warnings.warn(
+                "The 'cohort' field is deprecated and will be removed in a future version. "
+                "Please update your configuration to use 'term' instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            self.term = self.cohort
+            return self
+
+        # Case 3: Only term provided - all good, no warning needed
+        if self.term is not None:
+            return self
+
+        # Case 4: Neither provided - error
+        raise ValueError(
+            "Either 'term' or 'cohort' must be provided in the inference configuration. "
+            "Note: 'cohort' is deprecated, please use 'term'."
+        )

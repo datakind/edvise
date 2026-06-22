@@ -26,7 +26,7 @@ Prompt builders:
     build_refinement_combined_pass1_user_prompt(...) -> str
     build_refinement_pass2_system_prompt() -> str
     build_refinement_pass2_user_prompt(
-        institution_id, entity_type, hitl_flags, schema_contract
+        institution_id, entity_type, hitl_flags, schema_contract, refined_manifest=...
     ) -> str
 
 Backward-compatible aliases (Pass 1):
@@ -73,7 +73,7 @@ from ..schemas import (
     ReviewStatus,
     get_compact_manifest_schema_reference,
 )
-from ..validation import ManifestValidationError
+from ..validation import ManifestValidationError, infer_manifest_base_table
 
 from edvise.genai.mapping.shared.utilities import strip_json_fences
 from edvise.utils.llm_utils import llm_complete_with_parse_retry
@@ -90,6 +90,29 @@ _BASE_TABLE_JOIN_HINT = (
     "join.base_table, else the mode of source_table). For CROSS_TABLE_REQUIRES_JOIN or "
     "wrong-table sourcing, add a full join + lookup source_table and keys — not source_table alone."
 )
+
+# Pass 2: TERMINAL options are scratch-validated per FieldMappingRecord — models often
+# forget join on low_confidence even when Step 2a had zero manifest-level errors.
+_PASS2_TERMINAL_EXECUTION_BASE_RULE = """
+  EXECUTION BASE TABLE — applies to EVERY TERMINAL option (all failure_mode values):
+    The executor infers one execution base table per entity manifest: the first mapping row
+    that declares a non-null join uses that row's join.base_table; otherwise the mode
+    (most frequent) of non-null source_table across mappings. Pass 2 may also print this
+    value explicitly in the user message — treat it as authoritative when present.
+
+    For each TERMINAL option's field_mapping (including option 1 and "Keep original mapping"):
+    - If source_table is null (e.g. leave_unmapped): join must be null — OK.
+    - If source_table equals the inferred execution base: join is usually null (same-table read).
+    - If source_table is non-null and differs from the inferred base: join MUST be non-null with
+      join.base_table = inferred base, join.lookup_table = field_mapping.source_table, and
+      join_keys that exist on both tables after column_aliases resolution; use column_alias on
+      the SMAHITLOption when names differ across tables.
+    Output that violates the above is rejected with CROSS_TABLE_REQUIRES_JOIN before the run
+    succeeds — do not emit cross-table TERMINAL rows without a complete join.
+
+    If you cannot justify join_keys defensibly, do not offer that cross-table TERMINAL; use
+    same-base-table alternatives, leave_unmapped, or keep the original mapping instead.
+"""
 
 
 def _parse_sma_refinement_llm_dict(raw: str) -> dict[str, Any]:
@@ -123,7 +146,7 @@ SMAHITLItem: {
   hitl_context: str | null,  # evidence: sample values, available columns, rationale, error details
   current_field_mapping: FieldMappingRecord,  # ORIGINAL from input manifest, unchanged — options hold fixes
   validation_errors: list[str],              # ManifestValidationError.detail strings, empty if low_confidence only
-  options: list[SMAHITLOption],              # 3-5 options, last always option_id="direct_edit"
+  options: list[SMAHITLOption],              # 2-5 options, last always option_id="direct_edit"
   choice: null,              # always null — reviewer sets this
   reviewer_note: null,       # always null — reviewer sets this
   direct_edit_field_mapping: FieldMappingRecord  # REQUIRED: deep copy of current_field_mapping (JSON) for reviewer to edit
@@ -227,7 +250,7 @@ Pass 2 output — respond with a single JSON object, no preamble, no markdown:
       "options": [
         // list of SMAHITLOption — 2-4 TERMINAL (reentry=terminal, field_mapping=FieldMappingRecord)
         // + always one final direct_edit option (see HITL output schema above)
-        // 3-5 options total
+        // 2-5 options total
         // option 1 is always your recommended fix
         // include original mapping as an option if still plausible
         // include one TERMINAL "leave_unmapped" option when applicable (see OPTION RULES)
@@ -268,6 +291,14 @@ REFINED_CORRECTIONS / HITL_FLAGS:
   - hitl_flags: required for every field with status proposed_for_hitl or refined_and_proposed_for_hitl.
   - Do not change confidence — it reflects the generating agent's uncertainty.
 
+FAILURE_MODE vs Pass 2 (improves option quality):
+  - Step 2a may report zero deterministic validation errors while a mapping is still weak or uses
+    another table without a join. When the reviewer decision will require fixing join keys,
+    lookup table linkage, or declaring base↔lookup join_keys, set failure_mode to join_structure
+    (priority over low_confidence per the collapse rule when both apply). Pass 2 then applies
+    join_structure option rules explicitly. Use low_confidence only when the issue is not
+    primarily join/cross-table linkage.
+
 OTHER:
   - Fields in the auto_approved_fields list must have field_statuses[target_field]="auto_approved"
     and NO refined_corrections entry and NO hitl_flags entry.
@@ -285,11 +316,13 @@ OPTION RULES — Pass 2 only; you receive all Pass 1 flags for one entity in one
     Pass 1 hitl_flag. Do not modify it. Your recommended fix is option 1 in the options list.
 
   - Maximum 4 TERMINAL options + 1 direct_edit = 5 total.
-  - Minimum 2 TERMINAL options + 1 direct_edit = 3 total.
+  - Minimum 1 TERMINAL option + 1 direct_edit = 2 total (e.g. leave_unmapped only when
+    no plausible mapped alternative exists).
   - Last option ALWAYS: option_id="direct_edit", reentry="direct_edit",
     field_mapping=null, column_alias=null (see HITL output schema for labels).
   - Each TERMINAL option is a complete FieldMappingRecord inside SMAHITLOption.field_mapping.
-  - column_alias only on JOIN_STRUCTURE options needing alias bridging.
+{_PASS2_TERMINAL_EXECUTION_BASE_RULE}
+  - column_alias on any TERMINAL option when join keys need a name bridge (not only join_structure).
   - Options must be meaningfully distinct — no near-duplicates.
   - Option 1 is your recommended fix, labeled clearly.
   - Include original mapping as an option labeled "Keep original mapping"
@@ -311,12 +344,18 @@ OPTION RULES — Pass 2 only; you receive all Pass 1 flags for one entity in one
 BY FAILURE MODE:
 
   low_confidence:
-    - Option 1: your recommended mapping.
+    - Option 1: your recommended mapping. If it sources from a non-base table, it MUST include
+      the full join block (see EXECUTION BASE TABLE above) — low_confidence is not an excuse
+      to omit join.
     - Include leave_unmapped as described above.
     - Then: "Keep original mapping" if still plausible, and/or an alternative candidate.
+    - Alternatives that read term/degree/etc. columns must each be join-complete or be rejected;
+      prefer same-base-table TERMINAL options when join_keys would be guesswork.
 
   column_not_found:
     - Options are close-match column candidates ordered by similarity.
+    - If a candidate column lives on a table other than the inferred execution base, the
+      TERMINAL field_mapping must include the full join (same rule as EXECUTION BASE TABLE).
     - Include leave_unmapped when none of the candidates are acceptable.
 
   join_structure:
@@ -497,6 +536,11 @@ escape hatch on every item.
 CRITICAL — current_field_mapping:
   current_field_mapping in each item must be copied unchanged from the corresponding Pass 1 hitl_flag.
   Never modify it. Corrections belong in options (option 1 = recommended).
+
+CRITICAL — TERMINAL scratch validation:
+  Every TERMINAL option is checked with the same validate_manifest rules as Step 2a on a scratch
+  manifest. Cross-table TERMINAL rows without join are rejected (retries exhaust). Follow
+  EXECUTION BASE TABLE in the option rules and any explicit base table line in the user message.
 """
 
 
@@ -791,6 +835,8 @@ def build_refinement_pass2_user_prompt(
     entity_type: str,
     hitl_flags: list[dict],
     schema_contract: EnrichedSchemaContractForSMA,
+    *,
+    refined_manifest: FieldMappingManifest | None = None,
 ) -> str:
     """
     Build the user prompt for SMA refinement Pass 2 (options for all Pass 1 flags for one entity).
@@ -805,14 +851,36 @@ def build_refinement_pass2_user_prompt(
         Pass 1 ``hitl_flags`` for this entity (list of dict-shaped flags).
     schema_contract:
         EnrichedSchemaContractForSMA from IdentityAgent output.
+    refined_manifest:
+        Manifest after Pass 1 merge. When provided, the prompt includes the inferred
+        execution base table (same rule as ``validate_manifest`` / executor) so Pass 2
+        can align cross-table TERMINAL options with explicit ``join`` blocks.
     """
     flags_json = json.dumps(hitl_flags, indent=2, default=str)
     schema_summary = _format_schema_contract_summary(schema_contract)
 
+    base_section = ""
+    if refined_manifest is not None:
+        try:
+            inferred_base = infer_manifest_base_table(refined_manifest)
+        except ValueError:
+            inferred_base = None
+        if inferred_base is not None:
+            base_section = f"""
+## Inferred execution base table (deterministic — TERMINAL options must align)
+
+For this entity's manifest after Pass 1, the pipeline infers execution base table: **{inferred_base}**.
+
+Any TERMINAL `field_mapping` with non-null `source_table` not equal to `{inferred_base}` must include
+non-null `join` with `join.base_table` = `{inferred_base}`, `join.lookup_table` = that row's
+`source_table`, and valid `join_keys` for both tables (canonical names per manifest `column_aliases`;
+use `column_alias` on the option when bridging a rename). Same-table reads from `{inferred_base}` keep `join` null.
+"""
+
     return f"""## Institution
 institution_id: {institution_id}
 entity_type: {entity_type}
-
+{base_section}
 ## Schema contract — available tables and columns
 {schema_summary}
 
@@ -1088,6 +1156,7 @@ def _run_pass2_llm_call(
         entity_type,
         hitl_flags,
         schema_contract,
+        refined_manifest=refined_manifest,
     )
 
     def _parse_pass2_with_terminal_validation(raw: str) -> dict[str, Any]:

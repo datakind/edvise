@@ -67,10 +67,10 @@ def test_merge_keeps_hitl_when_first_duplicate_omits_review_required() -> None:
         },
         {"option_id": "correct", "label": "c", "description": "d", "resolution": None},
         {
-            "option_id": "unmappable",
-            "label": "u",
+            "option_id": "hook_required",
+            "label": "h",
             "description": "d",
-            "resolution": {"steps": [], "output_dtype": None},
+            "resolution": {"hook_required": True},
         },
     ]
     steps = [_step()]
