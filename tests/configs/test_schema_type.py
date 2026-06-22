@@ -36,7 +36,7 @@ def test_is_legacy_schema():
 def test_resolve_features_table_path_default_for_pdp():
     assert (
         resolve_features_table_path("pdp", None)
-        == "shared/assets/pdp_features_table.toml"
+        == "shared/assets/features_table.toml"
     )
 
 

@@ -48,6 +48,7 @@ class PredConfig:
     cfg_inference_params: dict | None
     random_state: int
     classification_threshold: float = 0.5
+    schema_type: str | None = None
 
 
 @dataclass
@@ -203,6 +204,7 @@ def build_and_log_ranked_feature_table(
     filename: str = "ranked_selected_features.csv",
     log_to_mlflow: bool = False,
     original_dtypes: t.Optional[dict[str, t.Any]] = None,
+    schema_type: str | None = None,
 ) -> pd.DataFrame | None:
     """
     Builds the ranked SHAP feature-importance table.
@@ -216,6 +218,7 @@ def build_and_log_ranked_feature_table(
             features_table=features_table,
             metadata=True,
             original_dtypes=original_dtypes,
+            schema_type=schema_type,
         )
 
         if sfi is None or sfi.empty:
@@ -328,6 +331,7 @@ def run_predictions(
         n_features=10,
         features_table=ft,
         needs_support_threshold_prob=pred_cfg.min_prob_pos_label,
+        schema_type=pred_cfg.schema_type,
     )
 
     sfi = build_and_log_ranked_feature_table(
@@ -337,6 +341,7 @@ def run_predictions(
         run_id=pred_cfg.model_run_id,
         log_to_mlflow=(run_type == RunType.TRAIN),
         original_dtypes=getattr(imp, "input_dtypes", None),
+        schema_type=pred_cfg.schema_type,
     )
 
     default_inference_params = {
@@ -353,6 +358,8 @@ def run_predictions(
             if pred_cfg.cfg_inference_params is None
             else pred_cfg.cfg_inference_params
         ),
+        features_table=ft,
+        schema_type=pred_cfg.schema_type,
     )
 
     return PredOutputs(
