@@ -11,7 +11,7 @@ from edvise.genai.mapping.shared.hitl import PIPELINE_HITL_CONFIDENCE_THRESHOLD
 from edvise.genai.mapping.shared.utilities import strip_json_fences
 
 from .file_kinds import FileKind, file_kind_prompt_section
-from .schemas import ColumnRole, ColumnRoleAssignment, ColumnRolesResult
+from .schemas import ColumnRoleAssignment, ColumnRolesResult
 
 logger = logging.getLogger(__name__)
 
