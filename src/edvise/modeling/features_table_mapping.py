@@ -13,12 +13,6 @@ from edvise.feature_generation.column_names import (
 )
 
 
-# Edvise student renames not represented on :class:`CohortInputColumns`.
-_ES_ADDITIONAL_STUDENT_TOKEN_MAP: dict[str, str] = {
-    "learner_age": "student_age",
-    "first_generation_status": "first_gen",
-}
-
 # Edvise-only cohort columns that pass through to the modeling dataset (see ESCleanup).
 ES_ONLY_FEATURES_TABLE_COLUMNS: tuple[str, ...] = (
     "intended_program_type",
@@ -33,8 +27,7 @@ def build_es_to_pdp_feature_token_map() -> dict[str, str]:
     Build Edvise physical column token -> PDP token replacements for features-table lookup.
 
     Derived from :data:`ES_COHORT_INPUT_COLUMNS` / :data:`ES_COURSE_INPUT_COLUMNS` vs
-    their PDP counterparts wherever both sides define the same logical field, plus
-    :data:`_ES_ADDITIONAL_STUDENT_TOKEN_MAP`.
+    their PDP counterparts wherever both sides define the same logical field.
     """
     mapping: dict[str, str] = {}
     pairs = [
@@ -51,7 +44,6 @@ def build_es_to_pdp_feature_token_map() -> dict[str, str]:
                 and es_val.lower() != pdp_val.lower()
             ):
                 mapping[es_val.lower()] = pdp_val.lower()
-    mapping.update(_ES_ADDITIONAL_STUDENT_TOKEN_MAP)
     return mapping
 
 

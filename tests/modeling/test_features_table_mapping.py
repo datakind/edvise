@@ -22,8 +22,6 @@ def test_build_es_to_pdp_feature_token_map_includes_course_and_cohort_tokens():
     )
     assert token_map["entry_term"] == "cohort_term"
     assert token_map["entry_year"] == "cohort"
-    assert token_map["learner_age"] == "student_age"
-    assert token_map["first_generation_status"] == "first_gen"
 
 
 @pytest.mark.parametrize(
@@ -38,11 +36,6 @@ def test_build_es_to_pdp_feature_token_map_includes_course_and_cohort_tokens():
             "frac_courses_gen_ed_flag_y",
             "edvise",
             "frac_courses_core_course_y",
-        ),
-        (
-            "learner_age",
-            "edvise",
-            "student_age",
         ),
         ("academic_term", "pdp", "academic_term"),
         ("num_courses_delivery_method_f", "edvise", "num_courses_delivery_method_f"),
