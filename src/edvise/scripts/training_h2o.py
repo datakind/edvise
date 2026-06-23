@@ -77,7 +77,7 @@ def resolve_spec(args: argparse.Namespace) -> SchemaSpec:
             schema_type="pdp",
             cfg_schema=configs.pdp.PDPProjectConfig,
             model_card_cls=H2OPDPModelCard,
-            features_table_path="shared/assets/pdp_features_table.toml",
+            features_table_path="shared/assets/features_table.toml",
         )
 
     if args.schema_type == "edvise":
@@ -85,7 +85,7 @@ def resolve_spec(args: argparse.Namespace) -> SchemaSpec:
             schema_type="edvise",
             cfg_schema=configs.es.ESProjectConfig,
             model_card_cls=H2OPDPModelCard,
-            features_table_path="shared/assets/pdp_features_table.toml",
+            features_table_path="shared/assets/features_table.toml",
         )
 
     if not args.features_table_path:
@@ -234,7 +234,7 @@ class TrainingTask:
             self._validate_modeling_contract(df_modeling)
             return df_modeling
 
-        # PDP: use run-specific path
+        # PDP / Edvise: use run-specific path
         modeling_path = os.path.join(current_run_path, "modeling.parquet")
         modeling_path_local = local_fs_path(modeling_path)
 
@@ -244,7 +244,7 @@ class TrainingTask:
             self._validate_modeling_contract(df_modeling)
             return df_modeling
 
-        # PDP fallback path
+        # PDP / Edvise fallback path
         preproc_path = os.path.join(current_run_path, "preprocessed.parquet")
         preproc_path_local = local_fs_path(preproc_path)
         if not os.path.exists(preproc_path_local):
@@ -321,7 +321,9 @@ class TrainingTask:
         undefined_features = [
             f
             for f in feature_cols
-            if not is_feature_defined_in_table(f, features_table)
+            if not is_feature_defined_in_table(
+                f, features_table, schema_type=self.spec.schema_type
+            )
         ]
         if undefined_features:
             raise ValueError(
@@ -605,6 +607,7 @@ class TrainingTask:
             cfg_inference_params=inference_cfg.dict(),
             random_state=self.cfg.random_state,
             classification_threshold=classification_threshold,
+            schema_type=self.spec.schema_type,
         )
         paths = PredPaths(features_table_path=self.spec.features_table_path)
 

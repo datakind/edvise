@@ -8,6 +8,7 @@ import numpy as np
 import numpy.typing as npt
 
 import edvise.dataio as dataio
+from edvise.modeling.features_table_mapping import map_feature_col_for_features_table
 
 LOGGER = logging.getLogger(__name__)
 
@@ -20,6 +21,7 @@ def select_top_features_for_display(
     n_features: int = 3,
     needs_support_threshold_prob: t.Optional[float] = 0.5,
     features_table: t.Optional[dict[str, dict[str, str]]] = None,
+    schema_type: str | None = None,
 ) -> pd.DataFrame:
     """
     Select most important features from SHAP for each student
@@ -71,7 +73,9 @@ def select_top_features_for_display(
             zip(top_features, top_feature_values, top_shap_values), start=1
         ):
             feature_name = (
-                _get_mapped_feature_name(feature, features_table)
+                _get_mapped_feature_name(
+                    feature, features_table, schema_type=schema_type
+                )
                 if features_table is not None
                 else feature
             )
@@ -96,6 +100,7 @@ def generate_ranked_feature_table(
     features_table: t.Optional[dict[str, dict[str, str]]] = None,
     metadata: bool = True,
     original_dtypes: t.Optional[dict[str, t.Any]] = None,
+    schema_type: str | None = None,
 ) -> pd.DataFrame:
     """
     Creates a table of all selected features of the model ranked
@@ -128,6 +133,7 @@ def generate_ranked_feature_table(
                 feature_col=feature,
                 features_table=features_table,
                 metadata=metadata,
+                schema_type=schema_type,
             )
         else:
             mapped = feature if not metadata else (feature, None, None)
@@ -199,28 +205,48 @@ def generate_ranked_feature_table(
 
 
 def _lookup_features_table_entry(
-    feature_col: str, features_table: dict[str, dict[str, str]]
+    feature_col: str,
+    features_table: dict[str, dict[str, str]],
+    *,
+    schema_type: str | None = None,
 ) -> tuple[dict[str, str], re.Match[str] | None] | None:
     """Return ``(entry, regex_match)`` for an exact or regex features-table key."""
     feature_col = feature_col.lower()
-    if feature_col in features_table:
-        return features_table[feature_col], None
-    for fkey, fval in features_table.items():
-        if "(" in fkey and ")" in fkey:
-            if match := re.fullmatch(fkey, feature_col):
-                return fval, match
+    mapped_col = map_feature_col_for_features_table(feature_col, schema_type)
+    candidates = [mapped_col]
+    if mapped_col != feature_col:
+        candidates.append(feature_col)
+
+    for candidate in candidates:
+        if candidate in features_table:
+            return features_table[candidate], None
+        for fkey, fval in features_table.items():
+            if "(" in fkey and ")" in fkey:
+                if match := re.fullmatch(fkey, candidate):
+                    return fval, match
     return None
 
 
 def is_feature_defined_in_table(
-    feature_col: str, features_table: dict[str, dict[str, str]]
+    feature_col: str,
+    features_table: dict[str, dict[str, str]],
+    *,
+    schema_type: str | None = None,
 ) -> bool:
     """True when ``feature_col`` matches an exact or regex key in ``features_table``."""
-    return _lookup_features_table_entry(feature_col, features_table) is not None
+    return (
+        _lookup_features_table_entry(
+            feature_col, features_table, schema_type=schema_type
+        )
+        is not None
+    )
 
 
 def _get_mapped_feature_name(
-    feature_col: str, features_table: dict[str, dict[str, str]], metadata: bool = False
+    feature_col: str,
+    features_table: dict[str, dict[str, str]],
+    metadata: bool = False,
+    schema_type: str | None = None,
 ) -> t.Any:
     feature_col = feature_col.lower()  # just in case
 
@@ -230,7 +256,9 @@ def _get_mapped_feature_name(
         long_desc = entry.get("long_desc", entry.get("long_feature_desc"))
         return short_desc, long_desc
 
-    if lookup := _lookup_features_table_entry(feature_col, features_table):
+    if lookup := _lookup_features_table_entry(
+        feature_col, features_table, schema_type=schema_type
+    ):
         entry, match = lookup
         feature_name = entry["name"].format(*match.groups()) if match else entry["name"]
         if metadata:
@@ -262,6 +290,7 @@ def top_shap_features(
     shap_values: npt.NDArray[np.float64],
     top_n: int = 10,
     features_table: t.Optional[dict[str, dict[str, str]]] = None,
+    schema_type: str | None = None,
 ) -> pd.DataFrame:
     """
     Extracts the top N most important SHAP features across all samples.
@@ -311,7 +340,9 @@ def top_shap_features(
             ["feature_readable_name", "feature_short_desc", "feature_long_desc"]
         ] = top_features["feature_name"].apply(
             lambda feature: pd.Series(
-                _get_mapped_feature_name(feature, features_table, metadata=True)
+                _get_mapped_feature_name(
+                    feature, features_table, metadata=True, schema_type=schema_type
+                )
             )
         )
 
@@ -324,6 +355,7 @@ def top_feature_boxstats(
     features: pd.DataFrame,
     shap_values: npt.NDArray[np.float64],
     features_table: t.Optional[dict[str, dict[str, str]]] = None,
+    schema_type: str | None = None,
 ) -> pd.DataFrame:
     """
     Per-feature summary for the GLOBAL top-N features (by mean |SHAP|).
@@ -387,7 +419,9 @@ def top_feature_boxstats(
             ["feature_readable_name", "feature_short_desc", "feature_long_desc"]
         ] = feature_boxstats["feature_name"].apply(
             lambda feature: pd.Series(
-                _get_mapped_feature_name(feature, features_table, metadata=True)
+                _get_mapped_feature_name(
+                    feature, features_table, metadata=True, schema_type=schema_type
+                )
             )
         )
     return feature_boxstats
@@ -400,6 +434,7 @@ def support_score_distribution_table(
     shap_values: t.Any,
     inference_params: dict,
     features_table: t.Optional[dict[str, dict[str, str]]] = None,
+    schema_type: str | None = None,
 ) -> pd.DataFrame:
     """
     Selects top SHAP features for each student, and bins the support scores.
@@ -434,6 +469,7 @@ def support_score_distribution_table(
             n_features=inference_params["num_top_features"],
             needs_support_threshold_prob=inference_params["min_prob_pos_label"],
             features_table=features_table,
+            schema_type=schema_type,
         )
 
         # --- Bin support scores for histogram (e.g., 0.0 to 1.0 in 0.1 steps) ---
@@ -472,6 +508,7 @@ def top_n_features(
     grouped_shap_values: npt.NDArray[np.float64] | pd.DataFrame,  # relax input
     features_table_path: str,
     n: int = 10,
+    schema_type: str | None = None,
 ) -> pd.DataFrame:
     features_table = dataio.read.read_features_table(features_table_path)
     try:
@@ -485,6 +522,7 @@ def top_n_features(
             ),
             top_n=n,
             features_table=features_table,
+            schema_type=schema_type,
         )
         return top_n_shap_features
     except Exception as e:
@@ -496,6 +534,7 @@ def features_box_whiskers_table(
     features: pd.DataFrame,
     shap_values: npt.NDArray[np.float64],
     features_table_path: str,
+    schema_type: str | None = None,
 ) -> pd.DataFrame:
     features_table = dataio.read.read_features_table(features_table_path)
     try:
@@ -503,6 +542,7 @@ def features_box_whiskers_table(
             features=features,
             shap_values=shap_values,
             features_table=features_table,
+            schema_type=schema_type,
         )
         return feature_boxstats
 
