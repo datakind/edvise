@@ -53,7 +53,6 @@ resources:
         - task_key: data_audit
           depends_on:
             - task_key: inference_setup
-            - task_key: check_use_genai_inputs
             - task_key: genai_mapping_execute
           run_if: NONE_FAILED
           spark_python_task:
