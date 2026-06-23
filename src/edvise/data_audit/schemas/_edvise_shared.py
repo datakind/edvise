@@ -312,6 +312,11 @@ def _apply_student_schema_transforms(df: pd.DataFrame) -> pd.DataFrame:
     conferred_credential_type — those are free-form strings in the raw schema.
     """
     df = df.copy()
+    if (
+        "pell_recipient_year_1" in df.columns
+        and "pell_recipient_year1" not in df.columns
+    ):
+        df = df.rename(columns={"pell_recipient_year_1": "pell_recipient_year1"})
     if "entry_term" in df.columns:
         df["entry_term"] = term_series_to_pdp(df["entry_term"])
     if "learner_age" in df.columns:
