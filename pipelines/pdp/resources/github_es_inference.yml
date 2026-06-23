@@ -1,5 +1,6 @@
 # Edvise (ES) inference: no data_ingestion task (inputs via GenAI silver parquets and/or bronze).
-# First tasks: es_data_audit -> es_feature_generation; downstream tasks match github_pdp_inference.yml.
+# When use_genai_inputs=true, genai_mapping_execute materializes fresh parquets and updates
+# genai_active_registry before es_data_audit -> es_feature_generation.
 resources:
   jobs:
     github_sourced_es_inference_pipeline:
@@ -9,7 +10,18 @@ resources:
           - id: ${var.inference_slack_webhook_id}
       max_concurrent_runs: 5
       tasks:
+        - task_key: genai_mapping_execute
+          run_job_task:
+            job_id: ${resources.jobs.edvise_genai_mapping_execute_pipeline.id}
+            job_parameters:
+              institution_id: "{{job.parameters.databricks_institution_name}}"
+              catalog: "{{job.parameters.DB_workspace}}"
+              inputs_toml_path: "{{job.parameters.genai_inputs_toml_path}}"
+              pipeline_version: "{{job.parameters.pipeline_version}}"
+              db_run_id: "{{job.parameters.db_run_id}}_genai_execute"
         - task_key: data_audit
+          depends_on:
+            - task_key: genai_mapping_execute
           spark_python_task:
             python_file: src/edvise/scripts/es_data_audit.py
             source: GIT
@@ -311,6 +323,10 @@ resources:
           default: inference
         - name: model_name
           default: retention_into_year_2_all_degrees
+        - name: pipeline_version
+          default: ${var.pipeline_version}
+        - name: genai_inputs_toml_path
+          default: "inputs.toml"
       permissions:
         - group_name: ${var.datakind_group_to_manage_workflow} 
           level: CAN_MANAGE

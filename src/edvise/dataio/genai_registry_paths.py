@@ -14,18 +14,30 @@ LOGGER = logging.getLogger(__name__)
 _REGISTRY_REL = ("genai_mapping", "active", "genai_active_registry.json")
 
 
+def _pipeline_input_dir(
+    silver_root: str, *, mode: str, run_id: str
+) -> str:
+    return os.path.join(
+        silver_root,
+        "genai_mapping",
+        "runs",
+        mode,
+        run_id.strip(),
+        "pipeline_input",
+    )
+
+
 def resolve_genai_pipeline_input_dir(
     silver_volume_path: str,
 ) -> str:
     """
     Resolve the GenAI pipeline input directory under a silver volume.
 
-    Preferred (current) layout::
+    Resolution order (from ``genai_mapping/active/genai_active_registry.json``):
 
-        {silver}/genai_mapping/runs/onboard/{onboard_run_id}/pipeline_input
-
-    The ``onboard_run_id`` is read from ``genai_mapping/active/genai_active_registry.json``
-    under the silver root.
+    1. When ``execute_run_id`` is set and
+       ``runs/execute/{execute_run_id}/pipeline_input`` exists — use that (latest execute).
+    2. Else ``runs/onboard/{onboard_run_id}/pipeline_input`` (onboard gate_2 snapshot).
     """
     silver_root = silver_volume_path.rstrip("/").rstrip(os.sep)
     registry_path = os.path.join(silver_root, *_REGISTRY_REL)
@@ -35,26 +47,44 @@ def resolve_genai_pipeline_input_dir(
             "Expected genai_mapping/active/genai_active_registry.json under the silver volume."
         )
     payload = json.loads(Path(registry_path).read_text(encoding="utf-8"))
-    run_id = payload.get("onboard_run_id")
-    if not run_id or not isinstance(run_id, str):
+    onboard_run_id = payload.get("onboard_run_id")
+    if not onboard_run_id or not isinstance(onboard_run_id, str):
         raise ValueError(
             f"Registry {registry_path!r} must contain a non-empty string "
-            f"'onboard_run_id'; got {run_id!r}."
+            f"'onboard_run_id'; got {onboard_run_id!r}."
         )
 
-    preferred = os.path.join(
-        silver_root,
-        "genai_mapping",
-        "runs",
-        "onboard",
-        run_id,
-        "pipeline_input",
+    execute_run_id = payload.get("execute_run_id")
+    if execute_run_id and isinstance(execute_run_id, str):
+        execute_path = _pipeline_input_dir(
+            silver_root, mode="execute", run_id=execute_run_id
+        )
+        if path_exists(execute_path):
+            LOGGER.info(
+                "Resolved GenAI pipeline_input dir (execute_run_id=%r) -> %s",
+                execute_run_id,
+                execute_path,
+            )
+            return execute_path
+        LOGGER.warning(
+            "Registry execute_run_id=%r but pipeline_input missing at %r; "
+            "falling back to onboard_run_id=%r",
+            execute_run_id,
+            execute_path,
+            onboard_run_id,
+        )
+
+    onboard_path = _pipeline_input_dir(
+        silver_root, mode="onboard", run_id=onboard_run_id
     )
-    if not path_exists(preferred):
+    if not path_exists(onboard_path):
         raise FileNotFoundError(
-            f"GenAI pipeline_input dir not found at {preferred!r} (onboard_run_id={run_id!r})."
+            f"GenAI pipeline_input dir not found at {onboard_path!r} "
+            f"(onboard_run_id={onboard_run_id!r})."
         )
     LOGGER.info(
-        "Resolved GenAI pipeline_input dir (onboard_run_id=%r) -> %s", run_id, preferred
+        "Resolved GenAI pipeline_input dir (onboard_run_id=%r) -> %s",
+        onboard_run_id,
+        onboard_path,
     )
-    return preferred
+    return onboard_path

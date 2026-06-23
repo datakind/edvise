@@ -44,7 +44,7 @@ class ESProjectConfig(pyd.BaseModel):
         description=(
             "Controls where ES data_audit reads its cohort/course inputs from. "
             "If True (default), read GenAI-mapped parquets from the institution silver volume "
-            "(via genai_active_registry.json). "
+            "(via genai_active_registry.json; prefers latest execute_run_id when set). "
             "If False, read raw CSVs from the institution bronze volume using datasets.raw_* paths."
         ),
     )
