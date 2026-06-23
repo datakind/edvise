@@ -1,7 +1,6 @@
 import pytest
 
 from edvise.modeling.features_table_mapping import (
-    ES_ONLY_FEATURES_TABLE_COLUMNS,
     build_es_to_pdp_feature_token_map,
     map_feature_col_for_features_table,
 )

@@ -6,6 +6,8 @@ from dataclasses import fields
 
 from edvise.configs.schema_type import is_edvise_schema
 from edvise.feature_generation.column_names import (
+    CohortInputColumns,
+    CourseInputColumns,
     ES_COHORT_INPUT_COLUMNS,
     ES_COURSE_INPUT_COLUMNS,
     PDP_COHORT_INPUT_COLUMNS,
@@ -30,6 +32,22 @@ ES_ONLY_FEATURES_TABLE_COLUMNS: tuple[str, ...] = (
 )
 
 
+def _add_es_to_pdp_tokens(
+    mapping: dict[str, str],
+    es_cols: CohortInputColumns | CourseInputColumns,
+    pdp_cols: CohortInputColumns | CourseInputColumns,
+) -> None:
+    for f in fields(es_cols):
+        es_val = getattr(es_cols, f.name)
+        pdp_val = getattr(pdp_cols, f.name)
+        if (
+            isinstance(es_val, str)
+            and isinstance(pdp_val, str)
+            and es_val.lower() != pdp_val.lower()
+        ):
+            mapping[es_val.lower()] = pdp_val.lower()
+
+
 def build_es_to_pdp_feature_token_map() -> dict[str, str]:
     """
     Build Edvise physical column token -> PDP token replacements for features-table lookup.
@@ -38,20 +56,8 @@ def build_es_to_pdp_feature_token_map() -> dict[str, str]:
     their PDP counterparts wherever both sides define the same logical field.
     """
     mapping: dict[str, str] = {}
-    pairs = [
-        (ES_COHORT_INPUT_COLUMNS, PDP_COHORT_INPUT_COLUMNS),
-        (ES_COURSE_INPUT_COLUMNS, PDP_COURSE_INPUT_COLUMNS),
-    ]
-    for es_cols, pdp_cols in pairs:
-        for f in fields(es_cols):
-            es_val = getattr(es_cols, f.name)
-            pdp_val = getattr(pdp_cols, f.name)
-            if (
-                isinstance(es_val, str)
-                and isinstance(pdp_val, str)
-                and es_val.lower() != pdp_val.lower()
-            ):
-                mapping[es_val.lower()] = pdp_val.lower()
+    _add_es_to_pdp_tokens(mapping, ES_COHORT_INPUT_COLUMNS, PDP_COHORT_INPUT_COLUMNS)
+    _add_es_to_pdp_tokens(mapping, ES_COURSE_INPUT_COLUMNS, PDP_COURSE_INPUT_COLUMNS)
     return mapping
 
 
