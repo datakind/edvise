@@ -10,6 +10,8 @@ src_path = os.path.join(repo_root, "src")
 if os.path.isdir(src_path) and src_path not in sys.path:
     sys.path.insert(0, src_path)
 
+from edvise.configs.es import ESProjectConfig
+from edvise.dataio.read import read_config
 from edvise.utils.databricks import (
     get_dbutils_or_none,
     get_latest_uc_model_run_id,
@@ -21,14 +23,15 @@ class ESInferenceInputs:
     """
     Resolve inference config from the registered model's silver run folder.
 
-    Same pattern as legacy_inference_inputs, but ES inference only needs config.toml
-    (no features_table). GenAI input files come from inputs.toml execute_files on bronze;
-    ES data_audit reads GenAI parquets from the execute run via genai_active_registry.
+    Resolve inference config from the registered model's silver run folder and expose
+    ``use_genai_inputs`` for downstream condition tasks (skip genai_mapping_execute when false).
     """
 
     def __init__(self, args: argparse.Namespace):
         self.args = args
         self.dbutils = get_dbutils_or_none()
+        self.config_file_path: str | None = None
+        self.use_genai_inputs: bool = True
 
     def run(self) -> None:
         model_run_id = get_latest_uc_model_run_id(
@@ -47,11 +50,24 @@ class ESInferenceInputs:
             keyword="config",
         )
         logging.info("Using config file: %s", config_file_path)
+        self.config_file_path = str(config_file_path)
+
+        cfg = read_config(file_path=self.config_file_path, schema=ESProjectConfig)
+        self.use_genai_inputs = bool(getattr(cfg, "use_genai_inputs", True))
+        logging.info("use_genai_inputs=%s", self.use_genai_inputs)
 
         if self.dbutils:
             self.dbutils.jobs.taskValues.set(
                 key="config_file_path",
-                value=str(config_file_path),
+                value=self.config_file_path,
+            )
+            self.dbutils.jobs.taskValues.set(
+                key="use_genai_inputs",
+                value="true" if self.use_genai_inputs else "false",
+            )
+        else:
+            logging.warning(
+                "dbutils not available - task values not set (expected outside Databricks)."
             )
 
 

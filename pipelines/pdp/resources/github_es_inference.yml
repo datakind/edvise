@@ -4,9 +4,8 @@ resources:
   jobs:
     github_sourced_es_inference_pipeline:
       name: github_sourced_es_inference_pipeline
-      webhook_notifications:
-        on_failure:
-          - id: ${var.inference_slack_webhook_id}
+      # Slack disabled while ES inference + GenAI wiring is in flux; restore webhook_notifications
+      # with ${var.inference_slack_webhook_id} when stable.
       max_concurrent_runs: 5
       tasks:
         - task_key: inference_setup
