@@ -16,8 +16,12 @@ def _layout_with_both_runs(tmp_path: Path) -> tuple[Path, Path, Path]:
     (active / "genai_active_registry.json").write_text(
         '{"onboard_run_id": "ob1", "execute_run_id": "ex1"}\n'
     )
-    onboard_dir = silver / "genai_mapping" / "runs" / "onboard" / "ob1" / "pipeline_input"
-    execute_dir = silver / "genai_mapping" / "runs" / "execute" / "ex1" / "pipeline_input"
+    onboard_dir = (
+        silver / "genai_mapping" / "runs" / "onboard" / "ob1" / "pipeline_input"
+    )
+    execute_dir = (
+        silver / "genai_mapping" / "runs" / "execute" / "ex1" / "pipeline_input"
+    )
     onboard_dir.mkdir(parents=True)
     execute_dir.mkdir(parents=True)
     (onboard_dir / "cohort.parquet").write_text("onboard")
@@ -52,7 +56,9 @@ def test_resolve_genai_pipeline_input_dir_inference_requires_execute_run_id(
     active = silver / "genai_mapping" / "active"
     active.mkdir(parents=True)
     (active / "genai_active_registry.json").write_text('{"onboard_run_id": "ob1"}\n')
-    onboard_dir = silver / "genai_mapping" / "runs" / "onboard" / "ob1" / "pipeline_input"
+    onboard_dir = (
+        silver / "genai_mapping" / "runs" / "onboard" / "ob1" / "pipeline_input"
+    )
     onboard_dir.mkdir(parents=True)
     (onboard_dir / "cohort.parquet").write_text("onboard")
 
@@ -71,7 +77,9 @@ def test_resolve_genai_pipeline_input_dir_inference_requires_execute_pipeline_in
     (active / "genai_active_registry.json").write_text(
         '{"onboard_run_id": "ob1", "execute_run_id": "missing_ex"}\n'
     )
-    onboard_dir = silver / "genai_mapping" / "runs" / "onboard" / "ob1" / "pipeline_input"
+    onboard_dir = (
+        silver / "genai_mapping" / "runs" / "onboard" / "ob1" / "pipeline_input"
+    )
     onboard_dir.mkdir(parents=True)
     (onboard_dir / "cohort.parquet").write_text("onboard")
 

@@ -14,9 +14,7 @@ LOGGER = logging.getLogger(__name__)
 _REGISTRY_REL = ("genai_mapping", "active", "genai_active_registry.json")
 
 
-def _pipeline_input_dir(
-    silver_root: str, *, mode: str, run_id: str
-) -> str:
+def _pipeline_input_dir(silver_root: str, *, mode: str, run_id: str) -> str:
     return os.path.join(
         silver_root,
         "genai_mapping",
