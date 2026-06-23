@@ -43,9 +43,9 @@ def register_attribute_sections(card, registry):
                 else:
                     unit = card.cfg.preprocessing.target.unit
                     value = card.cfg.preprocessing.target.value
-                    target_name = getattr(
-                        card.cfg.preprocessing.target, "name", ""
-                    ) or ""
+                    target_name = (
+                        getattr(card.cfg.preprocessing.target, "name", "") or ""
+                    )
 
                     if unit == "year" and value == 2:
                         outcome = (
