@@ -86,6 +86,28 @@ jobs:
             --var "datakind_group_to_manage_workflow=$GROUP_TO_MANAGE" \
             --var "datakind_notification_email=$DATAKIND_EMAIL"
 
+      - name: Deploy ES bundle to Dev (pin to current commit)
+        working-directory: pipelines/es
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_DEV_HOST }}
+          DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_DEV_CLIENT_ID }}
+          DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_DEV_CLIENT_SECRET }}
+          DB_WORKSPACE: dev_sst_02
+          SA_EXECUTER: ${{ secrets.DEV_SERVICE_ACCOUNT_EXECUTER }}
+          DS_RUN_AS: ${{ secrets.DEV_DS_RUN_AS }}
+          GROUP_TO_MANAGE: ${{ secrets.GROUP_TO_MANAGE }}
+          DATAKIND_EMAIL: ${{ secrets.DATAKIND_EMAIL }}
+        run: |
+          databricks bundle deploy \
+            --target dev \
+            --var "git_commit=$PINNED_SHA" \
+            --var "DB_workspace=$DB_WORKSPACE" \
+            --var "service_account_executer=$SA_EXECUTER" \
+            --var "ds_run_as=$DS_RUN_AS" \
+            --var "databricks_institution_name=synthetic_integration" \
+            --var "datakind_group_to_manage_workflow=$GROUP_TO_MANAGE" \
+            --var "datakind_notification_email=$DATAKIND_EMAIL"
+
       - name: TRAIN (Dev – develop-health-check)
         working-directory: pipelines/pdp
         env:
