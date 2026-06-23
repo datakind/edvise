@@ -29,16 +29,26 @@ def _pipeline_input_dir(
 
 def resolve_genai_pipeline_input_dir(
     silver_volume_path: str,
+    *,
+    job_type: str,
 ) -> str:
     """
     Resolve the GenAI pipeline input directory under a silver volume.
 
-    Resolution order (from ``genai_mapping/active/genai_active_registry.json``):
+    Reads ``genai_mapping/active/genai_active_registry.json`` and selects the run tree
+    based on ES job mode:
 
-    1. When ``execute_run_id`` is set and
-       ``runs/execute/{execute_run_id}/pipeline_input`` exists — use that (latest execute).
-    2. Else ``runs/onboard/{onboard_run_id}/pipeline_input`` (onboard gate_2 snapshot).
+    * ``job_type="training"`` → ``runs/onboard/{onboard_run_id}/pipeline_input``
+      (onboard gate_2 snapshot; stable holdout for model development).
+    * ``job_type="inference"`` → ``runs/execute/{execute_run_id}/pipeline_input``
+      (latest recurring execute output; requires ``execute_run_id`` in the registry).
     """
+    mode = str(job_type).strip().lower()
+    if mode not in ("training", "inference"):
+        raise ValueError(
+            f"job_type must be 'training' or 'inference' for GenAI input resolution; got {job_type!r}."
+        )
+
     silver_root = silver_volume_path.rstrip("/").rstrip(os.sep)
     registry_path = os.path.join(silver_root, *_REGISTRY_REL)
     if not path_exists(registry_path):
@@ -54,37 +64,40 @@ def resolve_genai_pipeline_input_dir(
             f"'onboard_run_id'; got {onboard_run_id!r}."
         )
 
-    execute_run_id = payload.get("execute_run_id")
-    if execute_run_id and isinstance(execute_run_id, str):
-        execute_path = _pipeline_input_dir(
-            silver_root, mode="execute", run_id=execute_run_id
+    if mode == "training":
+        onboard_path = _pipeline_input_dir(
+            silver_root, mode="onboard", run_id=onboard_run_id
         )
-        if path_exists(execute_path):
-            LOGGER.info(
-                "Resolved GenAI pipeline_input dir (execute_run_id=%r) -> %s",
-                execute_run_id,
-                execute_path,
+        if not path_exists(onboard_path):
+            raise FileNotFoundError(
+                f"GenAI pipeline_input dir not found at {onboard_path!r} "
+                f"(onboard_run_id={onboard_run_id!r})."
             )
-            return execute_path
-        LOGGER.warning(
-            "Registry execute_run_id=%r but pipeline_input missing at %r; "
-            "falling back to onboard_run_id=%r",
-            execute_run_id,
-            execute_path,
+        LOGGER.info(
+            "Resolved GenAI pipeline_input dir for training (onboard_run_id=%r) -> %s",
             onboard_run_id,
+            onboard_path,
         )
+        return onboard_path
 
-    onboard_path = _pipeline_input_dir(
-        silver_root, mode="onboard", run_id=onboard_run_id
-    )
-    if not path_exists(onboard_path):
+    execute_run_id = payload.get("execute_run_id")
+    if not execute_run_id or not isinstance(execute_run_id, str):
         raise FileNotFoundError(
-            f"GenAI pipeline_input dir not found at {onboard_path!r} "
-            f"(onboard_run_id={onboard_run_id!r})."
+            f"GenAI active registry at {registry_path!r} has no execute_run_id; "
+            "inference requires a completed genai mapping execute run."
+        )
+    execute_path = _pipeline_input_dir(
+        silver_root, mode="execute", run_id=execute_run_id
+    )
+    if not path_exists(execute_path):
+        raise FileNotFoundError(
+            f"GenAI pipeline_input dir not found at {execute_path!r} "
+            f"(execute_run_id={execute_run_id!r}). "
+            "Run genai mapping execute before ES inference."
         )
     LOGGER.info(
-        "Resolved GenAI pipeline_input dir (onboard_run_id=%r) -> %s",
-        onboard_run_id,
-        onboard_path,
+        "Resolved GenAI pipeline_input dir for inference (execute_run_id=%r) -> %s",
+        execute_run_id,
+        execute_path,
     )
-    return onboard_path
+    return execute_path
