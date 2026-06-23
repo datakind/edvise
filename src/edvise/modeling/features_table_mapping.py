@@ -13,6 +13,14 @@ from edvise.feature_generation.column_names import (
 )
 
 
+# Whole-column aliases when snake_case mangles Edvise schema names (year1 -> year_1).
+# Substring token replacement does not connect these (``pell_recipient_year1`` is not
+# contained in ``pell_recipient_year_1``).
+_ES_EXACT_COLUMN_ALIASES: dict[str, str] = {
+    "pell_recipient_year_1": "student_is_pell_recipient_first_year",
+    "pell_recipient_year1": "student_is_pell_recipient_first_year",
+}
+
 # Edvise-only cohort columns that pass through to the modeling dataset (see ESCleanup).
 ES_ONLY_FEATURES_TABLE_COLUMNS: tuple[str, ...] = (
     "intended_program_type",
@@ -61,6 +69,9 @@ def map_feature_col_for_features_table(
     col = feature_col.lower()
     if not schema_type or not is_edvise_schema(schema_type):
         return col
+
+    if col in _ES_EXACT_COLUMN_ALIASES:
+        return _ES_EXACT_COLUMN_ALIASES[col]
 
     token_map = build_es_to_pdp_feature_token_map()
     for es_token in sorted(token_map, key=len, reverse=True):

@@ -234,7 +234,7 @@ class TrainingTask:
             self._validate_modeling_contract(df_modeling)
             return df_modeling
 
-        # PDP: use run-specific path
+        # PDP / Edvise: use run-specific path
         modeling_path = os.path.join(current_run_path, "modeling.parquet")
         modeling_path_local = local_fs_path(modeling_path)
 
@@ -244,7 +244,7 @@ class TrainingTask:
             self._validate_modeling_contract(df_modeling)
             return df_modeling
 
-        # PDP fallback path
+        # PDP / Edvise fallback path
         preproc_path = os.path.join(current_run_path, "preprocessed.parquet")
         preproc_path_local = local_fs_path(preproc_path)
         if not os.path.exists(preproc_path_local):

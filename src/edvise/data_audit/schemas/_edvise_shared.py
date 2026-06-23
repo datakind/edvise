@@ -295,32 +295,6 @@ def grade_series_normalized(series: pd.Series) -> pd.Series:
 
 
 # ---------------------------------------------------------------------------
-# Edvise cohort column aliases (normalize_columns / snake_case mismatches)
-# ---------------------------------------------------------------------------
-
-# ``convert_to_snake_case("pell_recipient_year1")`` -> ``pell_recipient_year_1``,
-# but the Edvise schema field is ``pell_recipient_year1``.
-EDVISE_COHORT_COLUMN_ALIASES: dict[str, str] = {
-    "pell_recipient_year_1": "pell_recipient_year1",
-    "certificate_1_date": "certificate1_date",
-    "certificate_2_date": "certificate2_date",
-    "certificate_3_date": "certificate3_date",
-}
-
-
-def canonicalize_edvise_cohort_column_names(df: pd.DataFrame) -> pd.DataFrame:
-    """Rename known snake_case aliases to canonical Edvise cohort column names."""
-    renames = {
-        alias: canonical
-        for alias, canonical in EDVISE_COHORT_COLUMN_ALIASES.items()
-        if alias in df.columns and canonical not in df.columns
-    }
-    if not renames:
-        return df
-    return df.rename(columns=renames)
-
-
-# ---------------------------------------------------------------------------
 # Student schema transforms (entry_term, learner_age, pell_recipient_year1)
 # ---------------------------------------------------------------------------
 
@@ -337,7 +311,12 @@ def _apply_student_schema_transforms(df: pd.DataFrame) -> pd.DataFrame:
     Does not touch enrollment_type, intended_program_type, or
     conferred_credential_type — those are free-form strings in the raw schema.
     """
-    df = canonicalize_edvise_cohort_column_names(df.copy())
+    df = df.copy()
+    if (
+        "pell_recipient_year_1" in df.columns
+        and "pell_recipient_year1" not in df.columns
+    ):
+        df = df.rename(columns={"pell_recipient_year_1": "pell_recipient_year1"})
     if "entry_term" in df.columns:
         df["entry_term"] = term_series_to_pdp(df["entry_term"])
     if "learner_age" in df.columns:

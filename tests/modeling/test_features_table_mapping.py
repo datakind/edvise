@@ -39,10 +39,28 @@ def test_build_es_to_pdp_feature_token_map_includes_course_and_cohort_tokens():
         ),
         ("academic_term", "pdp", "academic_term"),
         ("num_courses_delivery_method_f", "edvise", "num_courses_delivery_method_f"),
+        (
+            "pell_recipient_year_1",
+            "edvise",
+            "student_is_pell_recipient_first_year",
+        ),
     ],
 )
 def test_map_feature_col_for_features_table(feature_col, schema_type, exp):
     assert map_feature_col_for_features_table(feature_col, schema_type) == exp
+
+
+def test_is_feature_defined_in_table_with_es_pell_snake_case_alias() -> None:
+    features_table = {
+        "student_is_pell_recipient_first_year": {
+            "name": "student is a Pell grant recipient in year 1"
+        }
+    }
+    assert is_feature_defined_in_table(
+        "pell_recipient_year_1",
+        features_table,
+        schema_type="edvise",
+    )
 
 
 def test_is_feature_defined_in_table_with_es_mapping():

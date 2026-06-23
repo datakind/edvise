@@ -14,9 +14,6 @@ import typing as t
 
 import pandas as pd
 
-from edvise.data_audit.schemas._edvise_shared import (
-    canonicalize_edvise_cohort_column_names,
-)
 from edvise.utils.drop_columns_safely import drop_columns_safely
 
 LOGGER = logging.getLogger(__name__)
@@ -182,19 +179,6 @@ class ESCleanup(BaseCleanup):
     (term ranks, course id/subject helpers, section counts, etc.).
     """
 
-    def clean_up_labeled_dataset_cols_and_vals(
-        self,
-        df: pd.DataFrame,
-        num_credits_col: str = "cumsum_num_credits_earned",
-        num_credit_check: int = 12,
-    ) -> pd.DataFrame:
-        df = canonicalize_edvise_cohort_column_names(df)
-        return super().clean_up_labeled_dataset_cols_and_vals(
-            df,
-            num_credits_col=num_credits_col,
-            num_credit_check=num_credit_check,
-        )
-
     cols_to_drop: t.ClassVar[list[str]] = [
         # metadata
         "institution_id",
@@ -222,8 +206,9 @@ class ESCleanup(BaseCleanup):
         "sections_num_students_completed",
         "term_start_dt",
         "cohort_start_dt",
-        # Edvise raw pell column (replaced by student_is_pell_recipient_first_year)
+        # Edvise raw pell (source for student_is_pell_recipient_first_year; also snake_case alias)
         "pell_recipient_year1",
+        "pell_recipient_year_1",
         # Edvise raw cohort dates feeding credential-year derivation
         "matriculation_date",
         "bachelors_degree_conferral_date",
