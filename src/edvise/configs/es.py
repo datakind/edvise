@@ -22,7 +22,7 @@ _ALLOWED_PRIMARY_METRICS = {
 
 
 class ESProjectConfig(pyd.BaseModel):
-    """Configuration schema for SST PDP projects."""
+    """Configuration schema for Edvise (ES) projects."""
 
     institution_id: str = pyd.Field(
         ...,
