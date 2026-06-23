@@ -1,3 +1,9 @@
+## 1.2.3 (2026-06-23)
+- fix: target functionality logic for schools with 4 terms (#137)
+- fix(genai): validate term hook groups at HITL emit time (#166)
+- feat(genai): semantic grain profiling to improve grain inference reliability & duplicate transparency (#169)
+- fix(es): ensure edvise raw features have feature table mapping (#172)
+
 ## 1.2.2 (2026-06-18)
 - fix(legacy): setting up staging SA in preprocessing & postprocessing scripts (#168)
 - fix: systemic optional-column guards for ES feature generation (#170)
