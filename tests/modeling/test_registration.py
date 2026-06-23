@@ -323,6 +323,23 @@ class TestGetModelNameFromConfig:
         )
         assert result == "my_school_my_custom_target_my_checkpoint"
 
+    def test_edvise_retention_uses_intended_program_type(self):
+        """Edvise Schema retention config should name models from intended_program_type."""
+        preprocessing = type("Preprocessing", (), {})()
+        preprocessing.target = {"type_": "retention", "max_academic_year": "2024"}
+        preprocessing.checkpoint = {"type_": "first_within_cohort"}
+        preprocessing.selection = type(
+            "Selection",
+            (),
+            {"student_criteria": {"intended_program_type": "Associate's Degree"}},
+        )()
+
+        result = get_model_name_from_config(
+            preprocessing=preprocessing,
+            institution_id="test_inst",
+        )
+        assert result == "retention_into_year_2_associates"
+
     def test_fallback_when_pdp_raises_unsupported_target_type(self):
         """When target type is unsupported, fall back to .name."""
         preprocessing = type("Preprocessing", (), {})()
@@ -430,6 +447,52 @@ class TestPDPGetModelName:
         }
         student_criteria = {
             "credential_type_sought_year_1": "BACHELOR'S DEGREE",
+        }
+
+        result = pdp_get_model_name(
+            target=target,
+            checkpoint=checkpoint,
+            student_criteria=student_criteria,
+        )
+        assert result == "retention_into_year_2_bachelors"
+
+    def test_retention_with_intended_program_type(self):
+        """Edvise Schema uses intended_program_type instead of credential_type_sought_year_1."""
+        target = {"type_": "retention", "max_academic_year": "2024"}
+        checkpoint = {"type_": "first_within_cohort"}
+        student_criteria = {
+            "intended_program_type": "Associate's Degree",
+        }
+
+        result = pdp_get_model_name(
+            target=target,
+            checkpoint=checkpoint,
+            student_criteria=student_criteria,
+        )
+        assert result == "retention_into_year_2_associates"
+
+    def test_retention_with_intended_program_type_shorthand(self):
+        """Edvise configs may use shorthand program labels such as 'Associate'."""
+        target = {"type_": "retention", "max_academic_year": "2024"}
+        checkpoint = {"type_": "first_within_cohort"}
+        student_criteria = {
+            "intended_program_type": {"Associate"},
+        }
+
+        result = pdp_get_model_name(
+            target=target,
+            checkpoint=checkpoint,
+            student_criteria=student_criteria,
+        )
+        assert result == "retention_into_year_2_associate"
+
+    def test_retention_prefers_pdp_credential_key_over_intended_program_type(self):
+        """When both keys are present, PDP credential column takes precedence."""
+        target = {"type_": "retention", "max_academic_year": "2024"}
+        checkpoint = {"type_": "first_within_cohort"}
+        student_criteria = {
+            "credential_type_sought_year_1": "BACHELOR'S DEGREE",
+            "intended_program_type": "Associate's Degree",
         }
 
         result = pdp_get_model_name(
