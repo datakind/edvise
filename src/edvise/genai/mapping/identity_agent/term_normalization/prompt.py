@@ -30,6 +30,7 @@ from .schemas import (
     TermContract,
     get_term_contract_schema_context,
 )
+from .validation import assert_term_hook_groups_compatible
 
 logger = logging.getLogger(__name__)
 
@@ -635,6 +636,11 @@ per table only when extraction logic truly differs; when logic is identical, use
 names (e.g. ``year_extractor_shared`` / ``season_extractor_shared``) in drafts. Do not merge
 distinct encodings into one group.
 
+**Hook group membership:** Only list a dataset in ``hook_group_tables`` when its ``term_config``
+uses ``term_col`` with ``term_extraction: "hook_required"``. Do **not** include tables that use
+split ``year_col`` + ``season_col`` (``term_extraction: "standard"``) — those need a separate
+season-map HITL item, not a shared combined-column hook.
+
 **Coverage:** Emit exactly one `TermContract`-shaped object per key under `datasets` in the
 input. Do not omit datasets.
 """
@@ -1186,6 +1192,7 @@ def parse_institution_term_contracts_with_hitl(
         d2, items = _strip_term_batch_hitl_payload(d)
         inst = InstitutionTermContract.model_validate(d2)
         _assert_term_batch_hitl_items_match_flags(inst, items)
+        assert_term_hook_groups_compatible(inst, items)
         return inst, items
     except Exception:
         text = raw if isinstance(raw, str) else str(raw)[:500]
