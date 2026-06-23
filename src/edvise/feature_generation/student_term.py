@@ -294,10 +294,10 @@ def add_features(
     if s.year_of_enrollment_at_cohort_inst:
         batch1["year_of_enrollment_at_cohort_inst"] = year_of_enrollment_at_cohort_inst
     if s.student_certificates:
-        batch1["student_has_earned_certificate_at_cohort_inst"] = ft.partial(
+        batch1["student_earned_certificate_at_cohort_inst"] = ft.partial(
             student_earned_certificate, inst="cohort"
         )
-        batch1["student_has_earned_certificate_at_other_inst"] = ft.partial(
+        batch1["student_earned_certificate_at_other_inst"] = ft.partial(
             student_earned_certificate, inst="other"
         )
     if s.term_is_pre_cohort:
