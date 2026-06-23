@@ -1,6 +1,5 @@
-# GenAI + ES inference MVP: inference_setup (config from silver) -> genai_mapping_execute
-# (updates genai_active_registry) -> es_data_audit reads execute parquets when use_genai_inputs=true.
-# Batch/file wiring deferred; GenAI inputs come from inputs.toml execute_files on bronze.
+# ES inference: inference_setup reads config (use_genai_inputs) -> condition gates
+# genai_mapping_execute -> es_data_audit (NONE_FAILED so audit runs when genai is skipped).
 resources:
   jobs:
     github_sourced_es_inference_pipeline:
@@ -25,9 +24,25 @@ resources:
           libraries:
             - pypi:
                 package: mlflow~=2.22
-        - task_key: genai_mapping_execute
+            - pypi:
+                package: tomli==2.2.1
+            - pypi:
+                package: tomlkit==0.13.3
+            - pypi:
+                package: pydantic~=2.10
+            - pypi:
+                package: pandera==0.23.0
+        - task_key: check_use_genai_inputs
           depends_on:
             - task_key: inference_setup
+          condition_task:
+            op: EQUAL_TO
+            left: "{{tasks.inference_setup.values.use_genai_inputs}}"
+            right: "true"
+        - task_key: genai_mapping_execute
+          depends_on:
+            - task_key: check_use_genai_inputs
+              outcome: "true"
           run_job_task:
             job_id: ${resources.jobs.edvise_genai_mapping_execute_pipeline.id}
             job_parameters:
@@ -38,7 +53,10 @@ resources:
               db_run_id: "{{job.parameters.db_run_id}}_genai_execute"
         - task_key: data_audit
           depends_on:
+            - task_key: inference_setup
+            - task_key: check_use_genai_inputs
             - task_key: genai_mapping_execute
+          run_if: NONE_FAILED
           spark_python_task:
             python_file: src/edvise/scripts/es_data_audit.py
             source: GIT
