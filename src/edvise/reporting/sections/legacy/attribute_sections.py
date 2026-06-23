@@ -35,41 +35,7 @@ def register_attribute_sections(card, registry):
             outcome_type = card.cfg.preprocessing.target.category
 
             if outcome_type == "retention":
-                optional_desc = getattr(
-                    card.cfg.preprocessing.target, "optional_desc", None
-                )
-                if optional_desc:
-                    outcome = optional_desc
-                else:
-                    unit = card.cfg.preprocessing.target.unit
-                    value = card.cfg.preprocessing.target.value
-                    target_name = getattr(
-                        card.cfg.preprocessing.target, "name", ""
-                    ) or ""
-
-                    if unit == "year" and value == 2:
-                        outcome = (
-                            "non-retention into the student's second academic year"
-                        )
-                    elif unit == "year":
-                        outcome = (
-                            f"non-retention into the student's "
-                            f"{card.format.ordinal(value)} academic year"
-                        )
-                    elif unit in {"term", "semester"}:
-                        unit_label = unit
-                        if "major" in target_name:
-                            unit_label = f"major {unit}"
-                        unit_label += "s" if value != 1 else ""
-                        outcome = (
-                            f"non-retention into the student's "
-                            f"{card.format.ordinal(value)} {unit_label}"
-                        )
-                    else:
-                        outcome = (
-                            "non-retention into the student's second academic year"
-                        )
-
+                outcome = "non-retention into the student's second academic year"
                 description = f"This model predicts the likelihood of {outcome} based on student, course, and academic data."
             else:
                 outcome = "not graduating on time"
