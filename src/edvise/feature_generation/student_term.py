@@ -306,7 +306,7 @@ def add_features(
         batch1["term_is_while_student_enrolled_at_other_inst"] = (
             term_is_while_student_enrolled_at_other_inst
         )
-    if enable_when(s.program_of_study_area, df, cols.term_program_of_study):
+    if enable_when(s.program_of_study_area, df, "term_program_of_study"):
         batch1["term_program_of_study_area"] = term_program_of_study_area
     if enable_when(
         s.credit_fraction_and_intensity,
