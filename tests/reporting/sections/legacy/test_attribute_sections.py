@@ -38,43 +38,105 @@ def test_development_note_without_version(mock_card):
 
 
 @pytest.mark.parametrize(
-    "category,unit,value,expected_snippet",
+    "category,unit,value,target_name,optional_desc,expected_snippet",
     [
         (
             "retention",
-            None,
+            "year",
+            2,
+            "retention",
             None,
             "non-retention into the student's second academic year",
         ),
-        ("graduation", "year", 2, "not graduating on time within 2 years"),
+        (
+            "retention",
+            "semester",
+            5,
+            "retention_fifth_major_semester",
+            None,
+            "non-retention into the student's 5th major semester",
+        ),
+        (
+            "retention",
+            "semester",
+            3,
+            "retention_third_major_semester",
+            None,
+            "non-retention into the student's 3rd major semester",
+        ),
+        (
+            "retention",
+            "term",
+            3,
+            "retention_third_term",
+            None,
+            "non-retention into the student's 3rd term",
+        ),
+        (
+            "retention",
+            "semester",
+            1,
+            "fall_to_fall_retention",
+            None,
+            "non-retention into the student's 1st semester",
+        ),
+        (
+            "retention",
+            "year",
+            2,
+            "retention",
+            "non-retention by the student's fifth major semester",
+            "non-retention by the student's fifth major semester",
+        ),
+        ("graduation", "year", 2, None, None, "not graduating on time within 2 years"),
         (
             "graduation",
             "credit",
             30,
+            None,
+            None,
             "not graduating on time in achieving 30 credits required for graduation",
         ),
-        ("graduation", "term", 1, "not graduating on time within 1 term"),
-        ("graduation", "semester", 3, "not graduating on time within 3 semesters"),
+        ("graduation", "term", 1, None, None, "not graduating on time within 1 term"),
+        (
+            "graduation",
+            "semester",
+            3,
+            None,
+            None,
+            "not graduating on time within 3 semesters",
+        ),
         (
             "graduation",
             "pct_completion",
             85,
+            None,
+            None,
             "not graduating on time at 85% completion",
         ),
         (
             "graduation",
             "legacy_metric",
             5,
+            None,
+            None,
             "not graduating on time within 5 legacy_metric",
         ),  # fallback
     ],
 )
-def test_outcome_section_variants(mock_card, category, unit, value, expected_snippet):
+def test_outcome_section_variants(
+    mock_card, category, unit, value, target_name, optional_desc, expected_snippet
+):
     mock_card.cfg.preprocessing.target.category = category
 
-    if category == "graduation":
+    if category in {"graduation", "retention"}:
         mock_card.cfg.preprocessing.target.unit = unit
         mock_card.cfg.preprocessing.target.value = value
+
+    if target_name is not None:
+        mock_card.cfg.preprocessing.target.name = target_name
+
+    mock_card.cfg.preprocessing.target.optional_desc = optional_desc
 
     registry = SectionRegistry()
     legacy_attribute_sections.register_attribute_sections(mock_card, registry)

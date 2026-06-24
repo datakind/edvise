@@ -14,7 +14,7 @@ def feature_table_data():
         "edvise",
         "shared",
         "assets",
-        "pdp_features_table.toml",
+        "features_table.toml",
     )
     return from_toml_file(toml_path)
 
