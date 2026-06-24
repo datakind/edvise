@@ -165,12 +165,24 @@ _MIN_KEY_LEN_FOR_PREFIX_FALLBACK = 8
 _MAX_PREFIX_EXTENSION_CHARS = 6
 
 
+def _snake_case_column_lookup(columns: list[str]) -> dict[str, str]:
+    """Map ``convert_to_snake_case(header)`` → first matching raw column name."""
+    lookup: dict[str, str] = {}
+    for col in columns:
+        snake = convert_to_snake_case(col)
+        if snake not in lookup:
+            lookup[snake] = col
+    return lookup
+
+
 def _resolve_grain_key_to_existing_column(name: str, columns: list[str]) -> str:
     """
     Map a grain-contract column name to a column present on the cleaned frame.
 
-    Order: exact match → ``convert_to_snake_case`` match → unique prefix extension
-    (same base name with a short suffix such as ``r`` in ``term_descr`` vs ``term_desc``).
+    Order: exact match → ``convert_to_snake_case`` match on the requested name →
+    snake_case match on dataframe headers (e.g. ``student_id`` → ``STUDENT_ID``) →
+    unique prefix extension (same base name with a short suffix such as ``r`` in
+    ``term_descr`` vs ``term_desc``).
     """
     colset = set(columns)
     if name in colset:
@@ -178,6 +190,16 @@ def _resolve_grain_key_to_existing_column(name: str, columns: list[str]) -> str:
     normalized = convert_to_snake_case(name)
     if normalized in colset:
         return normalized
+    snake_lookup = _snake_case_column_lookup(columns)
+    by_snake = snake_lookup.get(normalized)
+    if by_snake is not None:
+        if by_snake != name and by_snake != normalized:
+            logger.info(
+                "Resolved grain key %r → %r (snake_case header match)",
+                name,
+                by_snake,
+            )
+        return by_snake
     if len(normalized) < _MIN_KEY_LEN_FOR_PREFIX_FALLBACK:
         raise ValueError(
             f"Grain key column {name!r} (as {normalized!r}) not in dataframe columns {sorted(colset)!r}"
@@ -185,19 +207,39 @@ def _resolve_grain_key_to_existing_column(name: str, columns: list[str]) -> str:
     candidates = [
         c
         for c in columns
-        if c.startswith(normalized)
+        if (c.startswith(normalized) or convert_to_snake_case(c).startswith(normalized))
         and c != normalized
-        and (len(c) - len(normalized)) <= _MAX_PREFIX_EXTENSION_CHARS
+        and convert_to_snake_case(c) != normalized
+        and (
+            len(c) - len(normalized) <= _MAX_PREFIX_EXTENSION_CHARS
+            or len(convert_to_snake_case(c)) - len(normalized)
+            <= _MAX_PREFIX_EXTENSION_CHARS
+        )
     ]
     if not candidates:
         raise ValueError(
             f"Grain key column {name!r} (as {normalized!r}) not in dataframe columns {sorted(colset)!r}"
         )
-    candidates.sort(key=lambda c: (len(c) - len(normalized), c))
+    candidates.sort(
+        key=lambda c: (
+            min(
+                len(c) - len(normalized),
+                len(convert_to_snake_case(c)) - len(normalized),
+            ),
+            c,
+        )
+    )
     best = candidates[0]
-    best_delta = len(best) - len(normalized)
+    best_delta = min(
+        len(best) - len(normalized),
+        len(convert_to_snake_case(best)) - len(normalized),
+    )
     if len(candidates) > 1:
-        second_delta = len(candidates[1]) - len(normalized)
+        second = candidates[1]
+        second_delta = min(
+            len(second) - len(normalized),
+            len(convert_to_snake_case(second)) - len(normalized),
+        )
         if second_delta == best_delta:
             raise ValueError(
                 f"Grain key {name!r} (as {normalized!r}) is ambiguous: multiple columns extend "
@@ -210,6 +252,11 @@ def _resolve_grain_key_to_existing_column(name: str, columns: list[str]) -> str:
             best,
         )
     return best
+
+
+def resolve_grain_key_columns(names: list[str], columns: list[str]) -> list[str]:
+    """Resolve each grain-contract column name to a column present on ``columns``."""
+    return [_resolve_grain_key_to_existing_column(n, columns) for n in names]
 
 
 def _grain_dedup_function_names(functions: list[Any]) -> list[str]:

@@ -5,6 +5,7 @@ import pytest
 from pydantic import ValidationError
 
 from edvise.genai.mapping.identity_agent.grain_inference.hitl_uniqueness_backfill import (
+    backfill_hitl_uniqueness_scores_from_measured_keys,
     backfill_hitl_uniqueness_scores_from_key_profile,
 )
 from edvise.genai.mapping.identity_agent.grain_inference.prompt import (
@@ -489,3 +490,66 @@ def test_backfill_hitl_uniqueness_scores_replaces_invented_zero_from_profile():
     ctx = out[0].hitl_context
     assert isinstance(ctx, GrainAmbiguityHITLContext)
     assert ctx.candidate_keys[0].uniqueness_score == 0.5244
+
+
+def test_backfill_hitl_uniqueness_scores_from_measured_keys() -> None:
+    """Every candidate_keys entry gets a measured uniqueness score, not LLM guesses."""
+    df = pd.DataFrame(
+        {
+            "student_id": ["a", "a", "b", "b"],
+            "program_at_graduation": ["BS", "BA", "BS", "BA"],
+        }
+    )
+    item = HITLItem(
+        item_id="inst_student_q",
+        institution_id="inst",
+        table="student",
+        domain=HITLDomain.IDENTITY_GRAIN,
+        hitl_question="q",
+        hitl_context=GrainAmbiguityHITLContext(
+            candidate_keys=[
+                GrainCandidateKeyEntry(
+                    rank=1,
+                    columns=["student_id"],
+                    uniqueness_score=0.999,
+                    notes="",
+                ),
+                GrainCandidateKeyEntry(
+                    rank=2,
+                    columns=["student_id", "program_at_graduation"],
+                    uniqueness_score=0.999,
+                    notes="alt",
+                ),
+            ],
+            variance_profile={},
+        ),
+        options=[
+            HITLOption(
+                option_id="keep",
+                label="Keep",
+                description="d",
+                resolution=GrainResolution(dedup_strategy="no_dedup").model_dump(
+                    mode="json"
+                ),
+                reentry=ReentryDepth.TERMINAL,
+            ),
+            HITLOption(
+                option_id="custom",
+                label="Custom",
+                description="c",
+                resolution=None,
+                reentry=ReentryDepth.GENERATE_HOOK,
+            ),
+        ],
+        target=HITLTarget(
+            institution_id="inst",
+            table="student",
+            config="grain_contract",
+            field="dedup_policy",
+        ),
+    )
+    out = backfill_hitl_uniqueness_scores_from_measured_keys([item], df)
+    ctx = out[0].hitl_context
+    assert isinstance(ctx, GrainAmbiguityHITLContext)
+    assert ctx.candidate_keys[0].uniqueness_score == pytest.approx(0.5)
+    assert ctx.candidate_keys[1].uniqueness_score == pytest.approx(1.0)

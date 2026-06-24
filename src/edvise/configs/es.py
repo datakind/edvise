@@ -62,7 +62,13 @@ class ESProjectConfig(pyd.BaseModel):
     split_col: t.Optional[str] = "split"
     sample_weight_col: t.Optional[str] = "sample_weight"
     student_group_cols: t.Optional[list[str]] = pyd.Field(
-        default=["student_age", "race", "ethnicity", "gender", "first_gen"],
+        default=[
+            "learner_age",
+            "race",
+            "ethnicity",
+            "gender",
+            "first_generation_status",
+        ],
         description=(
             "One or more column names in datasets containing student 'groups' "
             "to use for model bias assessment, but *not* as model features"

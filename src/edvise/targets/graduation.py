@@ -116,17 +116,21 @@ def compute_target(
     intensity_num_terms = utils.data_cleaning.convert_intensity_time_limits(
         "term", intensity_time_limits, num_terms_in_year=num_terms_in_year
     )
-
-    intensity_num_terms_minus_1 = {
-        intensity: max(num_terms - 1, 0)
-        for intensity, num_terms in intensity_num_terms.items()
-    }
+    # Four terms per year only (e.g. fall/winter/spring/summer): a limit of N academic
+    # years from first fall to spring of year N spans N * 4 - 1 terms (the summer after
+    # graduation is outside the window). Two- and three-term calendars do not use this
+    # adjustment; their fall–spring paths already align with ``years * num_terms_in_year``.
+    if num_terms_in_year == 4:
+        intensity_num_terms = {
+            intensity: max(num_terms - 1.0, 1.0)
+            for intensity, num_terms in intensity_num_terms.items()
+        }
 
     intensity_time_limits_for_eligibility = t.cast(
         utils.types.IntensityTimeLimitsType,
         {
             intensity: (float(num_terms), "term")
-            for intensity, num_terms in intensity_num_terms_minus_1.items()
+            for intensity, num_terms in intensity_num_terms.items()
         },
     )
     df_labelable_students = shared.get_students_with_max_target_term_in_dataset(
