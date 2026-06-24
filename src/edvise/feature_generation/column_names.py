@@ -72,7 +72,7 @@ class CourseInputColumns:
     course_cip: str
     number_of_credits_attempted: str
     number_of_credits_earned: str
-    term_program_of_study: str
+    term_program_of_study: str | None
     delivery_method: str
     math_or_english_gateway: str
     course_instructor_employment_status: str
@@ -83,6 +83,8 @@ class CourseInputColumns:
     co_requisite_course: str | None = None
     course_instructor_rank: str | None = None
     enrolled_at_other_institution_s: str | None = None
+    term_degree: str | None = None
+    term_declared_major: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -224,6 +226,7 @@ class StudentTermAddFeatureSpec:
     section_student_fractions: bool = True
     student_rate_vs_section_fractions: bool = True
     program_change_from_prior_term: bool = True
+    term_degree_changed_prev_term: bool = True
 
     @classmethod
     def all(cls) -> StudentTermAddFeatureSpec:
@@ -318,7 +321,9 @@ ES_COURSE_INPUT_COLUMNS = CourseInputColumns(
     course_cip="department",
     number_of_credits_attempted="course_credits_attempted",
     number_of_credits_earned="course_credits_earned",
-    term_program_of_study="term_degree",
+    term_program_of_study=None,
+    term_degree="term_degree",
+    term_declared_major="term_declared_major",
     delivery_method="instructional_modality",
     math_or_english_gateway="gateway_or_developmental_flag",
     course_instructor_employment_status="instructor_appointment_status",
