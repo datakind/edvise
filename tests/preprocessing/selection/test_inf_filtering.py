@@ -5,6 +5,7 @@ import pytest
 
 from edvise.student_selection.filter_inference import (
     _filter_by_joined_columns,
+    exclude_training_cohort_students,
     filter_inference_cohort,
     filter_inference_term,
 )
@@ -236,3 +237,58 @@ def test_filter_inference_term_custom_columns():
     )
     assert len(result) == 1
     assert result["id"].iloc[0] == 1
+
+
+# Tests for exclude_training_cohort_students
+def test_exclude_training_cohort_students_removes_stop_outs():
+    df = pd.DataFrame(
+        {
+            "cohort_term": ["FALL", "FALL", "SPRING"],
+            "cohort": ["2023-24", "2024-25", "2024-25"],
+            "id": [1, 2, 3],
+        }
+    )
+    result = exclude_training_cohort_students(
+        df,
+        training_cohorts=["fall 2023-24"],
+    )
+    assert set(result["id"]) == {2, 3}
+
+
+def test_exclude_training_cohort_students_no_training_cohorts():
+    df = pd.DataFrame(
+        {
+            "cohort_term": ["FALL"],
+            "cohort": ["2024-25"],
+            "id": [1],
+        }
+    )
+    result = exclude_training_cohort_students(df, training_cohorts=[])
+    assert len(result) == 1
+
+
+def test_exclude_training_cohort_students_missing_columns_returns_unchanged():
+    df = pd.DataFrame({"id": [1]})
+    result = exclude_training_cohort_students(
+        df,
+        training_cohorts=["fall 2024-25"],
+    )
+    assert len(result) == 1
+
+
+def test_exclude_training_cohort_students_all_excluded_raises():
+    df = pd.DataFrame(
+        {
+            "cohort_term": ["FALL"],
+            "cohort": ["2023-24"],
+            "id": [1],
+        }
+    )
+    with pytest.raises(
+        ValueError,
+        match="Excluding training cohort students resulted in empty DataFrame",
+    ):
+        exclude_training_cohort_students(
+            df,
+            training_cohorts=["fall 2023-24"],
+        )
