@@ -1,11 +1,12 @@
+# Dedicated bundle folder: pipelines/es/
+# Edvise-schema (ES) training and inference — no PDP data_ingestion; inputs via GenAI silver and/or bronze.
 bundle:
-  name: Edvise pdp training pipeline
-  uuid: 99992898-07ae-4641-b086-dd3ba80ffc2f
+  name: Edvise es training pipeline
+  uuid: a3c4d5e6-f7a8-4901-b234-567890abcdef
 
 include:
-  - resources/github_pdp_training.yml
-  - resources/github_pdp_inference.yml
-  - resources/synthetic/github_synth_cleanup.yml
+  - resources/github_es_training.yml
+  - resources/github_es_inference.yml
 
 variables:
   git_commit:
@@ -27,12 +28,12 @@ variables:
   ds_run_as:
     description: "Account to run the pipeline (Databricks SP client/app ID)"
   databricks_institution_name:
-    description: "Institution ID to use for the pdp training"
+    description: "Institution ID to use for the es training"
   schema_type:
-    description: "Schema type: pdp, edvise, etc."
-    default: "pdp"
+    description: "Schema type: edvise, es, etc."
+    default: "edvise"
   config_file_name:
-    description: "Name of the config file to use for the pdp training"
+    description: "Name of the config file to use for the es training"
     default: "config.toml"
   datakind_group_to_manage_workflow:
     description: "Group with permissions to manage the job"
@@ -52,11 +53,11 @@ targets:
     mode: development
     variables:
       DB_workspace: "dev_sst_02"
-      training_slack_webhook_id: "1e30ca91-8d95-4324-be05-9d20bffd747b"    # edvise-data-crew channel on dev_sst_02                            
-      inference_slack_webhook_id: "1e30ca91-8d95-4324-be05-9d20bffd747b"   # edvise-data-crew channel on dev_sst_02  
+      training_slack_webhook_id: "1e30ca91-8d95-4324-be05-9d20bffd747b"    # edvise-data-crew channel on dev_sst_02
+      inference_slack_webhook_id: "1e30ca91-8d95-4324-be05-9d20bffd747b"   # edvise-data-crew channel on dev_sst_02
     resources:
       jobs:
-        github_sourced_pdp_training_pipeline:
+        github_sourced_es_training_pipeline:
           parameters:
             - name: pipeline_version
               default: ${var.git_commit}
@@ -64,12 +65,7 @@ targets:
             git_url: https://github.com/datakind/edvise
             git_provider: gitHub
             git_commit: ${var.git_commit}
-        edvise_github_sourced_pdp_inference_pipeline:
-          git_source:
-            git_url: https://github.com/datakind/edvise
-            git_provider: gitHub
-            git_commit: ${var.git_commit}
-        edvise_cleanup_synthetic:
+        github_sourced_es_inference_pipeline:
           git_source:
             git_url: https://github.com/datakind/edvise
             git_provider: gitHub
@@ -80,11 +76,11 @@ targets:
     mode: production
     variables:
       DB_workspace: "staging_sst_01"
-      training_slack_webhook_id: "0fb252f8-f343-4be7-91de-b55f5408a031"  # edvise-data-crew channel on staging_sst_01                                        
-      inference_slack_webhook_id: "c51b737e-988d-45dd-ad9b-6f9024a6b56b"  # edvise-support channel on staging_sst_01  
+      training_slack_webhook_id: "0fb252f8-f343-4be7-91de-b55f5408a031"  # edvise-data-crew channel on staging_sst_01
+      inference_slack_webhook_id: "c51b737e-988d-45dd-ad9b-6f9024a6b56b"  # edvise-support channel on staging_sst_01
     resources:
       jobs:
-        github_sourced_pdp_training_pipeline:
+        github_sourced_es_training_pipeline:
           parameters:
             - name: pipeline_version
               default: ${var.git_tag}
@@ -92,12 +88,7 @@ targets:
             git_url: https://github.com/datakind/edvise
             git_provider: gitHub
             git_tag: ${var.git_tag}
-        edvise_github_sourced_pdp_inference_pipeline:
-          git_source:
-            git_url: https://github.com/datakind/edvise
-            git_provider: gitHub
-            git_tag: ${var.git_tag}
-        edvise_cleanup_synthetic:
+        github_sourced_es_inference_pipeline:
           git_source:
             git_url: https://github.com/datakind/edvise
             git_provider: gitHub
