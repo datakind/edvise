@@ -377,6 +377,7 @@ class ModelInferenceTask:
             ),
             cfg_inference_params=inference_params,
             classification_threshold=classification_threshold,
+            schema_type=self.args.schema_type,
         )
         # Choose the correct features table path your project uses
         features_table_path = self.features_table_path
@@ -418,12 +419,14 @@ class ModelInferenceTask:
             unique_ids=out.unique_ids,
             grouped_shap_values=out.grouped_contribs_df,
             features_table_path=features_table_path,
+            schema_type=self.args.schema_type,
         ).merge(support_scores, on="student_id", how="left")
 
         box_whiskers_table = features_box_whiskers_table(
             features=out.grouped_features,
             shap_values=out.grouped_contribs_df.values,
             features_table_path=features_table_path,
+            schema_type=self.args.schema_type,
         )
 
         logging.info("Writing FE tables")
