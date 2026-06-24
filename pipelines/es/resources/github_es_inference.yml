@@ -1,4 +1,4 @@
-# ES inference: inference_setup reads config (use_genai_inputs) -> condition gates
+# ES inference: job parameter is_genai_institution (from SST API at trigger) gates
 # genai_mapping_execute (true) or direct to data_audit (false); NONE_FAILED merges both paths.
 resources:
   jobs:
@@ -21,7 +21,7 @@ resources:
               - "{{job.parameters.databricks_institution_name}}"
           job_cluster_key: edvise-pdp-inference-pipeline-cluster
           libraries:
-            # Match legacy inference_setup: edvise.utils.databricks + light TOML read only.
+            # inference_setup: resolve config_file_path from trained model silver artifacts.
             - pypi:
                 package: pandera==0.23.0
             - pypi:
@@ -34,16 +34,14 @@ resources:
                 package: tomlkit==0.13.3
             - pypi:
                 package: mlflow~=2.22
-        - task_key: check_use_genai_inputs
-          depends_on:
-            - task_key: inference_setup
+        - task_key: check_is_genai_institution
           condition_task:
             op: EQUAL_TO
-            left: "{{tasks.inference_setup.values.use_genai_inputs}}"
+            left: "{{job.parameters.is_genai_institution}}"
             right: "true"
         - task_key: genai_mapping_execute
           depends_on:
-            - task_key: check_use_genai_inputs
+            - task_key: check_is_genai_institution
               outcome: "true"
           run_job_task:
             job_id: ${resources.jobs.edvise_genai_mapping_execute_pipeline.id}
@@ -57,7 +55,7 @@ resources:
           depends_on:
             - task_key: inference_setup
             - task_key: genai_mapping_execute
-            - task_key: check_use_genai_inputs
+            - task_key: check_is_genai_institution
               outcome: "false"
           run_if: NONE_FAILED
           spark_python_task:
@@ -76,6 +74,8 @@ resources:
               - "{{job.parameters.job_type}}"
               - --db_run_id
               - "{{job.parameters.db_run_id}}"
+              - --is_genai_institution
+              - "{{job.parameters.is_genai_institution}}"
           job_cluster_key: edvise-pdp-inference-pipeline-cluster
           libraries:
             - pypi:
@@ -365,6 +365,8 @@ resources:
           default: ${var.pipeline_version}
         - name: genai_inputs_toml_path
           default: "inputs.toml"
+        - name: is_genai_institution
+          default: "true"
       permissions:
         - group_name: ${var.datakind_group_to_manage_workflow} 
           level: CAN_MANAGE
