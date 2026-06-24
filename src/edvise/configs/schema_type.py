@@ -10,7 +10,7 @@ from edvise.configs.pdp import PDPProjectConfig
 
 ProjectConfig = PDPProjectConfig | ESProjectConfig | LegacyProjectConfig
 
-_DEFAULT_FEATURES_TABLE_PATH = "shared/assets/pdp_features_table.toml"
+_DEFAULT_FEATURES_TABLE_PATH = "shared/assets/features_table.toml"
 
 
 def normalize_schema_type(raw: str) -> str:
