@@ -254,7 +254,7 @@ class ModelPrepTask:
                 logging.info("Updating training cohorts in config")
 
                 training_cohorts = (
-                    df_labeled[[cy, ct]]
+                    df_labeled[[ct, cy]]
                     .dropna()
                     .astype(str)
                     .agg(" ".join, axis=1)
@@ -267,12 +267,12 @@ class ModelPrepTask:
 
                 def _cohort_sort_key(x: str) -> tuple[int, int]:
                     parts = x.split()
-                    year_part = parts[0].split("-")[0] if parts else "0"
+                    term_key = parts[0].lower() if parts else ""
+                    year_part = parts[1].split("-")[0] if len(parts) > 1 else "0"
                     try:
                         y = int(year_part)
                     except ValueError:
                         y = 0
-                    term_key = parts[1].lower() if len(parts) > 1 else ""
                     return (y, term_order.get(term_key, 99))
 
                 training_cohorts = sorted(training_cohorts, key=_cohort_sort_key)
