@@ -1,5 +1,5 @@
 # ES inference: inference_setup reads config (use_genai_inputs) -> condition gates
-# genai_mapping_execute -> es_data_audit (NONE_FAILED so audit runs when genai is skipped).
+# genai_mapping_execute (true) or direct to data_audit (false); NONE_FAILED merges both paths.
 resources:
   jobs:
     github_sourced_es_inference_pipeline:
@@ -21,16 +21,19 @@ resources:
               - "{{job.parameters.databricks_institution_name}}"
           job_cluster_key: edvise-pdp-inference-pipeline-cluster
           libraries:
+            # Match legacy inference_setup: edvise.utils.databricks + light TOML read only.
             - pypi:
-                package: mlflow~=2.22
+                package: pandera==0.23.0
+            - pypi:
+                package: pydantic~=2.10
+            - pypi:
+                package: pyarrow~=16.0
             - pypi:
                 package: tomli==2.2.1
             - pypi:
                 package: tomlkit==0.13.3
             - pypi:
-                package: pydantic~=2.10
-            - pypi:
-                package: pandera==0.23.0
+                package: mlflow~=2.22
         - task_key: check_use_genai_inputs
           depends_on:
             - task_key: inference_setup
@@ -54,6 +57,8 @@ resources:
           depends_on:
             - task_key: inference_setup
             - task_key: genai_mapping_execute
+            - task_key: check_use_genai_inputs
+              outcome: "false"
           run_if: NONE_FAILED
           spark_python_task:
             python_file: src/edvise/scripts/es_data_audit.py

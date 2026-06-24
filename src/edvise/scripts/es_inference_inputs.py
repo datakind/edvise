@@ -3,6 +3,11 @@ import logging
 import os
 import sys
 
+try:
+    import tomllib
+except ImportError:
+    import tomli as tomllib  # type: ignore[no-redef]
+
 # Ensure repo src/ is on sys.path so `import edvise.*` works in Databricks Jobs.
 script_dir = os.getcwd()
 repo_root = os.path.abspath(os.path.join(script_dir, "..", "..", ".."))
@@ -10,19 +15,28 @@ src_path = os.path.join(repo_root, "src")
 if os.path.isdir(src_path) and src_path not in sys.path:
     sys.path.insert(0, src_path)
 
-from edvise.configs.es import ESProjectConfig
-from edvise.dataio.read import read_config
-from edvise.utils.databricks import (
+from edvise.utils.databricks import (  # noqa: E402
+    find_file_in_run_folder,
     get_dbutils_or_none,
     get_latest_uc_model_run_id,
-    find_file_in_run_folder,
+    local_fs_path,
 )
+
+
+def _read_use_genai_inputs(config_file_path: str) -> bool:
+    """Read use_genai_inputs from config TOML without loading ESProjectConfig."""
+    with open(local_fs_path(config_file_path), "rb") as f:
+        data = tomllib.load(f)
+    value = data.get("use_genai_inputs", True)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in ("true", "1", "yes")
+    return bool(value)
 
 
 class ESInferenceInputs:
     """
-    Resolve inference config from the registered model's silver run folder.
-
     Resolve inference config from the registered model's silver run folder and expose
     ``use_genai_inputs`` for downstream condition tasks (skip genai_mapping_execute when false).
     """
@@ -52,8 +66,7 @@ class ESInferenceInputs:
         logging.info("Using config file: %s", config_file_path)
         self.config_file_path = str(config_file_path)
 
-        cfg = read_config(file_path=self.config_file_path, schema=ESProjectConfig)
-        self.use_genai_inputs = bool(getattr(cfg, "use_genai_inputs", True))
+        self.use_genai_inputs = _read_use_genai_inputs(self.config_file_path)
         logging.info("use_genai_inputs=%s", self.use_genai_inputs)
 
         if self.dbutils:
