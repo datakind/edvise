@@ -105,10 +105,10 @@ def _checkpoint_suffix(
         core = bool(_get_attr(checkpoint, "exclude_non_core_terms"))
         return f"checkpoint_{n_plus_1}_{'core_terms' if core else 'total_terms'}"
 
-    if checkpoint_type == "first_student_terms":
+    if checkpoint_type in ("first", "first_student_terms"):
         return "checkpoint_first_term"
 
-    if checkpoint_type == "first_student_terms_within_cohort":
+    if checkpoint_type in ("first_within_cohort", "first_student_terms_within_cohort"):
         return "checkpoint_first_cohort_term"
 
     if checkpoint_type == "first_at_num_credits_earned":

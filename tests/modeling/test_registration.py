@@ -627,7 +627,8 @@ class TestPDPGetModelName:
         )
         assert result == "graduation_in_3y_ft_6y_pt_checkpoint_30_credits"
 
-    def test_graduation_first_student_terms_checkpoint(self):
+    @pytest.mark.parametrize("checkpoint_type", ["first", "first_student_terms"])
+    def test_graduation_first_student_terms_checkpoint(self, checkpoint_type):
         """Graduation with first term checkpoint"""
         target = {
             "type_": "graduation",
@@ -636,7 +637,7 @@ class TestPDPGetModelName:
             "num_terms_in_year": 4,
             "max_term_rank": "infer",
         }
-        checkpoint = {"type_": "first_student_terms"}
+        checkpoint = {"type_": checkpoint_type}
         student_criteria = {}
 
         result = pdp_get_model_name(
@@ -646,7 +647,13 @@ class TestPDPGetModelName:
         )
         assert result == "graduation_in_2y_ft_checkpoint_first_term"
 
-    def test_graduation_first_student_terms_within_cohort_checkpoint(self):
+    @pytest.mark.parametrize(
+        "checkpoint_type",
+        ["first_within_cohort", "first_student_terms_within_cohort"],
+    )
+    def test_graduation_first_student_terms_within_cohort_checkpoint(
+        self, checkpoint_type
+    ):
         """Graduation with first cohort term checkpoint"""
         target = {
             "type_": "graduation",
@@ -655,7 +662,7 @@ class TestPDPGetModelName:
             "num_terms_in_year": 4,
             "max_term_rank": "infer",
         }
-        checkpoint = {"type_": "first_student_terms_within_cohort"}
+        checkpoint = {"type_": checkpoint_type}
         student_criteria = {}
 
         result = pdp_get_model_name(
