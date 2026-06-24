@@ -319,16 +319,19 @@ def add_features(
             student_term_enrollment_intensity,
             min_num_credits_full_time=min_num_credits_full_time,
         )
-    if (
-        s.num_courses_in_program_area
-        and s.program_of_study_area
-        and "course_subject_areas" in df.columns
-    ):
-        batch1["num_courses_in_term_program_of_study_area"] = ft.partial(
-            num_courses_in_study_area,
-            study_area_col="term_program_of_study_area",
-        )
     out = df.assign(**batch1) if batch1 else df
+    if enable_when(
+        s.num_courses_in_program_area and s.program_of_study_area,
+        out,
+        "course_subject_areas",
+        "term_program_of_study_area",
+    ):
+        out = out.assign(
+            num_courses_in_term_program_of_study_area=ft.partial(
+                num_courses_in_study_area,
+                study_area_col="term_program_of_study_area",
+            )
+        )
     if s.num_course_by_category_fracs:
         _num_course_cols: list[str] = [
             col for col in out.columns if col.startswith(f"{nc_prefix}_")
@@ -379,7 +382,7 @@ def add_features(
                 ),
             }
         )
-    if s.program_change_from_prior_term and cols.term_program_of_study in out.columns:
+    if enable_when(s.program_change_from_prior_term, out, "term_program_of_study"):
         change_assigns: dict[str, t.Any] = {
             "term_program_of_study_changed_prev_term": ft.partial(
                 term_program_of_study_changed_prev_term,
