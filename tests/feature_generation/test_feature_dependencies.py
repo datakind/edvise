@@ -4,6 +4,7 @@ from edvise.feature_generation.column_names import (
     ES_COURSE_INPUT_COLUMNS,
     CourseFeatureSpec,
     SectionFeatureSpec,
+    StudentTermAddFeatureSpec,
 )
 from edvise.feature_generation.feature_dependencies import (
     MULTICOL_GRADE_COLUMNS,
@@ -118,6 +119,40 @@ def test_enable_when_requires_all_columns():
     assert enable_when(True, df, "a") is True
     assert enable_when(True, df, "a", "b") is False
     assert enable_when(False, df, "a") is False
+
+
+def test_add_features_program_area_uses_canonical_term_program_of_study():
+    """Aggregation renames ES ``term_degree`` to ``term_program_of_study``."""
+    df = pd.DataFrame(
+        {
+            "learner_id": ["s1"],
+            "term_id": ["t1"],
+            "term_program_of_study": ["24.0101"],
+            "course_subject_areas": [["24", "27"]],
+            "num_courses": [2],
+        }
+    )
+    spec = StudentTermAddFeatureSpec(
+        year_of_enrollment_at_cohort_inst=False,
+        student_certificates=False,
+        term_is_pre_cohort=False,
+        term_is_while_student_enrolled_at_other_inst=False,
+        program_of_study_area=True,
+        credit_fraction_and_intensity=False,
+        num_courses_in_program_area=True,
+        num_course_by_category_fracs=False,
+        section_student_fractions=False,
+        student_rate_vs_section_fractions=False,
+        program_change_from_prior_term=False,
+    )
+    out = student_term.add_features(
+        df,
+        cols=ES_COURSE_INPUT_COLUMNS,
+        min_num_credits_full_time=12.0,
+        spec=spec,
+    )
+    assert out["term_program_of_study_area"].iloc[0] == "24"
+    assert out["num_courses_in_term_program_of_study_area"].iloc[0] == 1
 
 
 def test_multicol_grade_columns_constant_matches_resolution():
