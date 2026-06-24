@@ -20,11 +20,6 @@ from .column_names import (
 
 LOGGER = logging.getLogger(__name__)
 
-# Backward-compatible aliases (canonical definitions in default_grade_map).
-NON_NUMERIC_GRADES = NON_NUMERIC_GRADE_CODES
-NON_PASS_FAIL_GRADES = NON_PASS_FAIL_GRADE_CODES
-NON_COMPLETE_GRADES = INCOMPLETE_GRADE_CODES
-
 GradeSemantics = t.Literal["pdp", "es"]
 
 
@@ -130,7 +125,7 @@ def course_passed(
 
 
 def course_completed(df: pd.DataFrame, *, col: str = "grade") -> pd.Series:
-    return ~(df[col].astype("string").isin(NON_COMPLETE_GRADES))
+    return ~(df[col].astype("string").isin(INCOMPLETE_GRADE_CODES))
 
 
 def course_level(
@@ -181,7 +176,7 @@ def extract_course_level_from_course_number(num):
 def course_grade_numeric(df: pd.DataFrame, *, col: str = "grade") -> pd.Series:
     """Numeric GPA from ``grade`` after ES ``grade_map`` (numeric strings or letters masked)."""
     s = df[col].astype("string").str.strip().str.upper()
-    masked = s.where(~s.isin(NON_NUMERIC_GRADES), pd.NA)
+    masked = s.where(~s.isin(NON_NUMERIC_GRADE_CODES), pd.NA)
     return pd.to_numeric(masked, errors="coerce").astype("Float32")
 
 
@@ -193,7 +188,7 @@ def course_grade(
     grade_semantics: GradeSemantics = "pdp",
 ) -> pd.Series:
     non_numeric_grades = df[grade_col].mask(
-        ~df[grade_col].isin(NON_NUMERIC_GRADES), pd.NA
+        ~df[grade_col].isin(NON_NUMERIC_GRADE_CODES), pd.NA
     )
     # PDP uses "A" for audit; ES schools map letters to GPA at data audit instead.
     if grade_semantics == "pdp":
@@ -219,7 +214,7 @@ def course_grade(
 
 
 def _grade_is_passing(grade: str, min_passing_grade: float) -> bool | None:
-    if grade in NON_PASS_FAIL_GRADES:
+    if grade in NON_PASS_FAIL_GRADE_CODES:
         return None
     elif grade == "P" or grade == "PASS":
         return True

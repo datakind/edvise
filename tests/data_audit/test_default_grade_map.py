@@ -82,9 +82,12 @@ def test_shared_grade_code_sets_cover_audit_and_feature_gen() -> None:
     from edvise.data_audit.default_grade_map import (
         INCOMPLETE_GRADE_CODES,
         LETTER_GPA_GRADE_CODES,
+        NON_COMPLETE_GRADES,
         NON_GPA_STATUS_GRADE_CODES,
         NON_NUMERIC_GRADE_CODES,
+        NON_NUMERIC_GRADES,
         NON_PASS_FAIL_GRADE_CODES,
+        NON_PASS_FAIL_GRADES,
     )
 
     assert "F" in LETTER_GPA_GRADE_CODES
@@ -93,3 +96,54 @@ def test_shared_grade_code_sets_cover_audit_and_feature_gen() -> None:
     assert "P" not in NON_PASS_FAIL_GRADE_CODES
     assert "A" in NON_PASS_FAIL_GRADE_CODES
     assert INCOMPLETE_GRADE_CODES == frozenset({"I", "W", "WD", "IP"})
+    assert NON_NUMERIC_GRADES is NON_NUMERIC_GRADE_CODES
+    assert NON_PASS_FAIL_GRADES is NON_PASS_FAIL_GRADE_CODES
+    assert NON_COMPLETE_GRADES is INCOMPLETE_GRADE_CODES
+
+
+def test_pdp_grade_token_sets_in_default_grade_map() -> None:
+    """PDP status tokens from feature_generation.course (Kayla review) live in one place."""
+    from edvise.data_audit.default_grade_map import (
+        INCOMPLETE_GRADE_CODES,
+        NON_NUMERIC_GRADE_CODES,
+        NON_PASS_FAIL_GRADE_CODES,
+    )
+
+    pdp_non_numeric = {
+        "A",
+        "F",
+        "I",
+        "M",
+        "O",
+        "P",
+        "W",
+        "S",
+        "PASS",
+        "SAT",
+        "UNSAT",
+        "U",
+        "WD",
+        "IP",
+        "AU",
+        "NG",
+        "NR",
+    }
+    pdp_non_pass_fail = {
+        "A",
+        "I",
+        "M",
+        "O",
+        "W",
+        "AU",
+        "S",
+        "SAT",
+        "UNSAT",
+        "U",
+        "WD",
+        "IP",
+        "NG",
+        "NR",
+    }
+    assert pdp_non_numeric <= NON_NUMERIC_GRADE_CODES
+    assert pdp_non_pass_fail <= NON_PASS_FAIL_GRADE_CODES
+    assert INCOMPLETE_GRADE_CODES == {"I", "W", "WD", "IP"}

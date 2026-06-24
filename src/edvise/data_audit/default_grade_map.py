@@ -92,3 +92,8 @@ NON_PASS_FAIL_GRADE_CODES: frozenset[str] = frozenset(
 
 # Incomplete / withdrawn grades for course-completion features.
 INCOMPLETE_GRADE_CODES: frozenset[str] = frozenset({"I", "W", "WD", "IP"})
+
+# Backward-compatible aliases (prefer *_GRADE_CODES names in new code).
+NON_NUMERIC_GRADES = NON_NUMERIC_GRADE_CODES
+NON_PASS_FAIL_GRADES = NON_PASS_FAIL_GRADE_CODES
+NON_COMPLETE_GRADES = INCOMPLETE_GRADE_CODES
