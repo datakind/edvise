@@ -19,7 +19,7 @@ def _ns(**kwargs: object) -> SimpleNamespace:
         "gcp_bucket_name": "my-bucket",
         "DB_workspace": "dev_sst_02",
         "databricks_institution_name": "acme",
-        "sync_run_id": "",
+        "batch_id": "",
         "gcs_source_prefix": "validated/",
         "bronze_subdir": "gcs_uploads",
         "include_blob_paths_json": "[]",
