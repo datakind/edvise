@@ -30,11 +30,7 @@ def parse_term_filter_param(value: t.Optional[str]) -> t.Optional[list[str]]:
 
 
 def _normalize_label_list(labels: list[str]) -> list[str]:
-    return [
-        label.strip().lower()
-        for label in labels
-        if label and str(label).strip()
-    ]
+    return [label.strip().lower() for label in labels if label and str(label).strip()]
 
 
 def _joined_labels(
