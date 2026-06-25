@@ -7,6 +7,7 @@ import pandas as pd
 
 from edvise.utils.data_cleaning import convert_to_snake_case
 from . import constants, term, shared
+from .cip_columns import resolve_term_program_of_study_source
 from .feature_dependencies import (
     MULTICOL_GRADE_COLUMNS,
     SECTION_STUDENT_FRACTION_COLUMNS,
@@ -49,6 +50,16 @@ def term_program_of_study_changed_prev_term(
     **kwargs: t.Any,
 ) -> pd.Series:
     """True if program of study (full CIP) changed from previous term."""
+    return _changed_prev_term(df, col=col, **kwargs)
+
+
+def term_degree_changed_prev_term(
+    df: pd.DataFrame,
+    *,
+    col: str = "term_degree",
+    **kwargs: t.Any,
+) -> pd.Series:
+    """True if term degree level changed from the previous term (Edvise-only)."""
     return _changed_prev_term(df, col=col, **kwargs)
 
 
@@ -190,8 +201,12 @@ def aggregate_from_course_level_features(
         "term_is_core": ("term_is_core", _first),
         "term_is_noncore": ("term_is_noncore", _first),
         "term_in_peak_covid": ("term_in_peak_covid", _first),
-        "term_program_of_study": (cols.term_program_of_study, _first),
     }
+    prog_src = resolve_term_program_of_study_source(df, cols)
+    if prog_src:
+        p_cols["term_program_of_study"] = (prog_src, _first)
+    if cols.term_degree and cols.term_degree in df.columns:
+        p_cols["term_degree"] = (cols.term_degree, _first)
     p_existing = {k: v for k, v in p_cols.items() if v[0] in df.columns}
     if not p_existing:
         raise ValueError(
@@ -395,6 +410,13 @@ def add_features(
                 student_id_cols=[cols.student_id],
             )
         out = out.assign(**change_assigns)
+    if enable_when(s.term_degree_changed_prev_term, out, "term_degree"):
+        out = out.assign(
+            term_degree_changed_prev_term=ft.partial(
+                term_degree_changed_prev_term,
+                student_id_cols=[cols.student_id],
+            )
+        )
     return out
 
 
