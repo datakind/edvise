@@ -42,11 +42,13 @@ class ESProjectConfig(pyd.BaseModel):
     use_genai_inputs: bool = pyd.Field(
         default=True,
         description=(
-            "Controls where ES data_audit reads its cohort/course inputs from. "
-            "If True (default), read GenAI-mapped parquets from the institution silver volume "
-            "(via genai_active_registry.json: onboard snapshot for training, execute "
-            "snapshot for inference). "
-            "If False, read raw CSVs from the institution bronze volume using datasets.raw_* paths."
+            "Controls where ES data_audit reads cohort/course inputs during training. "
+            "If True, read GenAI-mapped parquets from the institution silver volume "
+            "(via genai_active_registry.json onboard snapshot). "
+            "If False, read raw CSVs from the institution bronze volume using "
+            "datasets.raw_* paths. Set during onboarding to match institution type. "
+            "During ES inference, must equal the is_genai_institution job parameter "
+            "(from SST API genai_id vs edvise_id)."
         ),
     )
 

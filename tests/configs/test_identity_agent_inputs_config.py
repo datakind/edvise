@@ -311,7 +311,7 @@ def test_onboard_without_execute_files_validates_and_maps(
     assert onboard_school.datasets["course"].files == ["onboard_course.csv"]
 
 
-def test_execute_without_execute_files_raises(tmp_path: Path) -> None:
+def test_execute_without_execute_files_falls_back_to_onboard(tmp_path: Path) -> None:
     p = tmp_path / "inputs.toml"
     p.write_text(
         textwrap.dedent(
@@ -325,8 +325,10 @@ def test_execute_without_execute_files_raises(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     raw = IdentityAgentInputsConfig.model_validate(from_toml_file(str(p)))
-    with pytest.raises(ValueError, match="datasets.execute_files is required"):
-        raw.to_school_mapping_config(uc_catalog="dev_sst_02", pipeline_mode="execute")
+    execute_school = raw.to_school_mapping_config(
+        uc_catalog="dev_sst_02", pipeline_mode="execute"
+    )
+    assert execute_school.datasets["student"].files == ["onboard_students.csv"]
 
 
 def test_to_school_mapping_config_onboard_execute_files_are_separate_tables(

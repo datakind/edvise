@@ -19,7 +19,7 @@ course = "genai_mapping/onboard/FILE_NAME_courses.csv"
 #   "genai_mapping/onboard/FILE_NAME_courses_2014_2025.csv",
 # ]
 
-# Uncomment when wiring the execute pipeline (onboard-only can omit this block):
+# Optional: execute-specific CSVs. When omitted, execute mode falls back to onboard_files.
 # [datasets.execute_files]
 # student = "genai_mapping/execute/FILE_NAME_students.csv"
 # course = "genai_mapping/execute/FILE_NAME_courses.csv"
