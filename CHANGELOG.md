@@ -1,3 +1,11 @@
+## 1.3.0 (2026-06-25)
+- feat(genai): setup active registry update during genAI execution for ES inference (#176)
+- feat: connect genai execution into es inference (#179)
+- fix: renaming `batch_id` parameter for better clarity during async GCS to bronze volume job for non-PDP schools (#182)
+- fix: ES program-of-study mapping and gate features on CIP format (#183)
+- fix: always mapping to fixed values for model name suffixes instead of the inst-specific values (#184)
+- feat: adding output publish task to ES inference pipeline (#185)
+
 ## 1.2.4 (2026-06-24)
 - fix(legacy): derive legacy retention model card outcome from target config (#173)
 - fix(es): add H2OESModelCard for Edvise reporting instead of falling back to H2OPDPModelCard (#174)
