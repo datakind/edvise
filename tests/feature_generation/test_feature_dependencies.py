@@ -92,6 +92,7 @@ def test_aggregate_skips_missing_department_columns():
     )
     assert "course_subject_areas" not in out.columns
     assert "num_courses" in out.columns
+    assert out["term_degree"].iloc[0] == "A.S."
 
 
 def test_multicol_grade_aggs_without_section_mean_column():
@@ -122,7 +123,7 @@ def test_enable_when_requires_all_columns():
 
 
 def test_add_features_program_area_uses_canonical_term_program_of_study():
-    """Aggregation renames ES ``term_degree`` to ``term_program_of_study``."""
+    """Program-of-study features read aggregated ``term_program_of_study``."""
     df = pd.DataFrame(
         {
             "learner_id": ["s1"],
