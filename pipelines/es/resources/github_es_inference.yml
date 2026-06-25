@@ -14,8 +14,8 @@
 # outcome "false", genai_id via genai_mapping_execute; run_if NONE_FAILED allows the skipped branch.
 resources:
   jobs:
-    github_sourced_es_inference_pipeline:
-      name: github_sourced_es_inference_pipeline
+    github_sourced_genai_es_inference_pipeline:
+      name: github_sourced_genai_es_inference_pipeline
       # Slack disabled while ES inference + GenAI wiring is in flux; restore webhook_notifications
       # with ${var.inference_slack_webhook_id} when stable.
       max_concurrent_runs: 5
