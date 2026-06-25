@@ -54,33 +54,44 @@ def _get_attr(obj: t.Any, key: str, default: t.Any = None) -> t.Any:
     return getattr(obj, key, default)
 
 
-def _retention_credential_suffix(raw: str | list[str]) -> str:
+def _retention_credential_suffix(raw: str | list[str]) -> str | None:
     """
     Build the lowercase credential segment for retention model names.
 
-    Single value: ``normalize_degree(...).lower()``. Multiple distinct values:
-    short tokens sorted and joined with underscores; associates + certificate
-    becomes ``associates_and_cert``. Credential strings are typically uppercase
-    in config (e.g. ``ASSOCIATE'S DEGREE``, ``1-2 YEAR CERTIFICATE, LESS THAN
-    ASSOCIATE DEGREE``); labels may contain the word "certificate".
+    Collapses criteria to fixed suffixes via case-insensitive substring matching.
+    Raw criteria strings are never joined into the model name. Empty values yield
+    ``None`` (``all_degrees``).
     """
     if utils_types.is_collection_but_not_string(raw):
-        items = [str(x) for x in raw]
+        items = [str(x).strip() for x in raw if x is not None and str(x).strip()]
+    elif raw is None or not str(raw).strip():
+        items = []
     else:
-        items = [str(raw)]
-    unique = list(dict.fromkeys(normalize_degree(x) for x in items))
-    if len(unique) == 1:
-        return unique[0].lower()
+        items = [str(raw).strip()]
 
-    def _tok(norm: str) -> str:
-        if re.search(r"\bcertificate\b", norm, re.IGNORECASE):
-            return "cert"
-        return "associates" if norm.lower() == "associates" else norm.lower()
+    if not items:
+        return None
 
-    toks = sorted(_tok(n) for n in unique)
-    if toks == ["associates", "cert"]:
+    text = re.sub(r"['\u2019]", "", " ".join(items)).casefold()
+    has_assoc = "assoc" in text
+    has_cert = "cert" in text
+    has_bach = "bach" in text
+
+    if has_assoc and has_bach and has_cert:
+        return "associates_and_bachelors_and_cert"
+    if has_assoc and has_bach:
+        return "associates_and_bachelors"
+    if has_assoc and has_cert:
         return "associates_and_cert"
-    return "_".join(toks)
+    if has_assoc:
+        return "associates"
+    if has_bach:
+        return "bachelors"
+    if has_cert:
+        return "cert"
+    if len(items) == 1:
+        return normalize_degree(items[0]).lower()
+    return None
 
 
 def _retention_credential_from_student_criteria(
