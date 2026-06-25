@@ -6,11 +6,11 @@
 #   model_name, databricks_institution_name, DB_workspace, gcp_bucket_name,
 #   datakind_notification_email, DK_CC_EMAIL, config_file_name
 #
-# batch_id / validated_blob_paths_json — passed by edvise-api; data_ingestion resolves
+# batch_id / validated_blob_paths_json — passed by edvise-api; batch_gcs_ingest resolves
 # bronze inputs for Edvise-schema data_audit and GenAI mapping execute.
 #
 # is_genai_institution gates genai_mapping_execute (true) vs skipping straight to data_audit
-# (false). data_ingestion → check → data_audit merges both paths: edvise_id via check
+# (false). inference_setup → check → data_audit merges both paths: edvise_id via check
 # outcome "false", genai_id via genai_mapping_execute; run_if NONE_FAILED allows the skipped branch.
 resources:
   jobs:
@@ -20,9 +20,9 @@ resources:
       # with ${var.inference_slack_webhook_id} when stable.
       max_concurrent_runs: 5
       tasks:
-        - task_key: data_ingestion
+        - task_key: inference_setup
           spark_python_task:
-            python_file: src/edvise/scripts/es_gcp_databricks_ingestion.py
+            python_file: src/edvise/scripts/es_inference_inputs.py
             source: GIT
             parameters:
               - --model_name
@@ -31,20 +31,9 @@ resources:
               - "{{job.parameters.DB_workspace}}"
               - --databricks_institution_name
               - "{{job.parameters.databricks_institution_name}}"
-              - --gcp_bucket_name
-              - "{{job.parameters.gcp_bucket_name}}"
-              - --batch_id
-              - "{{job.parameters.batch_id}}"
-              - --validated_blob_paths_json
-              - "{{job.parameters.validated_blob_paths_json}}"
-              - --db_run_id
-              - "{{job.parameters.db_run_id}}"
-              - --is_genai_institution
-              - "{{job.parameters.is_genai_institution}}"
           job_cluster_key: edvise-es-inference-pipeline-cluster
           libraries:
-            - pypi:
-                package: google-cloud-storage==2.19.0
+            # inference_setup: resolve config_file_path from trained model silver artifacts.
             - pypi:
                 package: pandera==0.23.0
             - pypi:
@@ -59,14 +48,48 @@ resources:
                 package: mlflow~=2.22
         - task_key: check_is_genai_institution
           depends_on:
-            - task_key: data_ingestion
+            - task_key: inference_setup
           condition_task:
             op: EQUAL_TO
             left: "{{job.parameters.is_genai_institution}}"
             right: "true"
+        - task_key: batch_gcs_ingest
+          depends_on:
+            - task_key: inference_setup
+          spark_python_task:
+            python_file: src/edvise/scripts/batch_gcs_inference_ingest.py
+            source: GIT
+            parameters:
+              - --DB_workspace
+              - "{{job.parameters.DB_workspace}}"
+              - --databricks_institution_name
+              - "{{job.parameters.databricks_institution_name}}"
+              - --gcp_bucket_name
+              - "{{job.parameters.gcp_bucket_name}}"
+              - --batch_id
+              - "{{job.parameters.batch_id}}"
+              - --validated_blob_paths_json
+              - "{{job.parameters.validated_blob_paths_json}}"
+              - --db_run_id
+              - "{{job.parameters.db_run_id}}"
+              - --config_file_path
+              - "{{tasks.inference_setup.values.config_file_path}}"
+              - --is_genai_institution
+              - "{{job.parameters.is_genai_institution}}"
+          job_cluster_key: edvise-es-inference-pipeline-cluster
+          libraries:
+            - pypi:
+                package: google-cloud-storage==2.19.0
+            - pypi:
+                package: tomli==2.2.1
+            - pypi:
+                package: tomlkit==0.13.3
+            - pypi:
+                package: pydantic~=2.10
         - task_key: genai_mapping_execute
           depends_on:
-            - task_key: data_ingestion
+            - task_key: inference_setup
+            - task_key: batch_gcs_ingest
             - task_key: check_is_genai_institution
               outcome: "true"
           run_job_task:
@@ -77,10 +100,10 @@ resources:
               inputs_toml_path: "{{job.parameters.genai_inputs_toml_path}}"
               pipeline_version: "{{job.parameters.pipeline_version}}"
               db_run_id: "{{job.parameters.db_run_id}}_genai_execute"
-              bronze_batch_dir: "{{tasks.data_ingestion.values.bronze_batch_dir}}"
+              bronze_batch_dir: "{{tasks.batch_gcs_ingest.values.bronze_batch_dir}}"
         - task_key: data_audit
           depends_on:
-            - task_key: data_ingestion
+            - task_key: batch_gcs_ingest
             - task_key: check_is_genai_institution
               outcome: "false"
             - task_key: genai_mapping_execute
@@ -96,7 +119,7 @@ resources:
               - --DB_workspace
               - "{{job.parameters.DB_workspace}}"
               - --config_file_path
-              - "{{tasks.data_ingestion.values.config_file_path}}"
+              - "{{tasks.inference_setup.values.config_file_path}}"
               - --job_type
               - "{{job.parameters.job_type}}"
               - --db_run_id
@@ -104,11 +127,11 @@ resources:
               - --is_genai_institution
               - "{{job.parameters.is_genai_institution}}"
               - --bronze_batch_dir
-              - "{{tasks.data_ingestion.values.bronze_batch_dir}}"
+              - "{{tasks.batch_gcs_ingest.values.bronze_batch_dir}}"
               - --cohort_dataset_validated_path
-              - "{{tasks.data_ingestion.values.cohort_dataset_validated_path}}"
+              - "{{tasks.batch_gcs_ingest.values.cohort_dataset_validated_path}}"
               - --course_dataset_validated_path
-              - "{{tasks.data_ingestion.values.course_dataset_validated_path}}"
+              - "{{tasks.batch_gcs_ingest.values.course_dataset_validated_path}}"
           job_cluster_key: edvise-es-inference-pipeline-cluster
           libraries:
             - pypi:
@@ -141,7 +164,7 @@ resources:
               - --silver_volume_path
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --config_file_path
-              - "{{tasks.data_ingestion.values.config_file_path}}"
+              - "{{tasks.inference_setup.values.config_file_path}}"
               - --job_type
               - "{{job.parameters.job_type}}"
               - --db_run_id
@@ -178,7 +201,7 @@ resources:
               - --silver_volume_path
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --config_file_path
-              - "{{tasks.data_ingestion.values.config_file_path}}"
+              - "{{tasks.inference_setup.values.config_file_path}}"
               - --schema_type
               - "{{job.parameters.schema_type}}"
               - --job_type
@@ -217,7 +240,7 @@ resources:
               - --silver_volume_path
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --config_file_path
-              - "{{tasks.data_ingestion.values.config_file_path}}"
+              - "{{tasks.inference_setup.values.config_file_path}}"
               - --schema_type
               - "{{job.parameters.schema_type}}"
               - --job_type
@@ -261,7 +284,7 @@ resources:
               - --term_filter
               - "{{job.parameters.term_filter}}"
               - --config_file_path
-              - "{{tasks.data_ingestion.values.config_file_path}}"
+              - "{{tasks.inference_setup.values.config_file_path}}"
               - --schema_type
               - "{{job.parameters.schema_type}}"
               - --job_type
@@ -310,7 +333,7 @@ resources:
               - --job_root_dir  
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_gold/gold_volume/inference_jobs/{{job.parameters.db_run_id}}"
               - --config_file_path
-              - "{{tasks.data_ingestion.values.config_file_path}}"
+              - "{{tasks.inference_setup.values.config_file_path}}"
               - --schema_type
               - "{{job.parameters.schema_type}}"
           job_cluster_key: edvise-es-inference-pipeline-cluster

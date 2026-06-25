@@ -1,15 +1,62 @@
-"""Resolve ES inference ``config_file_path`` from the registered model (standalone entry)."""
-
-from __future__ import annotations
-
 import argparse
 import logging
+import os
 import sys
 
-from edvise.dataio.inference_model_artifacts import (
-    resolve_es_inference_artifacts,
-    set_inference_config_task_value,
+# Ensure repo src/ is on sys.path so `import edvise.*` works in Databricks Jobs.
+script_dir = os.getcwd()
+repo_root = os.path.abspath(os.path.join(script_dir, "..", "..", ".."))
+src_path = os.path.join(repo_root, "src")
+if os.path.isdir(src_path) and src_path not in sys.path:
+    sys.path.insert(0, src_path)
+
+from edvise.utils.databricks import (  # noqa: E402
+    find_file_in_run_folder,
+    get_dbutils_or_none,
+    get_latest_uc_model_run_id,
 )
+
+
+class ESInferenceInputs:
+    """
+    Resolve inference ``config_file_path`` from the registered model's silver run folder.
+
+    ``is_genai_institution`` is a job parameter (from the SST API at trigger time), not read here.
+    """
+
+    def __init__(self, args: argparse.Namespace):
+        self.args = args
+        self.dbutils = get_dbutils_or_none()
+        self.config_file_path: str | None = None
+
+    def run(self) -> None:
+        model_run_id = get_latest_uc_model_run_id(
+            model_name=self.args.model_name,
+            workspace=self.args.DB_workspace,
+            institution=self.args.databricks_institution_name,
+        )
+        silver_run_root = (
+            f"/Volumes/{self.args.DB_workspace}/"
+            f"{self.args.databricks_institution_name}_silver/silver_volume/{model_run_id}"
+        )
+        logging.info("Looking for inference config in: %s", silver_run_root)
+
+        config_file_path = find_file_in_run_folder(
+            silver_run_root,
+            keyword="config",
+        )
+        logging.info("Using config file: %s", config_file_path)
+        self.config_file_path = str(config_file_path)
+
+        if self.dbutils:
+            self.dbutils.jobs.taskValues.set(
+                key="config_file_path",
+                value=self.config_file_path,
+            )
+        else:
+            logging.warning(
+                "dbutils not available - task values not set (expected outside Databricks)."
+            )
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -22,18 +69,8 @@ def parse_arguments() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def main() -> None:
+if __name__ == "__main__":
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
     )
-    args = parse_arguments()
-    artifacts = resolve_es_inference_artifacts(
-        model_name=args.model_name,
-        db_workspace=args.DB_workspace,
-        databricks_institution_name=args.databricks_institution_name,
-    )
-    set_inference_config_task_value(artifacts.config_file_path)
-
-
-if __name__ == "__main__":
-    main()
+    ESInferenceInputs(parse_arguments()).run()
