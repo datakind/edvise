@@ -59,9 +59,7 @@ def resolve_es_inference_artifacts(
         model_run_id=model_run_id,
     )
     LOGGER.info("Looking for ES inference config in: %s", silver_run_root)
-    config_file_path = str(
-        find_file_in_run_folder(silver_run_root, keyword="config")
-    )
+    config_file_path = str(find_file_in_run_folder(silver_run_root, keyword="config"))
     LOGGER.info("Using ES inference config file: %s", config_file_path)
     return EsInferenceArtifacts(
         model_run_id=model_run_id,
@@ -88,9 +86,7 @@ def resolve_legacy_inference_artifacts(
         model_run_id=model_run_id,
     )
     LOGGER.info("Looking for legacy inference artifacts in: %s", silver_run_root)
-    config_file_path = str(
-        find_file_in_run_folder(silver_run_root, keyword="config")
-    )
+    config_file_path = str(find_file_in_run_folder(silver_run_root, keyword="config"))
     features_table_path = str(
         find_file_in_run_folder(silver_run_root, keyword="features_table")
     )
@@ -116,7 +112,9 @@ def set_inference_config_task_value(config_file_path: str) -> None:
         return
 
     try:
-        dbutils.jobs.taskValues.set(key="config_file_path", value=config_file_path or "")
+        dbutils.jobs.taskValues.set(
+            key="config_file_path", value=config_file_path or ""
+        )
     except (AttributeError, OSError, RuntimeError, TypeError) as exc:
         LOGGER.error(
             "dbutils.jobs.taskValues.set failed for config_file_path: %s",
@@ -141,7 +139,9 @@ def set_legacy_inference_artifact_task_values(
         return
 
     try:
-        dbutils.jobs.taskValues.set(key="config_file_path", value=config_file_path or "")
+        dbutils.jobs.taskValues.set(
+            key="config_file_path", value=config_file_path or ""
+        )
         dbutils.jobs.taskValues.set(
             key="features_table_path", value=features_table_path or ""
         )

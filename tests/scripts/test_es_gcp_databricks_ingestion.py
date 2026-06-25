@@ -37,7 +37,9 @@ def test_run_es_gcp_databricks_ingestion_skips_when_no_blob_paths() -> None:
         silver_run_root="/Volumes/edvise/acme_silver/silver_volume/run-abc",
     )
     with (
-        mock.patch.object(script, "resolve_es_inference_artifacts", return_value=artifacts),
+        mock.patch.object(
+            script, "resolve_es_inference_artifacts", return_value=artifacts
+        ),
         mock.patch.object(script, "set_inference_config_task_value") as set_config,
         mock.patch.object(script, "set_batch_ingest_task_values") as set_batch,
         mock.patch.object(script, "run_batch_gcs_inference_ingest") as run_batch,
@@ -68,10 +70,16 @@ def test_run_es_gcp_databricks_ingestion_runs_batch_ingest() -> None:
         skipped=False,
     )
     with (
-        mock.patch.object(script, "resolve_es_inference_artifacts", return_value=artifacts),
+        mock.patch.object(
+            script, "resolve_es_inference_artifacts", return_value=artifacts
+        ),
         mock.patch.object(script, "set_inference_config_task_value"),
-        mock.patch.object(script, "_raw_dataset_names_from_config", return_value=("cohort", "course")),
-        mock.patch.object(script, "run_batch_gcs_inference_ingest", return_value=batch_result) as run_batch,
+        mock.patch.object(
+            script, "_raw_dataset_names_from_config", return_value=("cohort", "course")
+        ),
+        mock.patch.object(
+            script, "run_batch_gcs_inference_ingest", return_value=batch_result
+        ) as run_batch,
         mock.patch.object(script, "set_batch_ingest_task_values") as set_batch,
     ):
         result = script.run_es_gcp_databricks_ingestion(_args())

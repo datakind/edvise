@@ -8,11 +8,14 @@ from edvise.dataio import inference_model_artifacts as m
 
 
 def test_silver_run_root_for_model() -> None:
-    assert m.silver_run_root_for_model(
-        db_workspace="edvise",
-        databricks_institution_name="acme",
-        model_run_id="run-123",
-    ) == "/Volumes/edvise/acme_silver/silver_volume/run-123"
+    assert (
+        m.silver_run_root_for_model(
+            db_workspace="edvise",
+            databricks_institution_name="acme",
+            model_run_id="run-123",
+        )
+        == "/Volumes/edvise/acme_silver/silver_volume/run-123"
+    )
 
 
 def test_resolve_es_inference_artifacts() -> None:
@@ -45,7 +48,9 @@ def test_resolve_es_inference_artifacts() -> None:
     )
     assert artifacts.model_run_id == "run-abc"
     assert artifacts.config_file_path.endswith("config.toml")
-    assert artifacts.silver_run_root == "/Volumes/edvise/acme_silver/silver_volume/run-abc"
+    assert (
+        artifacts.silver_run_root == "/Volumes/edvise/acme_silver/silver_volume/run-abc"
+    )
 
 
 def test_resolve_legacy_inference_artifacts() -> None:

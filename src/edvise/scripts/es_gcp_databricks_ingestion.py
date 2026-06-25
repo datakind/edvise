@@ -102,7 +102,9 @@ def _raw_dataset_names_from_config(config_file_path: str) -> tuple[str, str]:
     return cfg.datasets.raw_cohort, cfg.datasets.raw_course
 
 
-def run_es_gcp_databricks_ingestion(args: argparse.Namespace) -> BatchIngestResult | None:
+def run_es_gcp_databricks_ingestion(
+    args: argparse.Namespace,
+) -> BatchIngestResult | None:
     artifacts = resolve_es_inference_artifacts(
         model_name=args.model_name,
         db_workspace=args.DB_workspace,
