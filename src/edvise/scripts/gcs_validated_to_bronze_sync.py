@@ -5,8 +5,8 @@ institution's Unity Catalog managed bronze_volume for downstream Databricks work
 Files are **added or overwritten** under ``bronze_volume/<bronze_subdir>/`` (default
 ``gcs_uploads``). Existing objects in that folder are never deleted by this job.
 
-Optional ``--sync_run_id`` adds one extra path segment when you want run-scoped
-folders.
+Optional ``--batch_id`` adds one extra path segment when you want batch-scoped
+folders under ``bronze_subdir``.
 
 Optional ``--include_blob_paths_json`` (JSON array of full GCS object paths, e.g.
 ``["validated/foo.csv"]``) copies **only** those objects from the current validation
@@ -61,7 +61,7 @@ class _SyncPaths:
     db_workspace: str
     institution: str
     gcs_prefix: str
-    sync_id: str
+    batch_id: str
     landing_dir: str
     landing_local: str
     include_paths: list[str]
@@ -302,17 +302,17 @@ def _build_sync_paths(args: argparse.Namespace) -> _SyncPaths:
     gcs_prefix = _normalize_gcs_prefix(args.gcs_source_prefix)
     if not gcs_prefix:
         gcs_prefix = DEFAULT_GCS_PREFIX
-    sync_id_raw = (args.sync_run_id or "").strip()
-    if sync_id_raw:
-        sync_id = _assert_safe_volume_segment("sync_run_id", sync_id_raw)
+    batch_id_raw = (args.batch_id or "").strip()
+    if batch_id_raw:
+        batch_id = _assert_safe_volume_segment("batch_id", batch_id_raw)
     else:
-        sync_id = ""
+        batch_id = ""
     include_paths = _parse_include_blob_paths_json(args.include_blob_paths_json)
     bronze_sub = _assert_safe_volume_segment("bronze_subdir", args.bronze_subdir)
     bronze_root = f"/Volumes/{db_w}/{inst}_bronze/bronze_volume"
     landing_dir = (
-        os.path.join(bronze_root, bronze_sub, sync_id)
-        if sync_id
+        os.path.join(bronze_root, bronze_sub, batch_id)
+        if batch_id
         else os.path.join(bronze_root, bronze_sub)
     )
     landing_local = local_fs_path(landing_dir)
@@ -320,7 +320,7 @@ def _build_sync_paths(args: argparse.Namespace) -> _SyncPaths:
         db_workspace=db_w,
         institution=inst,
         gcs_prefix=gcs_prefix,
-        sync_id=sync_id,
+        batch_id=batch_id,
         landing_dir=landing_dir,
         landing_local=landing_local,
         include_paths=include_paths,
@@ -446,7 +446,7 @@ def sync_validated_to_bronze(args: argparse.Namespace) -> Tuple[int, Swallowed]:
         copied=copied,
         bucket_name=args.gcp_bucket_name,
         gcs_prefix=sp.gcs_prefix,
-        storage_layout="run_scoped" if sp.sync_id else "flat",
+        storage_layout="batch_scoped" if sp.batch_id else "flat",
         copy_mode="selective" if selective else "all_under_prefix",
         include_blob_paths=include_paths if selective else None,
     )
@@ -472,10 +472,10 @@ def _add_cli_path_arguments(parser: argparse.ArgumentParser) -> None:
         help="Institution GCS bucket containing validated uploads",
     )
     parser.add_argument(
-        "--sync_run_id",
+        "--batch_id",
         default="",
         help=(
-            "Optional single path segment under bronze_subdir (e.g. job run id). "
+            "Optional batch UUID path segment under bronze_subdir. "
             "Leave empty (default) to land files directly under bronze_subdir."
         ),
     )
