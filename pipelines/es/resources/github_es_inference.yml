@@ -1,15 +1,76 @@
-# Edvise (ES) inference: no data_ingestion task (inputs via GenAI silver parquets and/or bronze).
-# First tasks: es_data_audit -> es_feature_generation; downstream tasks match github_pdp_inference.yml.
+# ES inference triggered by edvise-api run_es_inference().
+#
+# API-overridden job parameters (see edvise-api develop databricks.py):
+#   is_genai_institution — "true" when institution has genai_id, else "false" (edvise_id)
+#   schema_type          — always "edvise"
+#   model_name, databricks_institution_name, DB_workspace, gcp_bucket_name,
+#   datakind_notification_email, DK_CC_EMAIL, config_file_name
+#
+# batch_id / validated_blob_paths_json — passed by API; bronze batch wiring is a follow-up PR.
+#
+# is_genai_institution gates genai_mapping_execute (true) vs skipping straight to data_audit
+# (false). inference_setup → check → data_audit merges both paths: edvise_id via check
+# outcome "false", genai_id via genai_mapping_execute; run_if NONE_FAILED allows the skipped branch.
 resources:
   jobs:
     github_sourced_es_inference_pipeline:
       name: github_sourced_es_inference_pipeline
-      webhook_notifications:
-        on_failure:
-          - id: ${var.inference_slack_webhook_id}
+      # Slack disabled while ES inference + GenAI wiring is in flux; restore webhook_notifications
+      # with ${var.inference_slack_webhook_id} when stable.
       max_concurrent_runs: 5
       tasks:
+        - task_key: inference_setup
+          spark_python_task:
+            python_file: src/edvise/scripts/es_inference_inputs.py
+            source: GIT
+            parameters:
+              - --model_name
+              - "{{job.parameters.model_name}}"
+              - --DB_workspace
+              - "{{job.parameters.DB_workspace}}"
+              - --databricks_institution_name
+              - "{{job.parameters.databricks_institution_name}}"
+          job_cluster_key: edvise-es-inference-pipeline-cluster
+          libraries:
+            # inference_setup: resolve config_file_path from trained model silver artifacts.
+            - pypi:
+                package: pandera==0.23.0
+            - pypi:
+                package: pydantic~=2.10
+            - pypi:
+                package: pyarrow~=16.0
+            - pypi:
+                package: tomli==2.2.1
+            - pypi:
+                package: tomlkit==0.13.3
+            - pypi:
+                package: mlflow~=2.22
+        - task_key: check_is_genai_institution
+          depends_on:
+            - task_key: inference_setup
+          condition_task:
+            op: EQUAL_TO
+            left: "{{job.parameters.is_genai_institution}}"
+            right: "true"
+        - task_key: genai_mapping_execute
+          depends_on:
+            - task_key: inference_setup
+            - task_key: check_is_genai_institution
+              outcome: "true"
+          run_job_task:
+            job_id: ${resources.jobs.edvise_genai_mapping_execute_pipeline.id}
+            job_parameters:
+              institution_id: "{{job.parameters.databricks_institution_name}}"
+              catalog: "{{job.parameters.DB_workspace}}"
+              inputs_toml_path: "{{job.parameters.genai_inputs_toml_path}}"
+              pipeline_version: "{{job.parameters.pipeline_version}}"
+              db_run_id: "{{job.parameters.db_run_id}}_genai_execute"
         - task_key: data_audit
+          depends_on:
+            - task_key: check_is_genai_institution
+              outcome: "false"
+            - task_key: genai_mapping_execute
+          run_if: NONE_FAILED
           spark_python_task:
             python_file: src/edvise/scripts/es_data_audit.py
             source: GIT
@@ -21,12 +82,14 @@ resources:
               - --DB_workspace
               - "{{job.parameters.DB_workspace}}"
               - --config_file_path
-              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+              - "{{tasks.inference_setup.values.config_file_path}}"
               - --job_type
               - "{{job.parameters.job_type}}"
               - --db_run_id
               - "{{job.parameters.db_run_id}}"
-          job_cluster_key: edvise-pdp-inference-pipeline-cluster
+              - --is_genai_institution
+              - "{{job.parameters.is_genai_institution}}"
+          job_cluster_key: edvise-es-inference-pipeline-cluster
           libraries:
             - pypi:
                 package: pandas==2.2.3
@@ -58,12 +121,12 @@ resources:
               - --silver_volume_path
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --config_file_path
-              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+              - "{{tasks.inference_setup.values.config_file_path}}"
               - --job_type
               - "{{job.parameters.job_type}}"
               - --db_run_id
               - "{{job.parameters.db_run_id}}"
-          job_cluster_key: edvise-pdp-inference-pipeline-cluster
+          job_cluster_key: edvise-es-inference-pipeline-cluster
           libraries:
             - pypi:
                 package: pandas==2.2.3
@@ -95,14 +158,14 @@ resources:
               - --silver_volume_path
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --config_file_path
-              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+              - "{{tasks.inference_setup.values.config_file_path}}"
               - --schema_type
               - "{{job.parameters.schema_type}}"
               - --job_type
               - "{{job.parameters.job_type}}"
               - --db_run_id
               - "{{job.parameters.db_run_id}}"
-          job_cluster_key: edvise-pdp-inference-pipeline-cluster
+          job_cluster_key: edvise-es-inference-pipeline-cluster
           libraries:
             - pypi:
                 package: pandas==2.2.3
@@ -134,14 +197,14 @@ resources:
               - --silver_volume_path
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --config_file_path
-              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+              - "{{tasks.inference_setup.values.config_file_path}}"
               - --schema_type
               - "{{job.parameters.schema_type}}"
               - --job_type
               - "{{job.parameters.job_type}}"
               - --db_run_id
               - "{{job.parameters.db_run_id}}"
-          job_cluster_key: edvise-pdp-inference-pipeline-cluster
+          job_cluster_key: edvise-es-inference-pipeline-cluster
           libraries:
             - pypi:
                 package: pandas==2.2.3
@@ -178,12 +241,12 @@ resources:
               - --term_filter
               - "{{job.parameters.term_filter}}"
               - --config_file_path
-              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+              - "{{tasks.inference_setup.values.config_file_path}}"
               - --schema_type
               - "{{job.parameters.schema_type}}"
               - --job_type
               - "{{job.parameters.job_type}}"
-          job_cluster_key: edvise-pdp-inference-pipeline-cluster
+          job_cluster_key: edvise-es-inference-pipeline-cluster
           libraries:
             - pypi:
                 package: pandas==2.2.3
@@ -227,10 +290,10 @@ resources:
               - --job_root_dir  
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_gold/gold_volume/inference_jobs/{{job.parameters.db_run_id}}"
               - --config_file_path
-              - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_bronze/bronze_volume/training_inputs/{{job.parameters.config_file_name}}"
+              - "{{tasks.inference_setup.values.config_file_path}}"
               - --schema_type
               - "{{job.parameters.schema_type}}"
-          job_cluster_key: edvise-pdp-inference-pipeline-cluster
+          job_cluster_key: edvise-es-inference-pipeline-cluster
           libraries:
             - pypi:
                 package: numpy==1.26.4
@@ -259,7 +322,7 @@ resources:
             - pypi:
                 package: scikit-learn==1.5.2      
       job_clusters:
-        - job_cluster_key: edvise-pdp-inference-pipeline-cluster
+        - job_cluster_key: edvise-es-inference-pipeline-cluster
           new_cluster:
             cluster_name: ""
             spark_version: 15.4.x-cpu-ml-scala2.12
@@ -285,10 +348,6 @@ resources:
           default: ""
         - name: schema_type
           default: edvise
-        - name: cohort_file_name
-          default: 2025-09-19_CCC Student File De-Duplicated.csv
-        - name: course_file_name
-          default: 2025-09-19_CCC Course File.csv
         - name: databricks_institution_name
           default: city_cols_of_chicago
         - name: db_run_id
@@ -311,6 +370,12 @@ resources:
           default: inference
         - name: model_name
           default: retention_into_year_2_all_degrees
+        - name: pipeline_version
+          default: ${var.pipeline_version}
+        - name: genai_inputs_toml_path
+          default: "inputs.toml"
+        - name: is_genai_institution
+          default: "true"
       permissions:
         - group_name: ${var.datakind_group_to_manage_workflow} 
           level: CAN_MANAGE
