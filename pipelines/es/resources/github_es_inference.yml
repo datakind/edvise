@@ -1,5 +1,16 @@
-# ES inference: job parameter is_genai_institution (from SST API at trigger) gates
-# genai_mapping_execute (true) or direct to data_audit (false); NONE_FAILED merges both paths.
+# ES inference triggered by edvise-api run_es_inference().
+#
+# API-overridden job parameters (see edvise-api develop databricks.py):
+#   is_genai_institution — "true" when institution has genai_id, else "false" (edvise_id)
+#   schema_type          — always "edvise"
+#   model_name, databricks_institution_name, DB_workspace, gcp_bucket_name,
+#   datakind_notification_email, DK_CC_EMAIL, config_file_name
+#
+# batch_id / validated_blob_paths_json — passed by API; bronze batch wiring is a follow-up PR.
+#
+# is_genai_institution gates genai_mapping_execute (true) vs skipping straight to data_audit
+# (false). data_audit uses run_if: NONE_FAILED so a skipped genai_mapping_execute does not block
+# the edvise_id path.
 resources:
   jobs:
     github_sourced_es_inference_pipeline:
@@ -55,8 +66,6 @@ resources:
           depends_on:
             - task_key: inference_setup
             - task_key: genai_mapping_execute
-            - task_key: check_is_genai_institution
-              outcome: "false"
           run_if: NONE_FAILED
           spark_python_task:
             python_file: src/edvise/scripts/es_data_audit.py
@@ -366,7 +375,7 @@ resources:
         - name: genai_inputs_toml_path
           default: "inputs.toml"
         - name: is_genai_institution
-          default: "true"
+          default: "false"
       permissions:
         - group_name: ${var.datakind_group_to_manage_workflow} 
           level: CAN_MANAGE
