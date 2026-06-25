@@ -44,18 +44,6 @@ def test_should_skip_batch_ingest() -> None:
     )
 
 
-def test_resolve_dataset_file_in_batch_dir_exact_and_substring(tmp_path: Path) -> None:
-    (tmp_path / "cohort.csv").write_text("x", encoding="utf-8")
-    (tmp_path / "other_course.csv").write_text("y", encoding="utf-8")
-
-    assert m.resolve_dataset_file_in_batch_dir(str(tmp_path), "cohort.csv") == str(
-        tmp_path / "cohort.csv"
-    )
-    assert m.resolve_dataset_file_in_batch_dir(str(tmp_path), "course") == str(
-        tmp_path / "other_course.csv"
-    )
-
-
 def test_run_batch_gcs_inference_ingest_reuses_ready_bronze(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -78,16 +66,14 @@ def test_run_batch_gcs_inference_ingest_reuses_ready_bronze(
         batch_id="batch1",
         validated_blob_paths_json='["validated/cohort.csv","validated/course.csv"]',
         db_run_id="run-1",
-        raw_cohort_name="cohort.csv",
-        raw_course_name="course.csv",
         is_genai_institution="false",
     )
 
     assert result.source == "existing_bronze_batch"
     assert result.copied_count == 0
     assert result.bronze_batch_dir == str(batch_dir)
-    assert result.cohort_dataset_validated_path == str(batch_dir / "cohort.csv")
-    assert result.course_dataset_validated_path == str(batch_dir / "course.csv")
+    assert result.cohort_dataset_validated_path is None
+    assert result.course_dataset_validated_path is None
 
 
 def test_wait_for_bronze_batch_ready_returns_immediately_when_ready(
@@ -169,8 +155,6 @@ def test_run_batch_gcs_inference_ingest_reuses_after_wait(
         batch_id="batch1",
         validated_blob_paths_json='["validated/cohort.csv","validated/course.csv"]',
         db_run_id="run-1",
-        raw_cohort_name="cohort.csv",
-        raw_course_name="course.csv",
         is_genai_institution="false",
     )
 
@@ -205,14 +189,39 @@ def test_run_batch_gcs_inference_ingest_downloads_when_not_ready(
         batch_id="batch1",
         validated_blob_paths_json='["validated/cohort.csv","validated/course.csv"]',
         db_run_id="run-1",
-        raw_cohort_name="cohort.csv",
-        raw_course_name="course.csv",
         is_genai_institution="false",
     )
 
     assert result.source == "gcs_download"
     assert result.copied_count == 2
     assert result.bronze_batch_dir == str(landing)
+
+
+def test_run_batch_gcs_inference_ingest_does_not_resolve_cohort_or_course(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    batch_dir = tmp_path / "gcs_uploads" / "batch1"
+    batch_dir.mkdir(parents=True)
+    student = batch_dir / "1782424164337_2025-09-19_CCC Student File.csv"
+    student.write_text("a\n", encoding="utf-8")
+    (batch_dir / SUCCESS_FILENAME).write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr(m, "bronze_gcs_batch_dir", lambda *_a, **_k: str(batch_dir))
+
+    result = m.run_batch_gcs_inference_ingest(
+        db_workspace="dev",
+        databricks_institution_name="school",
+        gcp_bucket_name="bucket",
+        batch_id="batch1",
+        validated_blob_paths_json='["validated/1782424164337_2025-09-19_CCC Student File.csv"]',
+        db_run_id="run-1",
+        is_genai_institution="true",
+    )
+
+    assert result.skipped is False
+    assert result.bronze_batch_dir == str(batch_dir)
+    assert result.cohort_dataset_validated_path is None
+    assert result.course_dataset_validated_path is None
 
 
 def test_run_batch_gcs_inference_ingest_runs_for_genai_with_blob_paths(

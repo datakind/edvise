@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 
 from edvise.configs.genai import DatasetConfig, SchoolMappingConfig
-from edvise.dataio.batch_gcs_inference_ingest import resolve_dataset_file_in_batch_dir
+from edvise.dataio.batch_dataset_paths import resolve_dataset_file_in_batch_dir
 
 LOGGER = logging.getLogger(__name__)
 

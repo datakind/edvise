@@ -6,8 +6,9 @@
 #   model_name, databricks_institution_name, DB_workspace, gcp_bucket_name,
 #   datakind_notification_email, DK_CC_EMAIL, config_file_name
 #
-# batch_id / validated_blob_paths_json — passed by edvise-api; data_ingestion resolves
-# bronze inputs for Edvise-schema data_audit and GenAI mapping execute.
+# batch_id / validated_blob_paths_json — passed by edvise-api; data_ingestion lands
+# files under gcs_uploads/{batch_id}/ and resolves config_file_path only.
+# Cohort/course assignment: edvise_id in data_audit; genai_id in genai_mapping_execute.
 #
 # is_genai_institution gates genai_mapping_execute (true) vs skipping straight to data_audit
 # (false). data_ingestion → check → data_audit merges both paths: edvise_id via check
