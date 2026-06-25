@@ -36,7 +36,6 @@ from google.cloud.storage import Blob
 
 from edvise.utils.gcs import (
     DEFAULT_GCS_PREFIX,
-    SUCCESS_FILENAME,
     assert_safe_volume_segment,
     copy_validated_blobs_to_landing,
     dest_local_under_landing,

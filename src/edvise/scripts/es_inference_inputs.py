@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import logging
-import sys
 
 from edvise.dataio.inference_model_artifacts import (
     resolve_es_inference_artifacts,
