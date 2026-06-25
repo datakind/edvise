@@ -1,3 +1,12 @@
+## 1.2.4 (2026-06-24)
+- fix(legacy): derive legacy retention model card outcome from target config (#173)
+- fix(es): add H2OESModelCard for Edvise reporting instead of falling back to H2OPDPModelCard (#174)
+- fix(es): split ES pipelines into dedicated Databricks bundle (#175)
+- fix: update student certificate feature names to match pdp_features_table (#177)
+- feat: allowing model naming compatibility with edvise schema schools (#178)
+- fix(es): resolve ES term program features during feature generation (#180)
+- feat: exclude students linked to training cohorts during inference (#181)
+
 ## 1.2.3 (2026-06-23)
 - fix: target functionality logic for schools with 4 terms (#137)
 - fix(genai): validate term hook groups at HITL emit time (#166)
