@@ -9,8 +9,8 @@
 # batch_id / validated_blob_paths_json — passed by API; bronze batch wiring is a follow-up PR.
 #
 # is_genai_institution gates genai_mapping_execute (true) vs skipping straight to data_audit
-# (false). inference_setup runs first (resolve model config); data_audit uses run_if: NONE_FAILED
-# so a skipped genai_mapping_execute does not block the edvise_id path.
+# (false). inference_setup → check → (optional genai_mapping) → data_audit; data_audit uses
+# run_if: NONE_FAILED so a skipped genai_mapping_execute does not block the edvise_id path.
 resources:
   jobs:
     github_sourced_es_inference_pipeline:
@@ -67,7 +67,7 @@ resources:
               db_run_id: "{{job.parameters.db_run_id}}_genai_execute"
         - task_key: data_audit
           depends_on:
-            - task_key: inference_setup
+            - task_key: check_is_genai_institution
             - task_key: genai_mapping_execute
           run_if: NONE_FAILED
           spark_python_task:

@@ -119,8 +119,7 @@ class ESDataAuditTask:
             raise ValueError(
                 f"config use_genai_inputs={use_genai!r} does not match "
                 f"job parameter is_genai_institution={job_is_genai!r}. "
-                "Update config.toml to match the institution type in the SST API "
-                "(genai_id -> true, edvise_id -> false)."
+                "Update config.toml to match the institution type in the SST API or vice versa."
             )
         return use_genai
 
