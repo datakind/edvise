@@ -169,7 +169,9 @@ class ESDataAuditTask:
                 bool(self.args.bronze_volume_path),
                 "bronze_volume_path is required for Edvise Schema (edvise_id) institutions.",
             )
-            bronze_batch_dir = (getattr(self.args, "bronze_batch_dir", None) or "").strip()
+            bronze_batch_dir = (
+                getattr(self.args, "bronze_batch_dir", None) or ""
+            ).strip()
             bronze_root = bronze_batch_dir or self.args.bronze_volume_path
             cohort_prefer = (self.args.cohort_dataset_validated_path or "").strip()
             course_prefer = (self.args.course_dataset_validated_path or "").strip()

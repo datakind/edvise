@@ -53,7 +53,9 @@ class BatchIngestResult:
 
 def bronze_volume_root(db_workspace: str, institution: str) -> str:
     ws = assert_safe_volume_segment("DB_workspace", db_workspace.strip())
-    inst = assert_safe_volume_segment("databricks_institution_name", institution.strip())
+    inst = assert_safe_volume_segment(
+        "databricks_institution_name", institution.strip()
+    )
     return f"/Volumes/{ws}/{inst}_bronze/bronze_volume"
 
 
@@ -127,7 +129,9 @@ def wait_for_bronze_batch_ready(
     return False
 
 
-def resolve_dataset_file_in_batch_dir(batch_dir: str, dataset_name: str) -> Optional[str]:
+def resolve_dataset_file_in_batch_dir(
+    batch_dir: str, dataset_name: str
+) -> Optional[str]:
     """
     Resolve one cohort/course file under ``batch_dir``.
 
@@ -149,9 +153,7 @@ def resolve_dataset_file_in_batch_dir(batch_dir: str, dataset_name: str) -> Opti
 
     needle = target.lower()
     matches = [
-        p
-        for p in base.iterdir()
-        if _is_data_file(p) and needle in p.name.lower()
+        p for p in base.iterdir() if _is_data_file(p) and needle in p.name.lower()
     ]
     if not matches:
         return None
@@ -327,7 +329,9 @@ def set_batch_ingest_task_values(result: BatchIngestResult) -> None:
         return
 
     try:
-        dbc.jobs.taskValues.set(key="bronze_batch_dir", value=result.bronze_batch_dir or "")
+        dbc.jobs.taskValues.set(
+            key="bronze_batch_dir", value=result.bronze_batch_dir or ""
+        )
         dbc.jobs.taskValues.set(
             key="cohort_dataset_validated_path",
             value=result.cohort_dataset_validated_path or "",
@@ -336,8 +340,13 @@ def set_batch_ingest_task_values(result: BatchIngestResult) -> None:
             key="course_dataset_validated_path",
             value=result.course_dataset_validated_path or "",
         )
-        dbc.jobs.taskValues.set(key="ingest_copied_count", value=str(result.copied_count))
-        dbc.jobs.taskValues.set(key="ingest_source", value=result.source if not result.skipped else "skipped")
+        dbc.jobs.taskValues.set(
+            key="ingest_copied_count", value=str(result.copied_count)
+        )
+        dbc.jobs.taskValues.set(
+            key="ingest_source",
+            value=result.source if not result.skipped else "skipped",
+        )
     except (AttributeError, OSError, RuntimeError, TypeError) as e:
         LOGGER.error(
             "dbutils.jobs.taskValues.set failed; ingest finished but task values "

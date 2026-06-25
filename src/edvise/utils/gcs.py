@@ -360,7 +360,9 @@ def write_success_marker(
     marker_local = dest_local_under_landing(landing_dir, SUCCESS_FILENAME)
     with open(marker_local, "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2)
-    logging.info("Wrote completion marker %s", os.path.join(landing_dir, SUCCESS_FILENAME))
+    logging.info(
+        "Wrote completion marker %s", os.path.join(landing_dir, SUCCESS_FILENAME)
+    )
 
 
 def is_transient_gcs_error(exc: Exception) -> bool:
