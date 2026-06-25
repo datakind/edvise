@@ -30,7 +30,7 @@ resources:
               - "{{job.parameters.DB_workspace}}"
               - --databricks_institution_name
               - "{{job.parameters.databricks_institution_name}}"
-          job_cluster_key: edvise-pdp-inference-pipeline-cluster
+          job_cluster_key: edvise-es-inference-pipeline-cluster
           libraries:
             # inference_setup: resolve config_file_path from trained model silver artifacts.
             - pypi:
@@ -85,7 +85,7 @@ resources:
               - "{{job.parameters.db_run_id}}"
               - --is_genai_institution
               - "{{job.parameters.is_genai_institution}}"
-          job_cluster_key: edvise-pdp-inference-pipeline-cluster
+          job_cluster_key: edvise-es-inference-pipeline-cluster
           libraries:
             - pypi:
                 package: pandas==2.2.3
@@ -122,7 +122,7 @@ resources:
               - "{{job.parameters.job_type}}"
               - --db_run_id
               - "{{job.parameters.db_run_id}}"
-          job_cluster_key: edvise-pdp-inference-pipeline-cluster
+          job_cluster_key: edvise-es-inference-pipeline-cluster
           libraries:
             - pypi:
                 package: pandas==2.2.3
@@ -161,7 +161,7 @@ resources:
               - "{{job.parameters.job_type}}"
               - --db_run_id
               - "{{job.parameters.db_run_id}}"
-          job_cluster_key: edvise-pdp-inference-pipeline-cluster
+          job_cluster_key: edvise-es-inference-pipeline-cluster
           libraries:
             - pypi:
                 package: pandas==2.2.3
@@ -200,7 +200,7 @@ resources:
               - "{{job.parameters.job_type}}"
               - --db_run_id
               - "{{job.parameters.db_run_id}}"
-          job_cluster_key: edvise-pdp-inference-pipeline-cluster
+          job_cluster_key: edvise-es-inference-pipeline-cluster
           libraries:
             - pypi:
                 package: pandas==2.2.3
@@ -242,7 +242,7 @@ resources:
               - "{{job.parameters.schema_type}}"
               - --job_type
               - "{{job.parameters.job_type}}"
-          job_cluster_key: edvise-pdp-inference-pipeline-cluster
+          job_cluster_key: edvise-es-inference-pipeline-cluster
           libraries:
             - pypi:
                 package: pandas==2.2.3
@@ -289,7 +289,7 @@ resources:
               - "{{tasks.inference_setup.values.config_file_path}}"
               - --schema_type
               - "{{job.parameters.schema_type}}"
-          job_cluster_key: edvise-pdp-inference-pipeline-cluster
+          job_cluster_key: edvise-es-inference-pipeline-cluster
           libraries:
             - pypi:
                 package: numpy==1.26.4
@@ -318,7 +318,7 @@ resources:
             - pypi:
                 package: scikit-learn==1.5.2      
       job_clusters:
-        - job_cluster_key: edvise-pdp-inference-pipeline-cluster
+        - job_cluster_key: edvise-es-inference-pipeline-cluster
           new_cluster:
             cluster_name: ""
             spark_version: 15.4.x-cpu-ml-scala2.12

@@ -1,5 +1,5 @@
 # Edvise (ES) training: no data_ingestion task (inputs via GenAI silver parquets and/or bronze).
-# First tasks: es_data_audit -> es_feature_generation; downstream tasks match github_pdp_training.yml.
+# First tasks: es_data_audit -> es_feature_generation; downstream tasks match github_es_training.yml.
 resources:
   jobs:
     github_sourced_es_training_pipeline:
@@ -26,7 +26,7 @@ resources:
               - "{{job.parameters.job_type}}"
               - --db_run_id
               - "{{job.parameters.db_run_id}}"
-          job_cluster_key: edvise-pdp-training-pipeline-cluster
+          job_cluster_key: edvise-es-training-pipeline-cluster
           libraries:
             - pypi:
                 package: pandas==2.2.3
@@ -63,7 +63,7 @@ resources:
               - "{{job.parameters.job_type}}"
               - --db_run_id
               - "{{job.parameters.db_run_id}}"
-          job_cluster_key: edvise-pdp-training-pipeline-cluster
+          job_cluster_key: edvise-es-training-pipeline-cluster
           libraries:
             - pypi:
                 package: pandas==2.2.3
@@ -102,7 +102,7 @@ resources:
               - "{{job.parameters.job_type}}"
               - --db_run_id
               - "{{job.parameters.db_run_id}}"
-          job_cluster_key: edvise-pdp-training-pipeline-cluster
+          job_cluster_key: edvise-es-training-pipeline-cluster
           libraries:
             - pypi:
                 package: pandas==2.2.3
@@ -141,7 +141,7 @@ resources:
               - "{{job.parameters.job_type}}"
               - --db_run_id
               - "{{job.parameters.db_run_id}}"
-          job_cluster_key: edvise-pdp-training-pipeline-cluster
+          job_cluster_key: edvise-es-training-pipeline-cluster
           libraries:
             - pypi:
                 package: pandas==2.2.3
@@ -178,7 +178,7 @@ resources:
               - "{{job.parameters.schema_type}}"
               - --db_run_id
               - "{{job.parameters.db_run_id}}"
-          job_cluster_key: edvise-pdp-training-pipeline-cluster
+          job_cluster_key: edvise-es-training-pipeline-cluster
           libraries:
             - pypi:
                 package: pandas==2.2.3
@@ -218,7 +218,7 @@ resources:
               - "{{job.parameters.db_run_id}}"
               - --config_file_name
               - "{{job.parameters.config_file_name}}"
-          job_cluster_key: edvise-pdp-training-pipeline-cluster
+          job_cluster_key: edvise-es-training-pipeline-cluster
           libraries:
             - pypi:
                 package: pandas==2.2.3
@@ -265,7 +265,7 @@ resources:
               - "{{job.parameters.DB_workspace}}"
               - --gold_table_path
               - "{{job.parameters.DB_workspace}}.{{job.parameters.databricks_institution_name}}_gold"
-          job_cluster_key: edvise-pdp-training-pipeline-cluster
+          job_cluster_key: edvise-es-training-pipeline-cluster
           libraries:
             - pypi:
                 package: pandera==0.23.0
@@ -304,7 +304,7 @@ resources:
             - pypi:
                 package: polars~=0.20
       job_clusters:
-        - job_cluster_key: edvise-pdp-training-pipeline-cluster
+        - job_cluster_key: edvise-es-training-pipeline-cluster
           new_cluster:
             cluster_name: ""
             spark_version: 15.4.x-cpu-ml-scala2.12
