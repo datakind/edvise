@@ -20,6 +20,7 @@ course = "genai_mapping/onboard/FILE_NAME_courses.csv"
 # ]
 
 # Optional: execute-specific CSVs. When omitted, execute mode falls back to onboard_files.
+# ES inference batch runs resolve execute CSVs from gcs_uploads/{batch_id}/ via bronze_batch_dir.
 # [datasets.execute_files]
 # student = "genai_mapping/execute/FILE_NAME_students.csv"
 # course = "genai_mapping/execute/FILE_NAME_courses.csv"

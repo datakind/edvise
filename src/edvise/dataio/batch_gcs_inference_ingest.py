@@ -184,9 +184,8 @@ def should_skip_batch_ingest(
     is_genai_institution: object,
     validated_blob_paths_json: str,
 ) -> bool:
-    """Skip ingest for GenAI institutions or when no blob paths were supplied."""
-    if parse_is_genai_institution(is_genai_institution):
-        return True
+    """Skip ingest when no validated blob paths were supplied (GenAI and Edvise schema alike)."""
+    _ = is_genai_institution  # retained for call-site compatibility
     return len(parse_include_blob_paths_json(validated_blob_paths_json)) == 0
 
 
@@ -220,8 +219,7 @@ def run_batch_gcs_inference_ingest(
         validated_blob_paths_json=validated_blob_paths_json,
     ):
         LOGGER.info(
-            "Skipping batch GCS inference ingest (genai=%s, blob_paths empty=%s)",
-            parse_is_genai_institution(is_genai_institution),
+            "Skipping batch GCS inference ingest (blob_paths empty=%s)",
             not parse_include_blob_paths_json(validated_blob_paths_json),
         )
         return BatchIngestResult(

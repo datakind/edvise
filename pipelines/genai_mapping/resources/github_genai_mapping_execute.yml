@@ -26,6 +26,8 @@ resources:
               - "{{job.parameters.pipeline_version}}"
               - --db_run_id
               - "{{job.parameters.db_run_id}}"
+              - --bronze_batch_dir
+              - "{{job.parameters.bronze_batch_dir}}"
           job_cluster_key: edvise-genai-mapping-execute-cluster
           libraries: &genai_mapping_execute_libs
             - pypi:
@@ -68,6 +70,8 @@ resources:
               - "{{job.parameters.pipeline_version}}"
               - --db_run_id
               - "{{job.parameters.db_run_id}}"
+              - --bronze_batch_dir
+              - "{{job.parameters.bronze_batch_dir}}"
           job_cluster_key: edvise-genai-mapping-execute-cluster
           libraries: *genai_mapping_execute_libs
 
@@ -103,6 +107,8 @@ resources:
           default: ${var.pipeline_version}
         - name: db_run_id
           default: "{{job.run_id}}"
+        - name: bronze_batch_dir
+          default: ""
 
       permissions:
         - group_name: ${var.datakind_group_to_manage_workflow}

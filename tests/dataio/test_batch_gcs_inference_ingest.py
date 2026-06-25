@@ -30,7 +30,7 @@ def test_is_bronze_batch_ready_requires_marker_and_data(tmp_path: Path) -> None:
 
 
 def test_should_skip_batch_ingest() -> None:
-    assert m.should_skip_batch_ingest(
+    assert not m.should_skip_batch_ingest(
         is_genai_institution="true",
         validated_blob_paths_json='["validated/a.csv"]',
     )
@@ -213,6 +213,37 @@ def test_run_batch_gcs_inference_ingest_downloads_when_not_ready(
     assert result.source == "gcs_download"
     assert result.copied_count == 2
     assert result.bronze_batch_dir == str(landing)
+
+
+def test_run_batch_gcs_inference_ingest_runs_for_genai_with_blob_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    landing = tmp_path / "gcs_uploads" / "batch1"
+    landing.mkdir(parents=True)
+
+    monkeypatch.setattr(m, "bronze_gcs_batch_dir", lambda *_a, **_k: str(landing))
+    monkeypatch.setattr(m, "wait_for_bronze_batch_ready", lambda *_a, **_k: False)
+
+    def fake_copy(**kwargs: object) -> int:
+        landing_dir = Path(str(kwargs["landing_dir"]))
+        (landing_dir / "cohort.csv").write_text("1\n", encoding="utf-8")
+        return 1
+
+    monkeypatch.setattr(m, "copy_validated_blobs_to_landing", fake_copy)
+    monkeypatch.setattr(m, "write_success_marker", lambda *_a, **_k: None)
+
+    result = m.run_batch_gcs_inference_ingest(
+        db_workspace="dev",
+        databricks_institution_name="school",
+        gcp_bucket_name="bucket",
+        batch_id="batch1",
+        validated_blob_paths_json='["validated/cohort.csv"]',
+        db_run_id="run-1",
+        is_genai_institution="true",
+    )
+
+    assert result.skipped is False
+    assert result.source == "gcs_download"
 
 
 def test_run_batch_gcs_inference_ingest_skipped() -> None:

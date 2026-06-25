@@ -57,7 +57,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--is_genai_institution",
         default="false",
-        help="When true, ingest is skipped (GenAI schools read silver parquets).",
+        help="When true, GenAI execute still uses batch ingest when blob paths are set.",
     )
     parser.add_argument(
         "--max_objects",
