@@ -30,7 +30,10 @@ from edvise.feature_generation.assemble_student_terms import (
     student_level_merge_keys,
     warn_cohort_course_key_overlap,
 )
-from edvise.feature_generation.es_feature_specs import build_edvise_feature_specs
+from edvise.feature_generation.es_feature_specs import (
+    EdviseFeatureSpecOverrides,
+    build_edvise_feature_specs,
+)
 from edvise.shared.logger import init_file_logging, local_fs_path, resolve_run_path
 from edvise.shared.validation import require, require_cols, require_no_nulls
 
@@ -77,11 +80,17 @@ class ESFeatureGenerationTask:
             "Cohort standardized (Edvise)",
         )
 
+        feature_overrides = (
+            EdviseFeatureSpecOverrides(student_term_add=fc.student_term_add_overrides)
+            if fc.student_term_add_overrides
+            else None
+        )
         spec_bundle = build_edvise_feature_specs(
             df_cohort,
             df_course,
             cohort_cols=ES_COHORT_INPUT_COLUMNS,
             course_cols=ES_COURSE_INPUT_COLUMNS,
+            overrides=feature_overrides,
         )
         LOGGER.info(
             "Edvise feature specs: student=%s course=%s term=%s",
