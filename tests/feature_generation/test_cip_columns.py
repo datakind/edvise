@@ -102,6 +102,4 @@ def test_resolve_student_term_add_skips_program_features_for_term_degree_only():
 def test_column_cip_match_fraction():
     ser = pd.Series(["52.0301", "Undergraduate", None])
     assert column_cip_match_fraction(ser) == pytest.approx(1 / 2)
-    assert has_sufficient_cip_values(
-        pd.DataFrame({"x": ["52.0301", "52.0201"]}), "x"
-    )
+    assert has_sufficient_cip_values(pd.DataFrame({"x": ["52.0301", "52.0201"]}), "x")

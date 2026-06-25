@@ -100,7 +100,7 @@ def resolve_term_program_of_study_source(
         ("term_declared_major", cols.term_declared_major),
     ]
     for role, col in candidates:
-        if not _has_col(df, col):
+        if col is None or col not in df.columns:
             continue
         if has_sufficient_cip_values(df, col):
             return col

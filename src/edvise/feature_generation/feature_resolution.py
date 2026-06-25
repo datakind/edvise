@@ -97,9 +97,7 @@ def resolve_course_feature_spec(
     has_cip_col = has_data_col(df, cip_col)
     use_subject_area = has_cip_col and has_sufficient_cip_values(df, cip_col)
     if has_cip_col and not use_subject_area:
-        warn_non_cip_program_column(
-            df, cip_col, role="course_cip", logger=LOGGER
-        )
+        warn_non_cip_program_column(df, cip_col, role="course_cip", logger=LOGGER)
     pfx = has_data_col(df, cols.course_prefix)
     num = has_data_col(df, cols.course_number)
     return CourseFeatureSpec(
@@ -238,11 +236,12 @@ def resolve_student_term_add_feature_spec(
     )
     has_term_prog = prog_source is not None
     has_course_subject_areas = bool(
-        has_term_prog
-        and has_sufficient_cip_values(df_course, course_cols.course_cip)
+        has_term_prog and has_sufficient_cip_values(df_course, course_cols.course_cip)
     )
-    if has_term_prog and not has_course_subject_areas and has_data_col(
-        df_course, course_cols.course_cip
+    if (
+        has_term_prog
+        and not has_course_subject_areas
+        and has_data_col(df_course, course_cols.course_cip)
     ):
         warn_non_cip_program_column(
             df_course,
