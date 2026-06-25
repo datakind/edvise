@@ -63,7 +63,10 @@ from edvise.genai.mapping.shared.utilities import (
 disable_mlflow_side_effects_for_openai_gateway()
 
 from edvise.configs import genai as genai_cfg
-from edvise.genai.mapping.shared.active_promotion import promote_genai_mapping_to_active
+from edvise.genai.mapping.shared.active_promotion import (
+    promote_genai_mapping_to_active,
+    update_genai_active_registry_execute,
+)
 from edvise.genai.mapping.shared.databricks_ai_gateway import resolve_gateway_model_id
 from edvise.genai.mapping.schema_mapping_agent.grain_resolution import (
     execute_transformation_map_for_sma_execute_mode,
@@ -1012,6 +1015,8 @@ def run_execute(
     institution_id: str,
     paths: SMAPaths,
     spark_session: Any,
+    *,
+    execute_run_id: str,
 ) -> None:
     from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import (
         FieldMappingManifest,
@@ -1107,6 +1112,11 @@ def run_execute(
 
     # Write output data
     _write_output_data(paths.output_data, cohort_result, course_result)
+    LOGGER.info("[execute] Updating genai_active_registry execute pointer")
+    update_genai_active_registry_execute(
+        paths.active_root,
+        execute_run_id=execute_run_id,
+    )
     LOGGER.info("[execute] Complete. Exiting.")
 
 
@@ -1237,7 +1247,12 @@ def run(
                 e,
             )
 
-        run_execute(institution_id, paths, spark_session)
+        run_execute(
+            institution_id,
+            paths,
+            spark_session,
+            execute_run_id=str(execute_run_id).strip(),
+        )
         try:
             _pipeline_state.update_execute_pipeline_run_status(
                 catalog,
