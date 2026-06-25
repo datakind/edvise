@@ -116,9 +116,11 @@ class ESDataAuditTask:
         # Resolve inputs (GenAI parquets or bronze CSVs) based on config toggle.
         use_genai = bool(getattr(self.cfg, "use_genai_inputs", True))
         if use_genai:
-            # GenAI active registry -> runs/onboard/{onboard_run_id}/pipeline_input
             silver_root = self.args.silver_volume_path.rstrip("/")
-            genai_input_dir = resolve_genai_pipeline_input_dir(silver_root)
+            genai_input_dir = resolve_genai_pipeline_input_dir(
+                silver_root,
+                job_type=self.args.job_type,
+            )
             cohort_dataset_raw_path = os.path.join(genai_input_dir, "cohort.parquet")
             course_dataset_raw_path = os.path.join(genai_input_dir, "course.parquet")
             require(

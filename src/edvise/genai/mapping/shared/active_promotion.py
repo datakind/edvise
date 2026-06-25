@@ -174,6 +174,8 @@ def promote_genai_mapping_to_active(
             shutil.copy2(src, dst)
             LOGGER.info("Promoted %s -> %s", src, dst)
 
+    # Re-onboard replaces the registry and clears any prior ``execute_run_id`` so ES and
+    # ``active/`` mapping artifacts stay aligned until the next execute run.
     _write_genai_active_registry(
         paths.active_root,
         institution_id=institution_id,
@@ -181,3 +183,34 @@ def promote_genai_mapping_to_active(
         pipeline_version=pipeline_version,
         uc_catalog=uc_catalog,
     )
+
+
+def update_genai_active_registry_execute(
+    active_root: str | Path,
+    *,
+    execute_run_id: str,
+) -> None:
+    """
+    After a successful SMA ``mode=execute`` run, patch ``genai_active_registry.json`` with the
+    latest ``execute_run_id`` so downstream ES jobs can resolve fresh pipeline_input parquets.
+
+    Requires an existing registry from onboard promotion (``onboard_run_id`` is preserved).
+    Re-onboard promotion replaces the whole file and clears ``execute_run_id``.
+    """
+    root = Path(active_root)
+    existing = read_genai_active_registry(root)
+    if existing is None:
+        raise FileNotFoundError(
+            f"Cannot update execute pointer: {GENAI_ACTIVE_REGISTRY_BASENAME} missing under "
+            f"{root}. Has this institution completed onboard gate_2?"
+        )
+    ex_id = str(execute_run_id).strip()
+    if not ex_id:
+        raise ValueError("execute_run_id must be non-empty")
+
+    payload = dict(existing)
+    payload["execute_run_id"] = ex_id
+    payload["executed_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    dest = root / GENAI_ACTIVE_REGISTRY_BASENAME
+    _atomic_write_json(dest, payload)
+    LOGGER.info("Updated %s (execute_run_id=%r)", dest, ex_id)
