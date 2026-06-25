@@ -340,7 +340,31 @@ resources:
             - pypi:
                 package: mlflow~=2.22
             - pypi:
-                package: scikit-learn==1.5.2      
+                package: scikit-learn==1.5.2
+        - task_key: output_publish
+          depends_on:
+            - task_key: inference_h2o
+          run_if: AT_LEAST_ONE_SUCCESS
+          spark_python_task:
+            python_file: src/edvise/scripts/inference_output_publish.py
+            source: GIT
+            parameters:
+              - --DB_workspace
+              - "{{job.parameters.DB_workspace}}"
+              - --databricks_institution_name
+              - "{{job.parameters.databricks_institution_name}}"
+              - --db_run_id
+              - "{{job.parameters.db_run_id}}"
+              - --gcp_bucket_name
+              - "{{job.parameters.gcp_bucket_name}}"
+              - --datakind_notification_email
+              - "{{job.parameters.datakind_notification_email}}"
+          job_cluster_key: edvise-es-inference-pipeline-cluster
+          libraries:
+            - pypi:
+                package: pandas==2.2.3
+            - pypi:
+                package: google-cloud-storage==2.19.0
       job_clusters:
         - job_cluster_key: edvise-es-inference-pipeline-cluster
           new_cluster:

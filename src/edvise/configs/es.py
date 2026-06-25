@@ -271,6 +271,13 @@ class FeaturesConfig(pyd.BaseModel):
             'Example: {"W1": "W", "W2": "W", "OTHER": "O", "NC": "NC"}.'
         ),
     )
+    student_term_add_overrides: t.Optional[dict[str, bool]] = pyd.Field(
+        default=None,
+        description=(
+            "Optional overrides for auto-resolved student-term add feature toggles "
+            "(``StudentTermAddFeatureSpec`` field names)."
+        ),
+    )
 
     @pyd.field_validator("grade_map", mode="after")
     @classmethod
