@@ -6,7 +6,8 @@
 #   model_name, databricks_institution_name, DB_workspace, gcp_bucket_name,
 #   datakind_notification_email, DK_CC_EMAIL, config_file_name
 #
-# batch_id / validated_blob_paths_json — passed by API; bronze batch wiring is a follow-up PR.
+# batch_id / validated_blob_paths_json — passed by edvise-api; batch_gcs_ingest resolves
+# bronze inputs before data_audit for non-GenAI (edvise_id) schools.
 #
 # is_genai_institution gates genai_mapping_execute (true) vs skipping straight to data_audit
 # (false). inference_setup → check → data_audit merges both paths: edvise_id via check
@@ -52,6 +53,39 @@ resources:
             op: EQUAL_TO
             left: "{{job.parameters.is_genai_institution}}"
             right: "true"
+        - task_key: batch_gcs_ingest
+          depends_on:
+            - task_key: inference_setup
+          spark_python_task:
+            python_file: src/edvise/scripts/batch_gcs_inference_ingest.py
+            source: GIT
+            parameters:
+              - --DB_workspace
+              - "{{job.parameters.DB_workspace}}"
+              - --databricks_institution_name
+              - "{{job.parameters.databricks_institution_name}}"
+              - --gcp_bucket_name
+              - "{{job.parameters.gcp_bucket_name}}"
+              - --batch_id
+              - "{{job.parameters.batch_id}}"
+              - --validated_blob_paths_json
+              - "{{job.parameters.validated_blob_paths_json}}"
+              - --db_run_id
+              - "{{job.parameters.db_run_id}}"
+              - --config_file_path
+              - "{{tasks.inference_setup.values.config_file_path}}"
+              - --is_genai_institution
+              - "{{job.parameters.is_genai_institution}}"
+          job_cluster_key: edvise-es-inference-pipeline-cluster
+          libraries:
+            - pypi:
+                package: google-cloud-storage==2.19.0
+            - pypi:
+                package: tomli==2.2.1
+            - pypi:
+                package: tomlkit==0.13.3
+            - pypi:
+                package: pydantic~=2.10
         - task_key: genai_mapping_execute
           depends_on:
             - task_key: inference_setup
@@ -67,6 +101,7 @@ resources:
               db_run_id: "{{job.parameters.db_run_id}}_genai_execute"
         - task_key: data_audit
           depends_on:
+            - task_key: batch_gcs_ingest
             - task_key: check_is_genai_institution
               outcome: "false"
             - task_key: genai_mapping_execute
@@ -89,6 +124,12 @@ resources:
               - "{{job.parameters.db_run_id}}"
               - --is_genai_institution
               - "{{job.parameters.is_genai_institution}}"
+              - --bronze_batch_dir
+              - "{{tasks.batch_gcs_ingest.values.bronze_batch_dir}}"
+              - --cohort_dataset_validated_path
+              - "{{tasks.batch_gcs_ingest.values.cohort_dataset_validated_path}}"
+              - --course_dataset_validated_path
+              - "{{tasks.batch_gcs_ingest.values.course_dataset_validated_path}}"
           job_cluster_key: edvise-es-inference-pipeline-cluster
           libraries:
             - pypi:
@@ -376,6 +417,10 @@ resources:
           default: "inputs.toml"
         - name: is_genai_institution
           default: "true"
+        - name: batch_id
+          default: ""
+        - name: validated_blob_paths_json
+          default: "[]"
       permissions:
         - group_name: ${var.datakind_group_to_manage_workflow} 
           level: CAN_MANAGE

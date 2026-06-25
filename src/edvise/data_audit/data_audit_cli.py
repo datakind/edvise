@@ -58,6 +58,14 @@ def parse_data_audit_args() -> argparse.Namespace:
             "config.toml use_genai_inputs. Ignored for training."
         ),
     )
+    parser.add_argument(
+        "--bronze_batch_dir",
+        default=None,
+        help=(
+            "ES inference only: batch input dir from batch_gcs_ingest task "
+            "(gcs_uploads/{batch_id}/)."
+        ),
+    )
     return parser.parse_args()
 
 
