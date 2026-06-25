@@ -111,9 +111,7 @@ class ESDataAuditTask:
             elif normalized in ("false", "0", "no"):
                 job_is_genai = False
             else:
-                raise ValueError(
-                    f"Invalid is_genai_institution job parameter: {raw!r}"
-                )
+                raise ValueError(f"Invalid is_genai_institution job parameter: {raw!r}")
 
         if use_genai != job_is_genai:
             raise ValueError(
