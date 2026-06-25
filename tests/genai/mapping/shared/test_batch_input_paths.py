@@ -7,7 +7,9 @@ from pathlib import Path
 import pytest
 
 from edvise.configs.genai import DatasetConfig, SchoolMappingConfig
-from edvise.genai.mapping.shared.batch_input_paths import apply_bronze_batch_dir_overrides
+from edvise.genai.mapping.shared.batch_input_paths import (
+    apply_bronze_batch_dir_overrides,
+)
 from edvise.utils.gcs import SUCCESS_FILENAME
 
 
