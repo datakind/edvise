@@ -11,6 +11,7 @@ from edvise.genai.mapping.shared.active_promotion import (
     GENAI_ACTIVE_REGISTRY_BASENAME,
     promote_genai_mapping_to_active,
     read_genai_active_registry,
+    update_genai_active_registry_execute,
 )
 
 
@@ -168,3 +169,84 @@ def test_promote_genai_mapping_to_active_missing_required_raises(
             institution_id="i",
             onboard_run_id="r2",
         )
+
+
+def test_update_genai_active_registry_execute_patches_existing(
+    tmp_path: Path,
+) -> None:
+    active = tmp_path / "active"
+    active.mkdir()
+    (active / GENAI_ACTIVE_REGISTRY_BASENAME).write_text(
+        '{"schema_version": 1, "onboard_run_id": "ob1", "institution_id": "demo", '
+        '"promoted_at": "2026-01-01T00:00:00Z"}\n'
+    )
+
+    update_genai_active_registry_execute(active, execute_run_id="ex1")
+
+    reg = read_genai_active_registry(active)
+    assert reg is not None
+    assert reg["onboard_run_id"] == "ob1"
+    assert reg["execute_run_id"] == "ex1"
+    assert "executed_at" in reg
+
+
+def test_update_genai_active_registry_execute_overwrites_prior_execute(
+    tmp_path: Path,
+) -> None:
+    active = tmp_path / "active"
+    active.mkdir()
+    (active / GENAI_ACTIVE_REGISTRY_BASENAME).write_text(
+        '{"schema_version": 1, "onboard_run_id": "ob1", "institution_id": "demo", '
+        '"promoted_at": "2026-01-01T00:00:00Z", "execute_run_id": "ex1", '
+        '"executed_at": "2026-01-15T00:00:00Z"}\n'
+    )
+
+    update_genai_active_registry_execute(active, execute_run_id="ex2")
+
+    reg = read_genai_active_registry(active)
+    assert reg is not None
+    assert reg["execute_run_id"] == "ex2"
+
+
+def test_promote_genai_mapping_to_active_clears_execute_pointer(
+    tmp_path: Path,
+) -> None:
+    genai = tmp_path / "genai"
+    run_id = "school_reonboard"
+    ia = genai / "runs" / "onboard" / run_id / "identity_agent"
+    sma = genai / "runs" / "onboard" / run_id / "schema_mapping_agent"
+    active = genai / "active"
+    ia.mkdir(parents=True)
+    sma.mkdir(parents=True)
+    active.mkdir(parents=True)
+    (active / GENAI_ACTIVE_REGISTRY_BASENAME).write_text(
+        '{"schema_version": 1, "onboard_run_id": "old_ob", "institution_id": "demo", '
+        '"promoted_at": "2026-01-01T00:00:00Z", "execute_run_id": "ex_old", '
+        '"executed_at": "2026-01-15T00:00:00Z"}\n'
+    )
+    (ia / "enriched_schema_contract.json").write_text("{}")
+    (sma / "manifest_map.json").write_text("{}")
+    (sma / "transformation_map.json").write_text("{}")
+
+    paths = _FakeSMAPaths(
+        active_root=active,
+        active_enriched_schema_contract=active / "enriched_schema_contract.json",
+        active_manifest_map=active / "manifest_map.json",
+        active_transformation_map=active / "transformation_map.json",
+        active_transform_hooks=active / "transform_hooks.py",
+        ia_enriched_schema_contract=ia / "enriched_schema_contract.json",
+        manifest_map=sma / "manifest_map.json",
+        transformation_map=sma / "transformation_map.json",
+        transform_hooks=sma / "transform_hooks.py",
+    )
+
+    promote_genai_mapping_to_active(
+        paths,
+        institution_id="demo",
+        onboard_run_id="school_reonboard",
+    )
+
+    reg = read_genai_active_registry(active)
+    assert reg is not None
+    assert reg["onboard_run_id"] == "school_reonboard"
+    assert "execute_run_id" not in reg
