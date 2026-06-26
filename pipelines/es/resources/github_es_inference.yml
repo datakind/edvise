@@ -394,7 +394,7 @@ resources:
         - name: schema_type
           default: edvise
         - name: databricks_institution_name
-          default: city_cols_of_chicago
+          default: ${var.databricks_institution_name}
         - name: db_run_id
           default: "{{job.run_id}}"
         - name: DB_workspace
