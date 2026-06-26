@@ -23,12 +23,14 @@ _ES_EXACT_COLUMN_ALIASES: dict[str, str] = {
     "pell_recipient_year1": "student_is_pell_recipient_first_year",
 }
 
-# Edvise-only cohort columns that pass through to the modeling dataset (see ESCleanup).
+# Edvise-only columns that pass through to the modeling dataset (see ESCleanup).
 ES_ONLY_FEATURES_TABLE_COLUMNS: tuple[str, ...] = (
     "intended_program_type",
     "declared_major_at_entry",
     "credits_earned_ap",
     "credits_earned_dual_enrollment",
+    "term_degree",
+    "term_degree_changed_prev_term",
 )
 
 
