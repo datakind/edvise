@@ -109,6 +109,12 @@ def rm_path(spark: SparkSession, path: str, recurse: bool, dry_run: bool) -> Non
         dbutils.fs.rm(path, recurse=recurse)
 
 
+def is_institution_gold_model(name: str, catalog: str, institution: str) -> bool:
+    """Return True if `name` is a UC model in the institution's gold schema."""
+    prefix = f"{catalog}.{institution}_gold."
+    return name.startswith(prefix)
+
+
 # --- UC-safe model deletion (replaces stage transition logic) ---
 def delete_uc_model_completely(client: MlflowClient, name: str, dry_run: bool) -> None:
     """
@@ -268,7 +274,7 @@ if __name__ == "__main__":
             client = MlflowClient()
             for rm in client.search_registered_models():
                 name = rm.name  # In UC this is "<catalog>.<schema>.<model_name>"
-                if name.startswith(f"{catalog}.{inst}_gold.{inst}"):
+                if is_institution_gold_model(name, catalog, inst):
                     log(f"DELETE model: {name}")
                     delete_uc_model_completely(client, name, dry_run)
         except Exception as e:
