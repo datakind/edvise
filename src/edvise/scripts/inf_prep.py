@@ -24,6 +24,7 @@ from edvise.configs.es import InferenceConfig as ESInferenceConfig
 from edvise.model_prep import cleanup_features as cleanup
 from edvise.dataio.read import read_parquet, read_config
 from edvise.student_selection.filter_inference import (
+    exclude_training_cohort_students,
     filter_inference_term,
     parse_term_filter_param,
 )
@@ -185,6 +186,26 @@ class InferencePrepTask:
         df_selected_terms = filter_inference_term(df_labeled, term_list=inf_terms)
 
         cohort_pair = cohort_pair_columns(df_selected_terms)
+        training_cohorts = (
+            self.cfg.modeling.training.cohort
+            if self.cfg.modeling and self.cfg.modeling.training
+            else None
+        )
+        if training_cohorts:
+            if cohort_pair is not None:
+                cy, ct = cohort_pair
+                df_selected_terms = exclude_training_cohort_students(
+                    df_selected_terms,
+                    training_cohorts=training_cohorts,
+                    cohort_term_column=ct,
+                    cohort_column=cy,
+                )
+            else:
+                LOGGER.warning(
+                    "Training cohorts configured but cohort columns not found; "
+                    "skipping stop-out exclusion."
+                )
+
         if cohort_pair is not None:
             cy, ct = cohort_pair
             cohort_counts = (

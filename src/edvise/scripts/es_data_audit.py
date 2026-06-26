@@ -98,6 +98,33 @@ class ESDataAuditTask:
             return None
         return pre.features.grade_map
 
+    def _resolve_use_genai_inputs(self) -> bool:
+        use_genai = bool(self.cfg.use_genai_inputs)
+        if self.args.job_type != "inference":
+            return use_genai
+
+        raw = getattr(self.args, "is_genai_institution", None)
+        if raw is None:
+            job_is_genai = True
+        elif isinstance(raw, bool):
+            job_is_genai = raw
+        else:
+            normalized = str(raw).strip().lower()
+            if normalized in ("true", "1", "yes"):
+                job_is_genai = True
+            elif normalized in ("false", "0", "no"):
+                job_is_genai = False
+            else:
+                raise ValueError(f"Invalid is_genai_institution job parameter: {raw!r}")
+
+        if use_genai != job_is_genai:
+            raise ValueError(
+                f"config use_genai_inputs={use_genai!r} does not match "
+                f"job parameter is_genai_institution={job_is_genai!r}. "
+                "Update config.toml to match the institution type in the SST API or vice versa."
+            )
+        return use_genai
+
     def run(self):
         """Executes the data preprocessing pipeline."""
         # Ensure correct folder: training or inference
@@ -117,12 +144,20 @@ class ESDataAuditTask:
         except Exception as e:
             LOGGER.exception("Failed to initialize file logging: %s", e)
 
-        # Resolve inputs (GenAI parquets or bronze CSVs) based on config toggle.
-        use_genai = bool(getattr(self.cfg, "use_genai_inputs", True))
-        if use_genai:
-            # GenAI active registry -> runs/onboard/{onboard_run_id}/pipeline_input
+        use_genai_inputs = self._resolve_use_genai_inputs()
+        if self.args.job_type == "inference":
+            LOGGER.info(
+                "use_genai_inputs=%s (config, validated against is_genai_institution job param)",
+                use_genai_inputs,
+            )
+        else:
+            LOGGER.info("use_genai_inputs=%s (from config)", use_genai_inputs)
+        if use_genai_inputs:
             silver_root = self.args.silver_volume_path.rstrip("/")
-            genai_input_dir = resolve_genai_pipeline_input_dir(silver_root)
+            genai_input_dir = resolve_genai_pipeline_input_dir(
+                silver_root,
+                job_type=self.args.job_type,
+            )
             cohort_dataset_raw_path = os.path.join(genai_input_dir, "cohort.parquet")
             course_dataset_raw_path = os.path.join(genai_input_dir, "course.parquet")
             require(
@@ -136,16 +171,27 @@ class ESDataAuditTask:
         else:
             require(
                 bool(self.args.bronze_volume_path),
-                "bronze_volume_path is required when cfg.use_genai_inputs=false.",
+                "bronze_volume_path is required for Edvise Schema (edvise_id) institutions.",
             )
+            bronze_batch_dir = (
+                getattr(self.args, "bronze_batch_dir", None) or ""
+            ).strip()
+            bronze_root = bronze_batch_dir or self.args.bronze_volume_path
+            cohort_prefer = (self.args.cohort_dataset_validated_path or "").strip()
+            course_prefer = (self.args.course_dataset_validated_path or "").strip()
+            if bronze_batch_dir:
+                LOGGER.info(
+                    "Using batch ingest bronze_batch_dir=%s for cohort/course resolution",
+                    bronze_batch_dir,
+                )
             cohort_dataset_raw_path = pick_existing_path(
-                self.args.cohort_dataset_validated_path,
-                f"{self.args.bronze_volume_path}/{self.cfg.datasets.raw_cohort}",
+                cohort_prefer or None,
+                f"{bronze_root}/{self.cfg.datasets.raw_cohort}",
                 "cohort",
             )
             course_dataset_raw_path = pick_existing_path(
-                self.args.course_dataset_validated_path,
-                f"{self.args.bronze_volume_path}/{self.cfg.datasets.raw_course}",
+                course_prefer or None,
+                f"{bronze_root}/{self.cfg.datasets.raw_course}",
                 "course",
             )
 

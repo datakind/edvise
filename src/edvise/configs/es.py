@@ -22,7 +22,7 @@ _ALLOWED_PRIMARY_METRICS = {
 
 
 class ESProjectConfig(pyd.BaseModel):
-    """Configuration schema for SST PDP projects."""
+    """Configuration schema for Edvise (ES) projects."""
 
     institution_id: str = pyd.Field(
         ...,
@@ -42,10 +42,13 @@ class ESProjectConfig(pyd.BaseModel):
     use_genai_inputs: bool = pyd.Field(
         default=True,
         description=(
-            "Controls where ES data_audit reads its cohort/course inputs from. "
-            "If True (default), read GenAI-mapped parquets from the institution silver volume "
-            "(via genai_active_registry.json). "
-            "If False, read raw CSVs from the institution bronze volume using datasets.raw_* paths."
+            "Controls where ES data_audit reads cohort/course inputs during training. "
+            "If True, read GenAI-mapped parquets from the institution silver volume "
+            "(via genai_active_registry.json onboard snapshot). "
+            "If False, read raw CSVs from the institution bronze volume using "
+            "datasets.raw_* paths. Set during onboarding to match institution type. "
+            "During ES inference, must equal the is_genai_institution job parameter "
+            "(from SST API genai_id vs edvise_id)."
         ),
     )
 
@@ -269,6 +272,13 @@ class FeaturesConfig(pyd.BaseModel):
             "override platform defaults on duplicate keys. "
             "Do not map pass/fail tokens (P) to GPA. Applied before course schema validation. "
             'Example: {"W1": "W", "W2": "W", "OTHER": "O", "NC": "NC"}.'
+        ),
+    )
+    student_term_add_overrides: t.Optional[dict[str, bool]] = pyd.Field(
+        default=None,
+        description=(
+            "Optional overrides for auto-resolved student-term add feature toggles "
+            "(``StudentTermAddFeatureSpec`` field names)."
         ),
     )
 

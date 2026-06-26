@@ -1,0 +1,20 @@
+from .. import (
+    register_metric_sections,
+    register_data_sections,
+    register_evaluation_sections,
+)
+from .attribute_sections import (
+    register_attribute_sections as register_es_attribute_sections,
+)
+from .bias_sections import (
+    register_bias_sections as register_es_bias_sections,
+)
+
+
+def register_sections(card, registry):
+    register_metric_sections(card, registry)
+    register_data_sections(card, registry)
+    register_evaluation_sections(card, registry)
+
+    register_es_attribute_sections(card, registry)
+    register_es_bias_sections(card, registry)

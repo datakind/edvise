@@ -82,7 +82,11 @@ def _validate_dataset_files_table(field_label: str, v: object) -> object:
 
 
 class IdentityAgentDatasets(StrictBaseModel):
-    """``[datasets.onboard_files]`` and optional ``[datasets.execute_files]`` in inputs.toml."""
+    """``[datasets.onboard_files]`` and optional ``[datasets.execute_files]`` in inputs.toml.
+
+    When ``pipeline_mode`` is ``execute`` and ``execute_files`` is omitted, onboard paths
+    are used as a fallback (same CSVs as onboard until execute-specific files are wired).
+    """
 
     onboard_files: Dict[str, Union[str, List[str]]] = Field(..., min_length=1)
     execute_files: Optional[
@@ -144,14 +148,10 @@ class IdentityAgentInputsConfig(StrictBaseModel):
         ds = self.datasets
         if pipeline_mode == "onboard":
             merged_files = dict(ds.onboard_files)
-        else:
-            if not ds.execute_files:
-                raise ValueError(
-                    "datasets.execute_files is required when pipeline_mode is 'execute'. "
-                    "Add a non-empty [datasets.execute_files] table to inputs.toml (logical "
-                    "dataset name → CSV path), or run in onboard mode."
-                )
+        elif ds.execute_files:
             merged_files = dict(ds.execute_files)
+        else:
+            merged_files = dict(ds.onboard_files)
 
         datasets: Dict[str, DatasetConfig] = {}
         for name, spec in merged_files.items():
