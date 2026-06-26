@@ -18,6 +18,10 @@ jobs:
     env:
       CONFIG_FILE: config.toml
       DB_RUN_ID_PREFIX: release_${{ github.sha }}
+      INSTITUTION_PDP: synthetic_integration
+      MODEL_NAME_PDP: retention_into_year_2_bachelors
+      INSTITUTION_ES: synthetic_integration_es
+      MODEL_NAME_ES: graduation_in_4y_ft_checkpoint_45_credits
 
     steps:
       - uses: actions/checkout@v4
@@ -48,7 +52,7 @@ jobs:
         run: |
           databricks version
 
-      - name: Deploy bundle to Dev (pin to current commit)
+      - name: Deploy PDP bundle to Dev (pin to current commit)
         working-directory: pipelines/pdp
         env:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_DEV_HOST }}
@@ -66,11 +70,33 @@ jobs:
             --var="DB_workspace=$DB_WORKSPACE" \
             --var="service_account_executer=$SA_EXECUTER" \
             --var="ds_run_as=$DS_RUN_AS" \
-            --var "databricks_institution_name=synthetic_integration" \
+            --var "databricks_institution_name=$INSTITUTION_PDP" \
             --var="datakind_group_to_manage_workflow=$GROUP_TO_MANAGE" \
             --var="datakind_notification_email=$DATAKIND_EMAIL" \
 
-      - name: TRAIN (Dev – develop-release-check)
+      - name: Deploy ES bundle to Dev (pin to current commit)
+        working-directory: pipelines/es
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_DEV_HOST }}
+          DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_DEV_CLIENT_ID }}
+          DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_DEV_CLIENT_SECRET }}
+          DB_WORKSPACE: dev_sst_02
+          SA_EXECUTER: ${{ secrets.DEV_SERVICE_ACCOUNT_EXECUTER }}
+          DS_RUN_AS: ${{ secrets.DEV_DS_RUN_AS }}
+          GROUP_TO_MANAGE: ${{ secrets.GROUP_TO_MANAGE }}
+          DATAKIND_EMAIL: ${{ secrets.DATAKIND_EMAIL }}
+        run: |
+          databricks bundle deploy \
+            --target dev \
+            --var "git_commit=${GITHUB_SHA}" \
+            --var="DB_workspace=$DB_WORKSPACE" \
+            --var="service_account_executer=$SA_EXECUTER" \
+            --var="ds_run_as=$DS_RUN_AS" \
+            --var "databricks_institution_name=$INSTITUTION_ES" \
+            --var="datakind_group_to_manage_workflow=$GROUP_TO_MANAGE" \
+            --var="datakind_notification_email=$DATAKIND_EMAIL"
+
+      - name: PDP TRAIN (Dev – develop-release-check)
         working-directory: pipelines/pdp
         env:
           DATABRICKS_HOST:         ${{ secrets.DATABRICKS_DEV_HOST }}
@@ -83,12 +109,12 @@ jobs:
             --var "service_account_executer=${{ secrets.DEV_SERVICE_ACCOUNT_EXECUTER }}" \
             --var "ds_run_as=${{ secrets.DEV_DS_RUN_AS }}" \
             --var "datakind_group_to_manage_workflow=${{ secrets.GROUP_TO_MANAGE }}" \
-            --var "databricks_institution_name=synthetic_integration" \
+            --var "databricks_institution_name=${INSTITUTION_PDP}" \
             --var "datakind_notification_email=${{ secrets.DATAKIND_EMAIL }}" \
             --var "DK_CC_EMAIL=${{ secrets.DATAKIND_EMAIL }}" \
-            --params config_file_name="$CONFIG_FILE",job_type=training,db_run_id="${DB_RUN_ID_PREFIX}_train"
+            --params config_file_name="$CONFIG_FILE",job_type=training,db_run_id="${DB_RUN_ID_PREFIX}_pdp_train"
       
-      - name: INFER (Dev – develop-release-check)
+      - name: PDP INFER (Dev – develop-release-check)
         working-directory: pipelines/pdp
         env:
           DATABRICKS_HOST:         ${{ secrets.DATABRICKS_DEV_HOST }}
@@ -101,8 +127,44 @@ jobs:
             --var "service_account_executer=${{ secrets.DEV_SERVICE_ACCOUNT_EXECUTER }}" \
             --var "ds_run_as=${{ secrets.DEV_DS_RUN_AS }}" \
             --var "datakind_group_to_manage_workflow=${{ secrets.GROUP_TO_MANAGE }}" \
-            --var "databricks_institution_name=synthetic_integration" \
+            --var "databricks_institution_name=${INSTITUTION_PDP}" \
             --var "datakind_notification_email=${{ secrets.DATAKIND_EMAIL }}" \
             --var "DK_CC_EMAIL=${{ secrets.DATAKIND_EMAIL }}" \
-            --params "model_name=retention_into_year_2_bachelors,config_file_name=${CONFIG_FILE},job_type=inference,db_run_id=${DB_RUN_ID_PREFIX}_inference"
+            --params "model_name=${MODEL_NAME_PDP},config_file_name=${CONFIG_FILE},job_type=inference,db_run_id=${DB_RUN_ID_PREFIX}_pdp_inference"
+
+      - name: ES TRAIN (Dev – develop-release-check)
+        working-directory: pipelines/es
+        env:
+          DATABRICKS_HOST:         ${{ secrets.DATABRICKS_DEV_HOST }}
+          DATABRICKS_CLIENT_ID:     ${{ secrets.DATABRICKS_DEV_CLIENT_ID }}
+          DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_DEV_CLIENT_SECRET }}
+        run: |
+          databricks bundle run github_sourced_es_training_pipeline --target dev \
+            --var "git_commit=${GITHUB_SHA}" \
+            --var "DB_workspace=dev_sst_02" \
+            --var "service_account_executer=${{ secrets.DEV_SERVICE_ACCOUNT_EXECUTER }}" \
+            --var "ds_run_as=${{ secrets.DEV_DS_RUN_AS }}" \
+            --var "datakind_group_to_manage_workflow=${{ secrets.GROUP_TO_MANAGE }}" \
+            --var "databricks_institution_name=${INSTITUTION_ES}" \
+            --var "datakind_notification_email=${{ secrets.DATAKIND_EMAIL }}" \
+            --var "DK_CC_EMAIL=${{ secrets.DATAKIND_EMAIL }}" \
+            --params config_file_name="$CONFIG_FILE",job_type=training,schema_type=edvise,db_run_id="${DB_RUN_ID_PREFIX}_es_train"
+
+      - name: ES INFER (Dev – develop-release-check)
+        working-directory: pipelines/es
+        env:
+          DATABRICKS_HOST:         ${{ secrets.DATABRICKS_DEV_HOST }}
+          DATABRICKS_CLIENT_ID:    ${{ secrets.DATABRICKS_DEV_CLIENT_ID }}
+          DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_DEV_CLIENT_SECRET }}
+        run: |
+          databricks bundle run github_sourced_es_inference_pipeline --target dev \
+            --var "git_commit=${GITHUB_SHA}" \
+            --var "DB_workspace=dev_sst_02" \
+            --var "service_account_executer=${{ secrets.DEV_SERVICE_ACCOUNT_EXECUTER }}" \
+            --var "ds_run_as=${{ secrets.DEV_DS_RUN_AS }}" \
+            --var "datakind_group_to_manage_workflow=${{ secrets.GROUP_TO_MANAGE }}" \
+            --var "databricks_institution_name=${INSTITUTION_ES}" \
+            --var "datakind_notification_email=${{ secrets.DATAKIND_EMAIL }}" \
+            --var "DK_CC_EMAIL=${{ secrets.DATAKIND_EMAIL }}" \
+            --params "model_name=${MODEL_NAME_ES},config_file_name=${CONFIG_FILE},job_type=inference,schema_type=edvise,is_genai_institution=true,db_run_id=${DB_RUN_ID_PREFIX}_es_inference"
   
