@@ -2296,15 +2296,12 @@ class EdaSummary:
                 - series: List of dicts with "name" (Pell status) and "data" (counts per category)
         """
 
-        race_df = (
-            self.df_cohort.assign(
-                race=self.df_cohort["race"].astype(str).str.strip().str.title(),
-                pell_status_first_year=self._pell_recipient_yes_no(
-                    self.df_cohort["pell_status_first_year"]
-                ),
-            )[["race", "pell_status_first_year"]]
-            .dropna(subset=["race"])
-        )
+        race_df = self.df_cohort.assign(
+            race=self.df_cohort["race"].astype(str).str.strip().str.title(),
+            pell_status_first_year=self._pell_recipient_yes_no(
+                self.df_cohort["pell_status_first_year"]
+            ),
+        )[["race", "pell_status_first_year"]].dropna(subset=["race"])
 
         counts_df = (
             race_df.groupby(["pell_status_first_year", "race"], observed=True)
