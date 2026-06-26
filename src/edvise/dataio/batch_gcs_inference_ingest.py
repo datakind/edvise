@@ -1,10 +1,13 @@
 """
-Resolve or materialize batch-scoped bronze inputs for ES/Legacy inference.
+Materialize batch-scoped bronze inputs for ES/Legacy inference.
 
 If ``gcs_uploads/{batch_id}/`` already has a completion marker and data files
 (upload-time bronze sync), that directory is reused. When not ready yet, poll for
 the async bronze sync job before downloading validated objects from GCS into the
 same ``gcs_uploads/{batch_id}/`` bronze path.
+
+Cohort/course assignment is deferred to ``es_data_audit`` (edvise_id) or GenAI
+execute (``inputs.toml``).
 """
 
 from __future__ import annotations
@@ -129,45 +132,6 @@ def wait_for_bronze_batch_ready(
     return False
 
 
-def resolve_dataset_file_in_batch_dir(
-    batch_dir: str, dataset_name: str
-) -> Optional[str]:
-    """
-    Resolve one cohort/course file under ``batch_dir``.
-
-    Tries exact basename match first, then substring match (case-insensitive).
-    """
-    dir_s = (batch_dir or "").strip()
-    name = (dataset_name or "").strip()
-    if not dir_s or not name:
-        return None
-
-    base = pathlib.Path(local_fs_path(dir_s))
-    if not base.is_dir():
-        return None
-
-    target = pathlib.Path(name).name
-    exact = base / target
-    if _is_data_file(exact):
-        return str(exact)
-
-    needle = target.lower()
-    matches = [
-        p for p in base.iterdir() if _is_data_file(p) and needle in p.name.lower()
-    ]
-    if not matches:
-        return None
-    matches.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-    if len(matches) > 1:
-        LOGGER.info(
-            "Multiple files matched dataset_name=%r under %s; using newest: %s",
-            dataset_name,
-            dir_s,
-            matches[0],
-        )
-    return str(matches[0])
-
-
 def parse_is_genai_institution(raw: object) -> bool:
     if raw is None:
         return False
@@ -186,9 +150,8 @@ def should_skip_batch_ingest(
     is_genai_institution: object,
     validated_blob_paths_json: str,
 ) -> bool:
-    """Skip ingest for GenAI institutions or when no blob paths were supplied."""
-    if parse_is_genai_institution(is_genai_institution):
-        return True
+    """Skip ingest when no validated blob paths were supplied (GenAI and Edvise schema alike)."""
+    _ = is_genai_institution  # retained for call-site compatibility
     return len(parse_include_blob_paths_json(validated_blob_paths_json)) == 0
 
 
@@ -200,8 +163,6 @@ def run_batch_gcs_inference_ingest(
     batch_id: str,
     validated_blob_paths_json: str,
     db_run_id: str,
-    raw_cohort_name: str = "",
-    raw_course_name: str = "",
     gcs_source_prefix: str = DEFAULT_GCS_PREFIX,
     require_at_least_one_file: bool = True,
     max_objects: int = 1_000,
@@ -211,19 +172,19 @@ def run_batch_gcs_inference_ingest(
     bronze_sync_poll_interval_seconds: float = DEFAULT_BRONZE_SYNC_POLL_INTERVAL_SECONDS,
 ) -> BatchIngestResult:
     """
-    Resolve ``bronze_batch_dir`` for downstream preprocessing/data_audit.
+    Materialize ``bronze_batch_dir`` for downstream tasks.
 
     Reuses an existing batch bronze folder when ready; waits for upload-time
     bronze sync when not ready; otherwise downloads validated GCS objects into
-    ``gcs_uploads/{batch_id}/`` on bronze volume.
+    ``gcs_uploads/{batch_id}/`` on bronze volume. Cohort/course file assignment
+    is deferred to ``es_data_audit`` (edvise_id) or GenAI execute (genai_id).
     """
     if should_skip_batch_ingest(
         is_genai_institution=is_genai_institution,
         validated_blob_paths_json=validated_blob_paths_json,
     ):
         LOGGER.info(
-            "Skipping batch GCS inference ingest (genai=%s, blob_paths empty=%s)",
-            parse_is_genai_institution(is_genai_institution),
+            "Skipping batch GCS inference ingest (blob_paths empty=%s)",
             not parse_include_blob_paths_json(validated_blob_paths_json),
         )
         return BatchIngestResult(
@@ -285,30 +246,10 @@ def run_batch_gcs_inference_ingest(
             bronze_batch_dir,
         )
 
-    cohort_path = (
-        resolve_dataset_file_in_batch_dir(bronze_batch_dir, raw_cohort_name)
-        if raw_cohort_name
-        else None
-    )
-    course_path = (
-        resolve_dataset_file_in_batch_dir(bronze_batch_dir, raw_course_name)
-        if raw_course_name
-        else None
-    )
-
-    if raw_cohort_name and cohort_path is None:
-        raise FileNotFoundError(
-            f"Cohort file {raw_cohort_name!r} not found under {bronze_batch_dir!r}."
-        )
-    if raw_course_name and course_path is None:
-        raise FileNotFoundError(
-            f"Course file {raw_course_name!r} not found under {bronze_batch_dir!r}."
-        )
-
     return BatchIngestResult(
         bronze_batch_dir=bronze_batch_dir,
-        cohort_dataset_validated_path=cohort_path,
-        course_dataset_validated_path=course_path,
+        cohort_dataset_validated_path=None,
+        course_dataset_validated_path=None,
         source=source,
         copied_count=copied,
         skipped=False,

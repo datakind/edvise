@@ -11,7 +11,6 @@ import argparse
 import logging
 import sys
 
-from edvise.configs.es import ESProjectConfig
 from edvise.dataio.batch_gcs_inference_ingest import (
     DEFAULT_BRONZE_SYNC_POLL_INTERVAL_SECONDS,
     DEFAULT_BRONZE_SYNC_WAIT_SECONDS,
@@ -21,7 +20,6 @@ from edvise.dataio.batch_gcs_inference_ingest import (
     should_skip_batch_ingest,
 )
 from edvise.utils.gcs import DEFAULT_GCS_PREFIX
-from edvise.dataio.read import read_config
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -45,11 +43,6 @@ def parse_arguments() -> argparse.Namespace:
     )
     parser.add_argument("--db_run_id", required=True)
     parser.add_argument(
-        "--config_file_path",
-        default="",
-        help="Optional ES config path for resolving raw_cohort/raw_course filenames.",
-    )
-    parser.add_argument(
         "--gcs_source_prefix",
         default=DEFAULT_GCS_PREFIX,
         help="Prefix inside the bucket (default: validated/).",
@@ -57,7 +50,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--is_genai_institution",
         default="false",
-        help="When true, ingest is skipped (GenAI schools read silver parquets).",
+        help="When true, GenAI execute still uses batch ingest when blob paths are set.",
     )
     parser.add_argument(
         "--max_objects",
@@ -114,14 +107,6 @@ def main() -> None:
         )
         return
 
-    raw_cohort = ""
-    raw_course = ""
-    config_path = (args.config_file_path or "").strip()
-    if config_path:
-        cfg = read_config(file_path=config_path, schema=ESProjectConfig)
-        raw_cohort = cfg.datasets.raw_cohort
-        raw_course = cfg.datasets.raw_course
-
     result = run_batch_gcs_inference_ingest(
         db_workspace=args.DB_workspace,
         databricks_institution_name=args.databricks_institution_name,
@@ -129,8 +114,6 @@ def main() -> None:
         batch_id=args.batch_id,
         validated_blob_paths_json=args.validated_blob_paths_json,
         db_run_id=args.db_run_id,
-        raw_cohort_name=raw_cohort,
-        raw_course_name=raw_course,
         gcs_source_prefix=args.gcs_source_prefix,
         require_at_least_one_file=args.require_at_least_one_file,
         max_objects=args.max_objects,

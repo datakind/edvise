@@ -63,8 +63,8 @@ def test_run_es_gcp_databricks_ingestion_runs_batch_ingest() -> None:
     )
     batch_result = BatchIngestResult(
         bronze_batch_dir="/Volumes/edvise/acme_bronze/bronze_volume/gcs_uploads/batch1",
-        cohort_dataset_validated_path="/Volumes/edvise/acme_bronze/bronze_volume/gcs_uploads/batch1/cohort.csv",
-        course_dataset_validated_path="/Volumes/edvise/acme_bronze/bronze_volume/gcs_uploads/batch1/course.csv",
+        cohort_dataset_validated_path=None,
+        course_dataset_validated_path=None,
         source="existing_bronze_batch",
         copied_count=0,
         skipped=False,
@@ -75,9 +75,6 @@ def test_run_es_gcp_databricks_ingestion_runs_batch_ingest() -> None:
         ),
         mock.patch.object(script, "set_inference_config_task_value"),
         mock.patch.object(
-            script, "_raw_dataset_names_from_config", return_value=("cohort", "course")
-        ),
-        mock.patch.object(
             script, "run_batch_gcs_inference_ingest", return_value=batch_result
         ) as run_batch,
         mock.patch.object(script, "set_batch_ingest_task_values") as set_batch,
@@ -85,8 +82,7 @@ def test_run_es_gcp_databricks_ingestion_runs_batch_ingest() -> None:
         result = script.run_es_gcp_databricks_ingestion(_args())
 
     run_batch.assert_called_once()
-    kwargs = run_batch.call_args.kwargs
-    assert kwargs["raw_cohort_name"] == "cohort"
-    assert kwargs["raw_course_name"] == "course"
+    assert "raw_cohort_name" not in run_batch.call_args.kwargs
+    assert "raw_course_name" not in run_batch.call_args.kwargs
     set_batch.assert_called_once_with(batch_result)
     assert result == batch_result
