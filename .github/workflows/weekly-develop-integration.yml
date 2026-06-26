@@ -223,7 +223,7 @@ jobs:
           DATABRICKS_CLIENT_ID: ${{ secrets.DATABRICKS_DEV_CLIENT_ID }}
           DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_DEV_CLIENT_SECRET }}
         run: |
-          databricks bundle run github_sourced_es_inference_pipeline --target dev \
+          databricks bundle run github_sourced_genai_es_inference_pipeline --target dev \
             --var "git_commit=$GIT_COMMIT" \
             --var "DB_workspace=$DB_WORKSPACE" \
             --var "service_account_executer=${{ secrets.DEV_SERVICE_ACCOUNT_EXECUTER }}" \
