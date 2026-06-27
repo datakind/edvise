@@ -44,6 +44,43 @@ def test_apply_bronze_batch_dir_overrides_resolves_by_basename(tmp_path: Path) -
     assert updated.datasets["course"].files == [str(batch / "courses.csv")]
 
 
+def test_apply_bronze_batch_dir_overrides_resolves_by_file_kind_suffix(
+    tmp_path: Path,
+) -> None:
+    batch = tmp_path / "batch"
+    batch.mkdir()
+    (batch / "1782516108693_2026_01_20_Edvise Student File.csv").write_text(
+        "a\n", encoding="utf-8"
+    )
+    (batch / "1782516108691_2026_01_20_Edvise Course File.csv").write_text(
+        "b\n", encoding="utf-8"
+    )
+    (batch / SUCCESS_FILENAME).write_text("{}", encoding="utf-8")
+
+    cfg = SchoolMappingConfig(
+        institution_id="city_cols_of_chicago",
+        bronze_volumes_path="/Volumes/dev/city_cols_of_chicago_bronze/bronze_volume",
+        datasets={
+            "student": DatasetConfig(
+                files=["2025-09-19_CCC Student File.csv"],
+            ),
+            "course": DatasetConfig(
+                files=["2025-09-19_CCC Course File.csv"],
+            ),
+        },
+    )
+    updated = apply_bronze_batch_dir_overrides(
+        cfg,
+        bronze_batch_dir=str(batch),
+    )
+    assert updated.datasets["student"].files == [
+        str(batch / "1782516108693_2026_01_20_Edvise Student File.csv")
+    ]
+    assert updated.datasets["course"].files == [
+        str(batch / "1782516108691_2026_01_20_Edvise Course File.csv")
+    ]
+
+
 def test_apply_bronze_batch_dir_overrides_missing_file_raises(tmp_path: Path) -> None:
     batch = tmp_path / "batch"
     batch.mkdir()
