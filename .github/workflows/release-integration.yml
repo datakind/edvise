@@ -5,7 +5,7 @@ on:
   push:
     branches:
       - 'release/*'
-      - 'feat/es-pipeline-integration-test'
+
 concurrency:
   group: release-branch-ci-dev-${{ github.ref }}
   cancel-in-progress: false
