@@ -22,6 +22,7 @@ def test_silver_volume_child_basename() -> None:
 def test_genai_mapping_is_preserved_during_silver_cleanup() -> None:
     assert "genai_mapping" in SILVER_VOLUME_PRESERVE_DIRS
 
+
 from edvise.scripts.pdp_synthetic_cleanup import is_institution_gold_model
 
 
