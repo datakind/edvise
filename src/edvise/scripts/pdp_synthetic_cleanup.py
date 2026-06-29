@@ -13,9 +13,18 @@ import mlflow
 from mlflow.tracking import MlflowClient
 from mlflow.entities import Run
 
+# Immediate children of ``…/silver_volume/`` that must never be removed by cleanup.
+# ``genai_mapping`` holds promoted active artifacts and run trees used by ES GenAI execute.
+SILVER_VOLUME_PRESERVE_DIRS: frozenset[str] = frozenset({"genai_mapping"})
+
 # -------------------------
 # Utilities & helpers
 # -------------------------
+
+
+def silver_volume_child_basename(path: str) -> str:
+    """Return the final path segment (folder name) for a silver_volume child path."""
+    return path.rstrip("/").rsplit("/", 1)[-1]
 
 
 def log(msg: str) -> None:
@@ -247,6 +256,9 @@ if __name__ == "__main__":
             if not children:
                 log(f"Silver volume is already empty: {silver_root}")
             for child in children:
+                if silver_volume_child_basename(child) in SILVER_VOLUME_PRESERVE_DIRS:
+                    log(f"PRESERVE (skip): {child}")
+                    continue
                 rm_path(
                     spark, child, recurse=True, dry_run=dry_run
                 )  # deletes child + contents

@@ -19,9 +19,9 @@ def apply_bronze_batch_dir_overrides(
     """
     Point GenAI execute datasets at CSVs under ``bronze_batch_dir``.
 
-    Each configured file in ``inputs.toml`` is resolved by basename (then substring)
-    under the batch landing dir from ``batch_gcs_ingest``, e.g.
-    ``gcs_uploads/{batch_id}/``.
+    Each configured file in ``inputs.toml`` is resolved by basename, then by stable
+    ``'{kind} file'`` suffix (e.g. ``Student File``), then by dataset key under the
+    batch landing dir from ``batch_gcs_ingest``, e.g. ``gcs_uploads/{batch_id}/``.
     """
     batch_dir = (bronze_batch_dir or "").strip()
     if not batch_dir:
@@ -32,7 +32,9 @@ def apply_bronze_batch_dir_overrides(
         resolved_files: list[str] = []
         for configured_path in ds_cfg.files:
             needle = Path(configured_path).name or ds_name
-            resolved = resolve_dataset_file_in_batch_dir(batch_dir, needle)
+            resolved = resolve_dataset_file_in_batch_dir(
+                batch_dir, needle, dataset_key=ds_name
+            )
             if resolved is None:
                 raise FileNotFoundError(
                     f"GenAI dataset {ds_name!r}: no file matching {needle!r} under batch dir "
