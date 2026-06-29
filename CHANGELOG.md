@@ -1,3 +1,13 @@
+## 1.4.0 (2026-06-29)
+- fix: es letter grade feature generation (#160)
+- feat(es): batch GCS data ingestion in ES inference pipeline (#186)
+- feat: wiring in batch ingestion for genai execution in ES inference pipeline (#187)
+- fix(es): add term_degree features to features_table.toml (#188)
+- fix(genai): default December month codes to Fall instead of Winter (#189)
+- fix(integration): match all models in synthetic gold schema during integration test and weekly cleanup (#190)
+- feat(integration): extending PDP integration tests to ES training & GenAI/ES inference pipelines (#191)
+- feat: mapping unknown values in pell status to "N"  (#192)
+
 ## 1.3.0 (2026-06-25)
 - feat(genai): setup active registry update during genAI execution for ES inference (#176)
 - feat: connect genai execution into es inference (#179)
