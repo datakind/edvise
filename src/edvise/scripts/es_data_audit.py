@@ -20,7 +20,11 @@ print("Repo root:", repo_root)
 print("src_path:", src_path)
 print("sys.path:", sys.path)
 
-from edvise.data_audit.raw_course_grade_map import apply_raw_course_grade_map
+from edvise.data_audit.raw_course_grade_map import (
+    apply_raw_course_grade_map,
+    log_unmapped_gpa_grades,
+    resolve_es_grade_map,
+)
 from edvise.data_audit.schemas import (
     RawEdviseStudentDataSchema,
     RawEdviseCourseDataSchema,
@@ -31,6 +35,7 @@ from edvise.data_audit.standardizer import (
 )
 from edvise.utils.databricks import get_spark_session
 from edvise.dataio.genai_registry_paths import resolve_genai_pipeline_input_dir
+from edvise.data_audit.batch_dataset_paths import resolve_es_raw_dataset_paths
 from edvise.dataio.path_management import pick_existing_path
 from edvise.dataio.path_management import path_exists
 from edvise.dataio.read import (
@@ -169,16 +174,34 @@ class ESDataAuditTask:
                 bool(self.args.bronze_volume_path),
                 "bronze_volume_path is required for Edvise Schema (edvise_id) institutions.",
             )
-            cohort_dataset_raw_path = pick_existing_path(
-                self.args.cohort_dataset_validated_path,
-                f"{self.args.bronze_volume_path}/{self.cfg.datasets.raw_cohort}",
-                "cohort",
-            )
-            course_dataset_raw_path = pick_existing_path(
-                self.args.course_dataset_validated_path,
-                f"{self.args.bronze_volume_path}/{self.cfg.datasets.raw_course}",
-                "course",
-            )
+            bronze_batch_dir = (
+                getattr(self.args, "bronze_batch_dir", None) or ""
+            ).strip()
+            if bronze_batch_dir:
+                LOGGER.info(
+                    "Resolving cohort/course from batch ingest bronze_batch_dir=%s",
+                    bronze_batch_dir,
+                )
+                cohort_dataset_raw_path, course_dataset_raw_path = (
+                    resolve_es_raw_dataset_paths(
+                        bronze_batch_dir,
+                        raw_cohort_name=self.cfg.datasets.raw_cohort,
+                        raw_course_name=self.cfg.datasets.raw_course,
+                    )
+                )
+            else:
+                cohort_prefer = (self.args.cohort_dataset_validated_path or "").strip()
+                course_prefer = (self.args.course_dataset_validated_path or "").strip()
+                cohort_dataset_raw_path = pick_existing_path(
+                    cohort_prefer or None,
+                    f"{self.args.bronze_volume_path}/{self.cfg.datasets.raw_cohort}",
+                    "cohort",
+                )
+                course_dataset_raw_path = pick_existing_path(
+                    course_prefer or None,
+                    f"{self.args.bronze_volume_path}/{self.cfg.datasets.raw_course}",
+                    "course",
+                )
 
         # --- Load RAW datasets w/o schema---
         LOGGER.info(" Loading raw cohort and course datasets:")
@@ -217,7 +240,7 @@ class ESDataAuditTask:
                 " Failed to parse course data with all known datetime formats."
             )
 
-        course_grade_map = self._course_grade_map()
+        course_grade_map = resolve_es_grade_map(self._course_grade_map())
         df_course_raw = apply_raw_course_grade_map(df_course_raw, course_grade_map)
 
         # Ensure files are non-empty
@@ -340,6 +363,7 @@ class ESDataAuditTask:
 
         # Course exploratory EDA (pre-standardize)
         log_grade_distribution(df_course_validated)
+        log_unmapped_gpa_grades(df_course_validated)
         # Log high null columns
         log_high_null_columns(df_course_validated)
         # Standardize course data

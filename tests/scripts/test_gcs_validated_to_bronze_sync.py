@@ -11,6 +11,7 @@ import pytest
 from google.api_core import exceptions as gax_exc
 from google.api_core.exceptions import NotFound
 
+from edvise.utils import gcs as copy_mod
 from edvise.scripts import gcs_validated_to_bronze_sync as m
 
 
@@ -123,11 +124,9 @@ def _volumes_to_tmp(p: str, under: Path) -> str:
 def test_taskvalues_set_failure_does_not_fail_sync(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(
-        m,
-        "local_fs_path",
-        lambda p, root=tmp_path: _volumes_to_tmp(p, root) if p else p,
-    )
+    path_mapper = lambda p, root=tmp_path: _volumes_to_tmp(p, root) if p else p
+    monkeypatch.setattr(copy_mod, "local_fs_path", path_mapper)
+    monkeypatch.setattr(m, "local_fs_path", path_mapper)
 
     bucket = mock.Mock()
     bobj = mock.Mock()

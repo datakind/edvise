@@ -3,7 +3,7 @@ Heuristic seeds for ``season_map_replace`` when the agent left placeholders empt
 
 Uses a common US semester-start **month code → canonical** mapping for two-digit month
 fragments (e.g. YYYYMM positions 5–6): Jan–Apr → SPRING, May–Jul → SUMMER,
-Aug–Nov → FALL, Dec → WINTER.
+Aug–Dec → FALL.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ _CANON_BY_MM: dict[str, str] = {
     "09": "FALL",
     "10": "FALL",
     "11": "FALL",
-    "12": "WINTER",
+    "12": "FALL",
 }
 
 

@@ -128,6 +128,7 @@ class ESFeatureGenerationTask:
             student_term_aggregate_spec=spec_bundle.student_term_aggregate,
             student_term_add_feature_spec=spec_bundle.student_term_add,
             cumulative_feature_spec=spec_bundle.cumulative,
+            grade_semantics="es",
         )
 
         require(len(df_out) > 0, "student_terms.parquet is empty.")

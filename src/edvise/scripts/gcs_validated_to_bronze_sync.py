@@ -24,34 +24,40 @@ Intended to run as a single-task Databricks job (see pipelines/ingestion/shared/
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import os
-import re
 import sys
-import time
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from typing import Any, Iterator, Literal, Optional, Tuple
 
-from google.api_core import exceptions as gax_exc
 from google.api_core.exceptions import Forbidden, NotFound
 from google.cloud import storage
 from google.cloud.storage import Blob
 
-# Single path segment for landing subdirs (no traversal, no nested path in param).
-_SAFE_VOLUME_SEGMENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$")
-
-SUCCESS_FILENAME = "_SUCCESS.json"
-DEFAULT_GCS_PREFIX = "validated/"
-MAX_BLOBS_LISTED_IN_SUCCESS_JSON = 50
-BLOB_DOWNLOAD_MAX_ATTEMPTS = 3
-BLOB_DOWNLOAD_RETRY_DELAY_INITIAL = 0.5
-BLOB_DOWNLOAD_RETRY_DELAY_CAP = 4.0
-# HTTP codes where GCS/transport often benefits from a retry
-HTTP_STATUS_TRANSIENT_GCS: Tuple[int, ...] = (429, 500, 502, 503, 504)
+from edvise.utils.gcs import (
+    DEFAULT_GCS_PREFIX,
+    assert_safe_volume_segment,
+    copy_validated_blobs_to_landing,
+    dest_local_under_landing,
+    download_blob_to_file,
+    is_transient_gcs_error,
+    normalize_gcs_prefix,
+    parse_include_blob_paths_json,
+    relative_under_prefix,
+    write_success_marker,
+)
+from edvise.utils.databricks import local_fs_path
 
 Swallowed = Optional[Literal["forbidden", "notfound"]]
+
+# Backward-compatible aliases for tests and callers.
+_assert_safe_volume_segment = assert_safe_volume_segment
+_is_transient_gcs_error = is_transient_gcs_error
+_parse_include_blob_paths_json = parse_include_blob_paths_json
+_relative_under_prefix = relative_under_prefix
+_dest_local_under_landing = dest_local_under_landing
+_write_success_marker = write_success_marker
+_download_blob_to_file = download_blob_to_file
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,13 +71,6 @@ class _SyncPaths:
     landing_dir: str
     landing_local: str
     include_paths: list[str]
-
-
-def local_fs_path(path: str) -> str:
-    """Map dbfs: URI to a local /dbfs path; otherwise return the path unchanged."""
-    return (
-        path.replace("dbfs:/", "/dbfs/") if path and path.startswith("dbfs:/") else path
-    )
 
 
 def in_databricks() -> bool:
@@ -90,135 +89,6 @@ def get_dbutils() -> Any | None:
         return dbutils
     except (ImportError, ModuleNotFoundError):
         return None
-
-
-def _normalize_gcs_prefix(prefix: str) -> str:
-    p = prefix.strip().strip("/")
-    return f"{p}/" if p else ""
-
-
-def _normalize_blob_name(name: str) -> str:
-    n = name.strip().lstrip("/").replace("\\", "/")
-    for part in n.split("/"):
-        if part in ("", ".", ".."):
-            raise ValueError(f"Invalid GCS object path: {name!r}")
-    return n
-
-
-def _parse_include_blob_paths_json(raw: str) -> list[str]:
-    """Parse job/API JSON array of full bucket object paths. Empty / [] = no filter."""
-    if raw is None or not str(raw).strip():
-        return []
-    data = json.loads(str(raw).strip())
-    if data == []:
-        return []
-    if not isinstance(data, list):
-        raise ValueError("include_blob_paths_json must be a JSON array of strings")
-    out: list[str] = []
-    for i, item in enumerate(data):
-        if not isinstance(item, str) or not item.strip():
-            raise ValueError(
-                f"include_blob_paths_json entry {i} must be a non-empty string"
-            )
-        out.append(_normalize_blob_name(item))
-    return out
-
-
-def _relative_under_prefix(blob_name: str, gcs_prefix: str) -> str:
-    if not blob_name.startswith(gcs_prefix):
-        raise ValueError(
-            f"Blob {blob_name!r} must start with gcs_source_prefix {gcs_prefix!r} "
-            "(pass full object paths as stored in GCS)."
-        )
-    rel = blob_name[len(gcs_prefix) :].lstrip("/")
-    if not rel:
-        raise ValueError(f"Blob path equals prefix only (no file): {blob_name!r}")
-    return rel
-
-
-def _assert_safe_volume_segment(label: str, value: str) -> str:
-    s = value.strip()
-    if not s:
-        raise ValueError(f"{label} must be non-empty after strip.")
-    if not _SAFE_VOLUME_SEGMENT.fullmatch(s):
-        raise ValueError(
-            f"{label} must match {_SAFE_VOLUME_SEGMENT.pattern!r} "
-            f"(alphanumeric start; only . _ - allowed); got {value!r}"
-        )
-    if ".." in s:
-        raise ValueError(f"{label} must not contain '..'; got {value!r}")
-    return s
-
-
-def _assert_safe_blob_relative(relative: str) -> None:
-    """Reject object keys that could escape the landing directory via path segments."""
-    if not relative or relative.startswith(("/", "\\")):
-        raise ValueError(f"Unsafe GCS relative path (absolute or empty): {relative!r}")
-    norm = relative.replace("\\", "/")
-    for part in norm.split("/"):
-        if part in ("", ".", ".."):
-            raise ValueError(
-                f"Unsafe GCS relative path segment in {relative!r} "
-                f"(empty, '.', or '..' not allowed)."
-            )
-
-
-def _dest_local_under_landing(landing_dir: str, relative: str) -> str:
-    """
-    Return local filesystem path for dest file; ensure parent resolves under landing_dir.
-    Creates parent directories as needed.
-    """
-    _assert_safe_blob_relative(relative)
-    dest_path = os.path.join(landing_dir, relative)
-    dest_local = local_fs_path(dest_path)
-    land_local = local_fs_path(landing_dir)
-    dest_parent = os.path.dirname(dest_local)
-    if dest_parent:
-        os.makedirs(dest_parent, exist_ok=True)
-    land_resolved = os.path.realpath(land_local)
-    parent_resolved = os.path.realpath(dest_parent if dest_parent else land_local)
-    try:
-        common = os.path.commonpath([land_resolved, parent_resolved])
-    except ValueError as e:
-        raise ValueError(
-            f"Refusing destination outside landing dir for relative {relative!r}: {e}"
-        ) from e
-    if common != land_resolved:
-        raise ValueError(
-            f"Refusing destination outside landing dir: {relative!r} -> {dest_local}"
-        )
-    return dest_local
-
-
-def _write_success_marker(
-    landing_dir: str,
-    *,
-    copied: int,
-    bucket_name: str,
-    gcs_prefix: str,
-    storage_layout: str,
-    copy_mode: str,
-    include_blob_paths: Optional[list[str]] = None,
-) -> None:
-    """Write ``_SUCCESS.json`` under ``landing_dir`` (``copied`` may be 0 if the run allowed it)."""
-    payload: dict = {
-        "completed_at": datetime.now(timezone.utc).isoformat(),
-        "object_count": copied,
-        "gcs_uri": f"gs://{bucket_name}/{gcs_prefix}",
-        "gcs_prefix": gcs_prefix,
-        "marker": SUCCESS_FILENAME,
-        "storage_layout": storage_layout,
-        "copy_mode": copy_mode,
-    }
-    if include_blob_paths:
-        payload["source_blobs"] = include_blob_paths[:MAX_BLOBS_LISTED_IN_SUCCESS_JSON]
-        if len(include_blob_paths) > MAX_BLOBS_LISTED_IN_SUCCESS_JSON:
-            payload["source_blobs_truncated"] = True
-    marker_path = os.path.join(landing_dir, SUCCESS_FILENAME)
-    marker_local = _dest_local_under_landing(landing_dir, SUCCESS_FILENAME)
-    with open(marker_local, "w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2)
-    logging.info("Wrote completion marker %s", marker_path)
 
 
 def _iter_blobs(
@@ -247,68 +117,23 @@ def _resolve_strict_mode(strict_mode: str) -> bool:
     raise ValueError(f"Invalid strict_mode: {strict_mode!r}")
 
 
-def _is_transient_gcs_error(exc: Exception) -> bool:
-    """True for likely-transient GCS/transport failures worth retrying."""
-    if isinstance(exc, (ConnectionError, TimeoutError, OSError)):
-        return True
-    if isinstance(exc, gax_exc.GoogleAPICallError):
-        code = (
-            getattr(exc, "code", None)
-            or getattr(exc, "http_status", None)
-            or getattr(exc, "grpc_status_code", None)
-        )
-        if code in HTTP_STATUS_TRANSIENT_GCS:
-            return True
-    return False
-
-
-def _download_blob_to_file(blob: Blob, dest_local: str) -> None:
-    """Download one blob to dest with limited retries for transient GCS errors."""
-    delay = BLOB_DOWNLOAD_RETRY_DELAY_INITIAL
-    for attempt in range(1, BLOB_DOWNLOAD_MAX_ATTEMPTS + 1):
-        try:
-            blob.download_to_filename(dest_local)
-            return
-        except (NotFound, Forbidden):
-            raise
-        except (
-            OSError,
-            ConnectionError,
-            TimeoutError,
-            gax_exc.GoogleAPICallError,
-        ) as e:
-            if attempt == BLOB_DOWNLOAD_MAX_ATTEMPTS or not _is_transient_gcs_error(e):
-                raise
-            logging.warning(
-                "Transient GCS download error (attempt %s/%s), retrying: %s",
-                attempt,
-                BLOB_DOWNLOAD_MAX_ATTEMPTS,
-                e,
-            )
-            time.sleep(delay)
-            delay = min(delay * 2, BLOB_DOWNLOAD_RETRY_DELAY_CAP)
-
-
 def _build_sync_paths(args: argparse.Namespace) -> _SyncPaths:
     if not args.gcp_bucket_name.strip():
         raise ValueError(
             "gcp_bucket_name is empty; pass the institution bucket when starting the job."
         )
 
-    db_w = _assert_safe_volume_segment("DB_workspace", args.DB_workspace.strip())
-    inst = _assert_safe_volume_segment(
+    db_w = assert_safe_volume_segment("DB_workspace", args.DB_workspace.strip())
+    inst = assert_safe_volume_segment(
         "databricks_institution_name", args.databricks_institution_name.strip()
     )
-    gcs_prefix = _normalize_gcs_prefix(args.gcs_source_prefix)
-    if not gcs_prefix:
-        gcs_prefix = DEFAULT_GCS_PREFIX
+    gcs_prefix = normalize_gcs_prefix(args.gcs_source_prefix) or DEFAULT_GCS_PREFIX
     batch_id_raw = (args.batch_id or "").strip()
-    if batch_id_raw:
-        batch_id = _assert_safe_volume_segment("batch_id", batch_id_raw)
-    else:
-        batch_id = ""
-    include_paths = _parse_include_blob_paths_json(args.include_blob_paths_json)
-    bronze_sub = _assert_safe_volume_segment("bronze_subdir", args.bronze_subdir)
+    batch_id = (
+        assert_safe_volume_segment("batch_id", batch_id_raw) if batch_id_raw else ""
+    )
+    include_paths = parse_include_blob_paths_json(args.include_blob_paths_json)
+    bronze_sub = assert_safe_volume_segment("bronze_subdir", args.bronze_subdir)
     bronze_root = f"/Volumes/{db_w}/{inst}_bronze/bronze_volume"
     landing_dir = (
         os.path.join(bronze_root, bronze_sub, batch_id)
@@ -330,33 +155,16 @@ def _build_sync_paths(args: argparse.Namespace) -> _SyncPaths:
 def _run_selective_copies(
     args: argparse.Namespace,
     sp: _SyncPaths,
-    bucket: storage.Bucket,
+    client: storage.Client,
 ) -> int:
-    if len(sp.include_paths) > args.max_objects:
-        raise ValueError(
-            f"{len(sp.include_paths)} blobs in include_blob_paths_json exceeds "
-            f"--max_objects ({args.max_objects})"
-        )
-    copied = 0
-    for blob_name in sp.include_paths:
-        relative = _relative_under_prefix(blob_name, sp.gcs_prefix)
-        dest_local = _dest_local_under_landing(sp.landing_dir, relative)
-        blob = bucket.blob(blob_name)
-        try:
-            _download_blob_to_file(blob, dest_local)
-        except NotFound as e:
-            raise FileNotFoundError(
-                "Validated object not found in GCS (check include_blob_paths_json): "
-                f"gs://{args.gcp_bucket_name}/{blob_name}"
-            ) from e
-        copied += 1
-        logging.info(
-            "Copied gs://%s/%s -> %s",
-            args.gcp_bucket_name,
-            blob_name,
-            dest_local,
-        )
-    return copied
+    return copy_validated_blobs_to_landing(
+        bucket_name=args.gcp_bucket_name,
+        gcs_prefix=sp.gcs_prefix,
+        landing_dir=sp.landing_dir,
+        include_paths=sp.include_paths,
+        max_objects=args.max_objects,
+        storage_client=client,
+    )
 
 
 def _run_listing_copies(
@@ -371,8 +179,8 @@ def _run_listing_copies(
         relative = blob.name[len(sp.gcs_prefix) :].lstrip("/")
         if not relative:
             continue
-        dest_local = _dest_local_under_landing(sp.landing_dir, relative)
-        _download_blob_to_file(blob, dest_local)
+        dest_local = dest_local_under_landing(sp.landing_dir, relative)
+        download_blob_to_file(blob, dest_local)
         copied += 1
         logging.info(
             "Copied gs://%s/%s -> %s",
@@ -412,13 +220,12 @@ def sync_validated_to_bronze(args: argparse.Namespace) -> Tuple[int, Swallowed]:
     os.makedirs(sp.landing_local, exist_ok=True)
     strict = _resolve_strict_mode(args.strict_mode)
     client = storage.Client()
-    bucket = client.bucket(args.gcp_bucket_name)
     include_paths = sp.include_paths
     selective = bool(include_paths)
 
     try:
         if selective:
-            copied = _run_selective_copies(args, sp, bucket)
+            copied = _run_selective_copies(args, sp, client)
         else:
             copied = _run_listing_copies(args, sp, client)
     except Forbidden as e:
@@ -441,7 +248,7 @@ def sync_validated_to_bronze(args: argparse.Namespace) -> Tuple[int, Swallowed]:
         "gcs_validated_to_bronze_sync finished: %s files -> %s", copied, sp.landing_dir
     )
 
-    _write_success_marker(
+    write_success_marker(
         sp.landing_dir,
         copied=copied,
         bucket_name=args.gcp_bucket_name,
@@ -551,8 +358,8 @@ def _raise_on_zero_copies(
             "GCS bucket was not found for the given gcp_bucket_name; "
             "zero objects copied."
         )
-    gcs_prefix = _normalize_gcs_prefix(args.gcs_source_prefix) or DEFAULT_GCS_PREFIX
-    include_paths = _parse_include_blob_paths_json(args.include_blob_paths_json)
+    gcs_prefix = normalize_gcs_prefix(args.gcs_source_prefix) or DEFAULT_GCS_PREFIX
+    include_paths = parse_include_blob_paths_json(args.include_blob_paths_json)
     if include_paths:
         raise FileNotFoundError(
             "No objects were copied from include_blob_paths_json "
