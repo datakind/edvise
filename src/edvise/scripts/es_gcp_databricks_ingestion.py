@@ -1,18 +1,36 @@
 """
-ES inference data ingestion (PDP-style): batch GCS landing + model config resolution.
+ES inference data ingestion: batch GCS landing + model config resolution.
 
 Combines upload-time / fallback batch bronze ingest with lookup of ``config_file_path``
-from the registered model's silver artifacts. Intended as the single root task for ES
-inference pipelines; legacy can follow the same pattern in a sibling script.
+from the registered model's silver artifacts. Cohort/course assignment is deferred:
+edvise_id schools resolve ``raw_cohort`` / ``raw_course`` in ``es_data_audit``;
+GenAI schools resolve inputs in ``genai_mapping_execute`` via ``inputs.toml``.
 """
 
 from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 
-from edvise.configs.es import ESProjectConfig
+# Ensure repo src/ is on sys.path so `import edvise.*` works in Databricks Jobs.
+# Layout: <git_root>/src/edvise/scripts/<this_file>
+# Databricks spark_python_task often exec()s this file without defining __file__.
+_here = globals().get("__file__")
+if _here:
+    _script_dir = os.path.dirname(os.path.abspath(_here))
+else:
+    _argv0 = os.path.abspath(sys.argv[0]) if sys.argv else ""
+    if _argv0.endswith(".py") and os.path.isfile(_argv0):
+        _script_dir = os.path.dirname(_argv0)
+    else:
+        _script_dir = os.path.abspath(os.getcwd())
+_src_root = os.path.abspath(os.path.join(_script_dir, "..", ".."))
+if os.path.isdir(_src_root) and os.path.isdir(os.path.join(_src_root, "edvise")):
+    if _src_root not in sys.path:
+        sys.path.insert(0, _src_root)
+
 from edvise.dataio.batch_gcs_inference_ingest import (
     DEFAULT_BRONZE_SYNC_POLL_INTERVAL_SECONDS,
     DEFAULT_BRONZE_SYNC_WAIT_SECONDS,
@@ -25,7 +43,6 @@ from edvise.dataio.inference_model_artifacts import (
     resolve_es_inference_artifacts,
     set_inference_config_task_value,
 )
-from edvise.dataio.read import read_config
 from edvise.utils.gcs import DEFAULT_GCS_PREFIX
 
 
@@ -94,14 +111,6 @@ def parse_arguments() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _raw_dataset_names_from_config(config_file_path: str) -> tuple[str, str]:
-    config_path = (config_file_path or "").strip()
-    if not config_path:
-        return "", ""
-    cfg = read_config(file_path=config_path, schema=ESProjectConfig)
-    return cfg.datasets.raw_cohort, cfg.datasets.raw_course
-
-
 def run_es_gcp_databricks_ingestion(
     args: argparse.Namespace,
 ) -> BatchIngestResult | None:
@@ -128,7 +137,6 @@ def run_es_gcp_databricks_ingestion(
         set_batch_ingest_task_values(skipped)
         return skipped
 
-    raw_cohort, raw_course = _raw_dataset_names_from_config(artifacts.config_file_path)
     result = run_batch_gcs_inference_ingest(
         db_workspace=args.DB_workspace,
         databricks_institution_name=args.databricks_institution_name,
@@ -136,8 +144,6 @@ def run_es_gcp_databricks_ingestion(
         batch_id=args.batch_id,
         validated_blob_paths_json=args.validated_blob_paths_json,
         db_run_id=args.db_run_id,
-        raw_cohort_name=raw_cohort,
-        raw_course_name=raw_course,
         gcs_source_prefix=args.gcs_source_prefix,
         require_at_least_one_file=args.require_at_least_one_file,
         max_objects=args.max_objects,

@@ -35,6 +35,7 @@ from edvise.data_audit.standardizer import (
 )
 from edvise.utils.databricks import get_spark_session
 from edvise.dataio.genai_registry_paths import resolve_genai_pipeline_input_dir
+from edvise.data_audit.batch_dataset_paths import resolve_es_raw_dataset_paths
 from edvise.dataio.path_management import pick_existing_path
 from edvise.dataio.path_management import path_exists
 from edvise.dataio.read import (
@@ -176,24 +177,31 @@ class ESDataAuditTask:
             bronze_batch_dir = (
                 getattr(self.args, "bronze_batch_dir", None) or ""
             ).strip()
-            bronze_root = bronze_batch_dir or self.args.bronze_volume_path
-            cohort_prefer = (self.args.cohort_dataset_validated_path or "").strip()
-            course_prefer = (self.args.course_dataset_validated_path or "").strip()
             if bronze_batch_dir:
                 LOGGER.info(
-                    "Using batch ingest bronze_batch_dir=%s for cohort/course resolution",
+                    "Resolving cohort/course from batch ingest bronze_batch_dir=%s",
                     bronze_batch_dir,
                 )
-            cohort_dataset_raw_path = pick_existing_path(
-                cohort_prefer or None,
-                f"{bronze_root}/{self.cfg.datasets.raw_cohort}",
-                "cohort",
-            )
-            course_dataset_raw_path = pick_existing_path(
-                course_prefer or None,
-                f"{bronze_root}/{self.cfg.datasets.raw_course}",
-                "course",
-            )
+                cohort_dataset_raw_path, course_dataset_raw_path = (
+                    resolve_es_raw_dataset_paths(
+                        bronze_batch_dir,
+                        raw_cohort_name=self.cfg.datasets.raw_cohort,
+                        raw_course_name=self.cfg.datasets.raw_course,
+                    )
+                )
+            else:
+                cohort_prefer = (self.args.cohort_dataset_validated_path or "").strip()
+                course_prefer = (self.args.course_dataset_validated_path or "").strip()
+                cohort_dataset_raw_path = pick_existing_path(
+                    cohort_prefer or None,
+                    f"{self.args.bronze_volume_path}/{self.cfg.datasets.raw_cohort}",
+                    "cohort",
+                )
+                course_dataset_raw_path = pick_existing_path(
+                    course_prefer or None,
+                    f"{self.args.bronze_volume_path}/{self.cfg.datasets.raw_course}",
+                    "course",
+                )
 
         # --- Load RAW datasets w/o schema---
         LOGGER.info(" Loading raw cohort and course datasets:")

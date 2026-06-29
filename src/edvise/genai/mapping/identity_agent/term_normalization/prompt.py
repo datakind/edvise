@@ -225,7 +225,7 @@ For **date columns**:
 
 - `year_extractor`: prefer `pd.to_datetime(term).year` with **no** `format=` (see role section: at runtime `term` is often ISO after cleaning, not the raw CSV layout).
 - `season_extractor`: derive season from calendar month. Return a **stable raw string token** that will be a key in `season_map` (same idea as `season_map_replace` in batch HITL):
-  - **Preferred — English month names:** `pd.to_datetime(term).strftime('%B').lower()` and pair with a **12-row** mapping (Jan→Dec in calendar list order), each `raw` → canonical `SPRING` | `SUMMER` | `FALL` | `WINTER` per policy (e.g. Jan–Apr → Spring, May–Jul → Summer, Aug–Nov → Fall, Dec → Winter). Document in `description` that `strftime('%B')` is English.
+  - **Preferred — English month names:** `pd.to_datetime(term).strftime('%B').lower()` and pair with a **12-row** mapping (Jan→Dec in calendar list order), each `raw` → canonical `SPRING` | `SUMMER` | `FALL` | `WINTER` per policy (e.g. Jan–Apr → Spring, May–Jul → Summer, Aug–Dec → Fall). Document in `description` that `strftime('%B')` is English.
   - **Alternative — short codes:** e.g. `'1'`–`'4'` with an **explicit** `if` / `elif` ladder, `dict`, or table over month number — one branch per band — never a "clever" single formula unless verified for **all 12 months**.
 - **Do not** use one arithmetic expression on month (e.g. `(month - 1) // 4 + 1`) for 1–4 / 5–7 / 8–11 / 12-style bands — those buckets are **not** equal-width quarters; such formulas mis-classify months unless re-derived.
 - `season_map` (when not empty) must align with the raw tokens you emit.
@@ -373,7 +373,7 @@ For **date columns**:
 
 - `year_extractor`: prefer `pd.to_datetime(term).year` with **no** `format=` — at runtime `term` is often ISO after `clean_dataset`, not the raw CSV layout.
 - `season_extractor`: derive season from calendar month. Return a **stable raw string token** for `season_map_replace` / `season_map`:
-  - **Preferred — English month names:** `pd.to_datetime(term).strftime('%B').lower()` and, in the `confirm_extraction` resolution, supply **12** `season_map_replace` entries (January→December in calendar order in the list), each `raw` → canonical per your stated policy (e.g. Jan–Apr → `SPRING`, May–Jul → `SUMMER`, Aug–Nov → `FALL`, Dec → `WINTER`). State in `description` that month names are English from `strftime`.
+  - **Preferred — English month names:** `pd.to_datetime(term).strftime('%B').lower()` and, in the `confirm_extraction` resolution, supply **12** `season_map_replace` entries (January→December in calendar order in the list), each `raw` → canonical per your stated policy (e.g. Jan–Apr → `SPRING`, May–Jul → `SUMMER`, Aug–Dec → `FALL`). State in `description` that month names are English from `strftime`.
   - **Alternative — short codes:** e.g. `'1'`–`'4'` with **explicit** `if` / `elif`, `dict`, or table on month number — verify **every** month 1–12 maps as intended.
 - **Do not** encode month→season with one arithmetic expression on `month` unless checked against **all 12 months**; patterns like `(month - 1) // 4 + 1` do **not** match 1–4 / 5–7 / 8–11 / 12 bands.
 - Do **not** draft `pd.to_datetime(term, format="%m/%d/%Y")` (or other fixed layouts) just because samples looked US-slash in the file; that breaks when the column was coerced to datetime then stringified to ISO.
@@ -411,7 +411,7 @@ Each HITLItem must have:
   `resolution.season_map_replace` with a **best-guess** mapping for **every** distinct two-digit month code
   observed in samples (not an empty list). Use this **default US semester-start heuristic** unless the
   institution’s calendar in the evidence clearly contradicts it: months `01`–`04` → `SPRING`, `05`–`07` →
-  `SUMMER`, `08`–`11` → `FALL`, `12` → `WINTER`. State in `hitl_context` that the mapping is a draft for
+  `SUMMER`, `08`–`12` → `FALL`. State in `hitl_context` that the mapping is a draft for
   reviewer confirmation. The drafted `season_extractor` must return the **same raw strings** as the `raw`
   keys (e.g. `str(term)[4:6]` after normalizing `term` to a string without a trailing `.0`).
 - `hitl_context`: the raw values or samples that triggered the flag. Give the reviewer
@@ -454,7 +454,7 @@ Good `hitl_question` examples:
 - "`STRM` is an opaque int64 column (e.g. 1700, 1730). Year offset logic was inferred from
   samples. Please confirm the extraction rule before hook generation proceeds."
 - "`term_enrolled_date` parses as dates (e.g. '1-Sep-19'). Confirm Jan–Apr→Spring, May–Jul→Summer,
-  Aug–Nov→Fall, Dec→Winter before hook generation proceeds."
+  Aug–Dec→Fall before hook generation proceeds."
 
 ### ACADEMIC YEAR CONVENTION (do not emit — for your reasoning only)
 

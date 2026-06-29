@@ -6,16 +6,17 @@
 #   model_name, databricks_institution_name, DB_workspace, gcp_bucket_name,
 #   datakind_notification_email, DK_CC_EMAIL, config_file_name
 #
-# batch_id / validated_blob_paths_json — passed by edvise-api; data_ingestion resolves
-# bronze inputs before data_audit for non-GenAI (edvise_id) schools.
+# batch_id / validated_blob_paths_json — passed by edvise-api; data_ingestion lands
+# files under gcs_uploads/{batch_id}/ and resolves config_file_path only.
+# Cohort/course assignment: edvise_id in data_audit; genai_id in genai_mapping_execute.
 #
 # is_genai_institution gates genai_mapping_execute (true) vs skipping straight to data_audit
 # (false). data_ingestion → check → data_audit merges both paths: edvise_id via check
 # outcome "false", genai_id via genai_mapping_execute; run_if NONE_FAILED allows the skipped branch.
 resources:
   jobs:
-    github_sourced_es_inference_pipeline:
-      name: github_sourced_es_inference_pipeline
+    github_sourced_genai_es_inference_pipeline:
+      name: github_sourced_genai_es_inference_pipeline
       # Slack disabled while ES inference + GenAI wiring is in flux; restore webhook_notifications
       # with ${var.inference_slack_webhook_id} when stable.
       max_concurrent_runs: 5
@@ -77,6 +78,7 @@ resources:
               inputs_toml_path: "{{job.parameters.genai_inputs_toml_path}}"
               pipeline_version: "{{job.parameters.pipeline_version}}"
               db_run_id: "{{job.parameters.db_run_id}}_genai_execute"
+              bronze_batch_dir: "{{tasks.data_ingestion.values.bronze_batch_dir}}"
         - task_key: data_audit
           depends_on:
             - task_key: data_ingestion
