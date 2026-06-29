@@ -188,9 +188,24 @@ def test_course_grade_numeric(df, col, exp):
     ],
 )
 def test_course_grade(df, grade_col, grade_num_col, exp):
-    obs = course.course_grade(df, grade_col=grade_col, grade_num_col=grade_num_col)
+    obs = course.course_grade(
+        df, grade_col=grade_col, grade_num_col=grade_num_col, grade_semantics="pdp"
+    )
     assert isinstance(obs, pd.Series) and not obs.empty
     assert obs.equals(exp) or obs.compare(exp).empty
+
+
+def test_course_grade_es_a_is_letter_not_audit():
+    df = pd.DataFrame(
+        {
+            "grade": ["4", "A"],
+            "course_grade_numeric": [4.0, pd.NA],
+        }
+    ).astype({"grade": "string", "course_grade_numeric": "Float32"})
+    obs = course.course_grade(df, grade_semantics="es")
+    pd.testing.assert_series_equal(
+        obs, pd.Series(["A", "A"], dtype="string"), check_names=False
+    )
 
 
 @pytest.mark.parametrize(

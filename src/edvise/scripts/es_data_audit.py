@@ -20,7 +20,11 @@ print("Repo root:", repo_root)
 print("src_path:", src_path)
 print("sys.path:", sys.path)
 
-from edvise.data_audit.raw_course_grade_map import apply_raw_course_grade_map
+from edvise.data_audit.raw_course_grade_map import (
+    apply_raw_course_grade_map,
+    log_unmapped_gpa_grades,
+    resolve_es_grade_map,
+)
 from edvise.data_audit.schemas import (
     RawEdviseStudentDataSchema,
     RawEdviseCourseDataSchema,
@@ -236,7 +240,7 @@ class ESDataAuditTask:
                 " Failed to parse course data with all known datetime formats."
             )
 
-        course_grade_map = self._course_grade_map()
+        course_grade_map = resolve_es_grade_map(self._course_grade_map())
         df_course_raw = apply_raw_course_grade_map(df_course_raw, course_grade_map)
 
         # Ensure files are non-empty
@@ -359,6 +363,7 @@ class ESDataAuditTask:
 
         # Course exploratory EDA (pre-standardize)
         log_grade_distribution(df_course_validated)
+        log_unmapped_gpa_grades(df_course_validated)
         # Log high null columns
         log_high_null_columns(df_course_validated)
         # Standardize course data
