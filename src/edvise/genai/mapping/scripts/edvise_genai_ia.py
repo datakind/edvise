@@ -965,6 +965,7 @@ def run(
     inputs_toml_path: str | None = None,
     db_run_id: str | None = None,
     pipeline_version: str | None = None,
+    bronze_batch_dir: str | None = None,
 ) -> None:
     if mode == "onboard":
         if not (onboard_run_id or "").strip():
@@ -1048,6 +1049,16 @@ def run(
         pipeline_version=_pv_job,
     )
     LOGGER.info("pipeline_version=%s", school_config.pipeline_version)
+
+    if mode == "execute":
+        from edvise.genai.mapping.shared.batch_input_paths import (
+            apply_bronze_batch_dir_overrides,
+        )
+
+        school_config = apply_bronze_batch_dir_overrides(
+            school_config,
+            bronze_batch_dir=bronze_batch_dir,
+        )
 
     from edvise.configs.genai import resolve_genai_data_path
 
@@ -1188,6 +1199,14 @@ if __name__ == "__main__":
         help="Databricks job run id (orchestration id) stored on pipeline_runs.db_run_id; empty omits.",
     )
     parser.add_argument(
+        "--bronze_batch_dir",
+        default="",
+        help=(
+            "ES inference only: batch landing dir from batch_gcs_ingest "
+            "(gcs_uploads/{batch_id}/). Resolves inputs.toml filenames inside it."
+        ),
+    )
+    parser.add_argument(
         "--new_onboard_run",
         action="store_true",
         help=(
@@ -1248,6 +1267,7 @@ if __name__ == "__main__":
             inputs_toml_path=(args.inputs_toml_path or "").strip() or None,
             db_run_id=_db_run_id,
             pipeline_version=(args.pipeline_version or "").strip() or None,
+            bronze_batch_dir=(args.bronze_batch_dir or "").strip() or None,
         )
     except BaseException:
         if args.mode == "execute" and _execute_run_id:
