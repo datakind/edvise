@@ -71,7 +71,11 @@ def test_is_manifest_record_unmapped() -> None:
     )
     assert (
         is_manifest_record_unmapped(
-            {"target_field": "gpa", "source_column": "gpa_val", "source_table": "cohort"}
+            {
+                "target_field": "gpa",
+                "source_column": "gpa_val",
+                "source_table": "cohort",
+            }
         )
         is False
     )
