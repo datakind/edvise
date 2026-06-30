@@ -17,6 +17,9 @@ from edvise.genai.mapping.schema_mapping_agent.transformation.hitl.hook_required
 from edvise.genai.mapping.shared.hitl.hook_spec.parse import parse_hook_spec
 from edvise.genai.mapping.shared.hitl.hook_spec.paths import ensure_hook_spec_file
 
+from edvise.genai.mapping.schema_mapping_agent.transformation.validation import (
+    is_manifest_record_unmapped,
+)
 from .prompt import (
     _slug_target,
     build_sma_transform_hook_system_prompt,
@@ -76,12 +79,22 @@ def generate_sma_transform_hook_preview_rows_for_entity(
     """
     One LLM call per ``hook_required`` plan; returns rows for
     :func:`~edvise.genai.mapping.schema_mapping_agent.transformation.hitl.hook_generation.preview.write_sma_transform_hook_preview_json`.
+
+    Skips plans whose resolved manifest record is unmapped (Gate 1 ``leave_unmapped``):
+    no source Series exists at execution, so a transform hook would never run.
     """
     rows: list[dict[str, Any]] = []
     for plan in iter_hook_required_plans(transformation_data, entity_type):
         tf = str(plan.get("target_field") or "").strip()
-        item_id = sma_transform_hook_item_id(institution_id, entity_type, tf)
         mrec = manifest_mapping_for_target(manifest_map, entity_type, tf)
+        if is_manifest_record_unmapped(mrec):
+            logger.info(
+                "Skipping transform hook preview for %s %s — manifest target is unmapped",
+                entity_type,
+                tf,
+            )
+            continue
+        item_id = sma_transform_hook_item_id(institution_id, entity_type, tf)
         try:
             spec = generate_sma_transform_hook_spec(
                 item_id=item_id,
