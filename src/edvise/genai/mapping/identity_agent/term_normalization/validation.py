@@ -11,7 +11,7 @@ when year context lives in a separate profile column (use ``year_col`` + ``seaso
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from pydantic import ValidationError
@@ -318,7 +318,7 @@ def raise_term_semantic_validation_error_if_any(errors: list[str]) -> None:
 
 def build_parse_institution_term_contracts_with_semantic_checks(
     run_by_dataset: Mapping[str, Mapping[str, object]] | None = None,
-):
+) -> Callable[[str | bytes | dict], tuple[InstitutionTermContract, list[HITLItem]]]:
     """
     Parse fn for ``llm_complete_with_parse_retry`` that validates term_config semantics.
 
