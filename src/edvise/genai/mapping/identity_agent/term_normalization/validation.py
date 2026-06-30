@@ -163,9 +163,9 @@ def _draft_treats_term_as_string_token(draft: str | None) -> bool:
 
 def _hook_extractor_drafts_mismatch_term_shape(cfg: TermOrderConfig) -> str | None:
     """
-  Return an error when year_extractor parses ``term`` as a date but season_extractor
-  treats ``term`` as a plain season string — impossible on one combined column unless
-  ``term_col`` is a datetime (both hooks should then use ``to_datetime(term)``).
+    Return an error when year_extractor parses ``term`` as a date but season_extractor
+    treats ``term`` as a plain season string — impossible on one combined column unless
+    ``term_col`` is a datetime (both hooks should then use ``to_datetime(term)``).
     """
     if cfg.term_extraction != "hook_required" or cfg.hook_spec is None:
         return None
@@ -329,7 +329,9 @@ def build_parse_institution_term_contracts_with_semantic_checks(
         parse_institution_term_contracts_with_hitl,
     )
 
-    def parse(raw: str | bytes | dict) -> tuple[InstitutionTermContract, list[HITLItem]]:
+    def parse(
+        raw: str | bytes | dict,
+    ) -> tuple[InstitutionTermContract, list[HITLItem]]:
         inst, items = parse_institution_term_contracts_with_hitl(raw)
         raise_term_semantic_validation_error_if_any(
             collect_term_semantic_validation_errors(inst, run_by_dataset)
