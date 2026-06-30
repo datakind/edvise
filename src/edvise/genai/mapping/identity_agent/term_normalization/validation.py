@@ -3,19 +3,36 @@ Cross-table checks for term-stage GENERATE_HOOK HITL items and ``hook_group_tabl
 
 Catches incompatible groupings at artifact emit time (before human review) so
 ``apply_hook_spec`` does not fail late on split ``year_col``/``season_col`` configs.
+
+Also validates semantic mistakes such as ``hook_required`` on a season-only ``term_col``
+when year context lives in a separate profile column (use ``year_col`` + ``season_col``).
 """
 
 from __future__ import annotations
+
+import re
+from collections.abc import Mapping
+from typing import Any
+
+from pydantic import ValidationError
 
 from edvise.genai.mapping.identity_agent.hitl.schemas import (
     HITLDomain,
     HITLItem,
     ReentryDepth,
 )
+from edvise.genai.mapping.identity_agent.profiling.schemas import (
+    RawColumnProfile,
+    RawTableProfile,
+)
 from edvise.genai.mapping.identity_agent.term_normalization.schemas import (
     InstitutionTermContract,
     TermContract,
     TermOrderConfig,
+)
+
+_SEASON_WORDS = frozenset(
+    {"fall", "spring", "summer", "winter", "fa", "sp", "su", "wi"}
 )
 
 
@@ -129,8 +146,204 @@ def assert_term_hook_groups_compatible(
             )
 
 
+def _normalize_draft(draft: str | None) -> str:
+    return (draft or "").replace(" ", "")
+
+
+def _draft_uses_term_datetime(draft: str | None) -> bool:
+    return "to_datetime(term)" in _normalize_draft(draft)
+
+
+def _draft_treats_term_as_string_token(draft: str | None) -> bool:
+    norm = _normalize_draft(draft)
+    if "to_datetime(term)" in norm:
+        return False
+    return "term.strip()" in norm or "term).lower()" in norm or norm == "str(term)"
+
+
+def _hook_extractor_drafts_mismatch_term_shape(cfg: TermOrderConfig) -> str | None:
+    """
+  Return an error when year_extractor parses ``term`` as a date but season_extractor
+  treats ``term`` as a plain season string — impossible on one combined column unless
+  ``term_col`` is a datetime (both hooks should then use ``to_datetime(term)``).
+    """
+    if cfg.term_extraction != "hook_required" or cfg.hook_spec is None:
+        return None
+    year_fn = next(
+        (f for f in cfg.hook_spec.functions if "year" in f.name.lower()),
+        None,
+    )
+    season_fn = next(
+        (f for f in cfg.hook_spec.functions if "season" in f.name.lower()),
+        None,
+    )
+    if year_fn is None or season_fn is None:
+        return None
+    if not _draft_uses_term_datetime(year_fn.draft):
+        return None
+    if not _draft_treats_term_as_string_token(season_fn.draft):
+        return None
+    return (
+        f"term_config for term_col={cfg.term_col!r} drafts year_extractor with "
+        "pd.to_datetime(term) but season_extractor treats term as a plain string "
+        f"({season_fn.draft!r}). Hooks receive only term_col values — they cannot read "
+        "year from a separate column. When season and year are in different columns, set "
+        "term_col=null, year_col=<date-or-year column>, season_col=<season column>, "
+        "term_extraction='standard', hook_spec=null."
+    )
+
+
+def _column_samples(col: RawColumnProfile) -> list[Any]:
+    if col.unique_values is not None:
+        return list(col.unique_values)
+    return list(col.sample_values)
+
+
+def _value_looks_like_season_token(value: object) -> bool:
+    s = str(value).strip().lower()
+    if not s:
+        return False
+    if re.search(r"\d{4}", s):
+        return False
+    if re.search(r"\d{1,2}/\d{1,2}", s):
+        return False
+    if s in _SEASON_WORDS:
+        return True
+    return bool(re.fullmatch(r"[a-z]{2,6}", s))
+
+
+def _column_values_are_season_only(col: RawColumnProfile) -> bool:
+    samples = _column_samples(col)
+    if not samples:
+        return False
+    return all(_value_looks_like_season_token(v) for v in samples)
+
+
+def _column_provides_year_context(col: RawColumnProfile) -> bool:
+    dtype = col.dtype.lower()
+    if "date" in dtype or "time" in dtype:
+        return True
+    for value in _column_samples(col):
+        text = str(value).strip()
+        if re.search(r"\d{4}", text):
+            return True
+        if re.match(r"^\d{1,2}/\d{1,2}/\d{2,4}$", text):
+            return True
+    return False
+
+
+def _profile_columns_for_dataset(
+    run_by_dataset: Mapping[str, Mapping[str, object]] | None,
+    table: str,
+) -> list[RawColumnProfile] | None:
+    if run_by_dataset is None or table not in run_by_dataset:
+        return None
+    row = run_by_dataset[table]
+    rtp = row.get("raw_table_profile")
+    if isinstance(rtp, RawTableProfile):
+        return rtp.columns
+    return None
+
+
+def _split_columns_required_from_profile(
+    table: str,
+    cfg: TermOrderConfig,
+    columns: list[RawColumnProfile],
+) -> str | None:
+    if cfg.term_col is None or cfg.term_extraction != "hook_required":
+        return None
+    term_profile = next((c for c in columns if c.name == cfg.term_col), None)
+    if term_profile is None or not _column_values_are_season_only(term_profile):
+        return None
+    year_candidates = [
+        c.name
+        for c in columns
+        if c.name != cfg.term_col and _column_provides_year_context(c)
+    ]
+    if not year_candidates:
+        return None
+    year_col = year_candidates[0]
+    return (
+        f"dataset {table!r}: term_col={cfg.term_col!r} contains season-only tokens "
+        f"while {year_col!r} provides calendar year/date context. Use split columns: "
+        f"term_col=null, year_col={year_col!r}, season_col={cfg.term_col!r}, "
+        "term_extraction='standard', hook_spec=null. Hooks cannot combine values from "
+        "two columns — extractors only receive term_col as the term argument."
+    )
+
+
+def collect_term_semantic_validation_errors(
+    inst: InstitutionTermContract,
+    run_by_dataset: Mapping[str, Mapping[str, object]] | None = None,
+) -> list[str]:
+    """
+    Detect term_config shapes that pass Pydantic but fail at runtime or need split columns.
+
+    When ``run_by_dataset`` is provided (Pass 2 batch context), also checks profiled
+    column samples for season-only ``term_col`` plus a separate year/date column.
+    """
+    errors: list[str] = []
+    for table, contract in inst.datasets.items():
+        cfg = contract.term_config
+        if cfg is None:
+            continue
+        mismatch = _hook_extractor_drafts_mismatch_term_shape(cfg)
+        if mismatch:
+            errors.append(f"[{table}] {mismatch}")
+        columns = _profile_columns_for_dataset(run_by_dataset, table)
+        if columns is not None:
+            split_err = _split_columns_required_from_profile(table, cfg, columns)
+            if split_err:
+                errors.append(split_err)
+    return errors
+
+
+def raise_term_semantic_validation_error_if_any(errors: list[str]) -> None:
+    """Raise :class:`ValidationError` so ``llm_complete_with_parse_retry`` can retry."""
+    if not errors:
+        return
+    raise ValidationError.from_exception_data(
+        "TermConfigSemanticValidation",
+        [
+            {
+                "type": "value_error",
+                "loc": ("term_config", i),
+                "input": None,
+                "ctx": {"error": ValueError(msg)},
+            }
+            for i, msg in enumerate(errors)
+        ],
+    )
+
+
+def build_parse_institution_term_contracts_with_semantic_checks(
+    run_by_dataset: Mapping[str, Mapping[str, object]] | None = None,
+):
+    """
+    Parse fn for ``llm_complete_with_parse_retry`` that validates term_config semantics.
+
+    ``run_by_dataset`` should be the same mapping passed to the batch term user payload
+    (keys per dataset, values include ``raw_table_profile``).
+    """
+    from edvise.genai.mapping.identity_agent.term_normalization.prompt import (
+        parse_institution_term_contracts_with_hitl,
+    )
+
+    def parse(raw: str | bytes | dict) -> tuple[InstitutionTermContract, list[HITLItem]]:
+        inst, items = parse_institution_term_contracts_with_hitl(raw)
+        raise_term_semantic_validation_error_if_any(
+            collect_term_semantic_validation_errors(inst, run_by_dataset)
+        )
+        return inst, items
+
+    return parse
+
+
 __all__ = [
     "assert_term_hook_groups_compatible",
+    "build_parse_institution_term_contracts_with_semantic_checks",
+    "collect_term_semantic_validation_errors",
     "item_has_generate_hook_path",
+    "raise_term_semantic_validation_error_if_any",
     "term_tables_for_hook_group",
 ]
