@@ -267,6 +267,7 @@ def build_schema_contract_from_grain_contracts(
     hook_modules_root: str | Path | None = None,
     generate_dtypes: bool = True,
     build_frozen_contract: bool = True,
+    frozen_schema_contract: dict | None = None,
 ) -> tuple[dict[str, pd.DataFrame], dict]:
     """
     Build cleaned frames and a frozen schema contract (envelope uses ``student_id_alias`` from
@@ -275,9 +276,8 @@ def build_schema_contract_from_grain_contracts(
     Applies :func:`merge_grain_contracts_into_school_config` (primary keys + cleaning alias) then
     :func:`edvise.genai.mapping.shared.schema_contract.build_from_school_config.build_schema_contract_from_config`.
 
-    For inference without re-freezing, pass ``generate_dtypes=False`` and ``build_frozen_contract=False``
-    (same sequence as :func:`~edvise.data_audit.custom_cleaning.clean_dataset` then an existing
-    frozen contract + :func:`~edvise.data_audit.custom_cleaning.enforce_schema_contract`).
+    For inference without re-freezing, pass ``generate_dtypes=False``, ``build_frozen_contract=False``,
+    and ``frozen_schema_contract`` (the active onboard contract) so dtypes are applied before dedupe.
 
     Args:
         school_config: School mapping config (paths, cleaning, baseline primary_keys).
@@ -361,6 +361,7 @@ def build_schema_contract_from_grain_contracts(
         canonical_learner_column=canonical_learner_column,
         generate_dtypes=generate_dtypes,
         build_frozen_contract=build_frozen_contract,
+        frozen_schema_contract=frozen_schema_contract,
     )
 
 
