@@ -225,6 +225,7 @@ def build_schema_contract_from_config(
     *,
     generate_dtypes: bool = True,
     build_frozen_contract: bool = True,
+    frozen_schema_contract: dict | None = None,
 ) -> tuple[dict[str, pd.DataFrame], dict]:
     """
     Build schema contract from inputs.toml SchoolMappingConfig.
@@ -254,6 +255,8 @@ def build_schema_contract_from_config(
             :func:`~edvise.data_audit.custom_cleaning.clean_dataset` docstring).
         build_frozen_contract: When ``False``, skip :func:`~edvise.data_audit.custom_cleaning.build_schema_contract`
             and return ``{}`` as the second value so callers keep an existing frozen JSON.
+        frozen_schema_contract: When ``generate_dtypes=False``, pass the active onboard contract
+            so each dataset is cast to frozen dtypes before dedupe (matches onboard order).
 
     Returns:
         Tuple of (cleaned_dataframes, schema_contract)
@@ -349,6 +352,15 @@ def build_schema_contract_from_config(
             "term_order_fn": dataset_term_order_fn,
         }
 
+        frozen_ds_schema: dict[str, Any] | None = None
+        if not generate_dtypes and frozen_schema_contract is not None:
+            datasets_schema = frozen_schema_contract.get("datasets") or {}
+            if logical_name not in datasets_schema:
+                raise KeyError(
+                    f"Dataset '{logical_name}' is not present in frozen_schema_contract"
+                )
+            frozen_ds_schema = datasets_schema[logical_name]
+
         df_clean = clean_dataset(
             df_raw,
             clean_spec,
@@ -358,6 +370,7 @@ def build_schema_contract_from_config(
             generate_dtypes=generate_dtypes,
             cleaning_cfg=merged_cleaning,
             canonical_learner_column=canonical_learner_column,
+            frozen_dataset_schema=frozen_ds_schema,
         )
 
         logger.info(

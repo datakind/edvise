@@ -650,9 +650,8 @@ def run_onboard_gate_1(
 # Identity clean_dataset (inference) -> drift vs active frozen contract ->
 # enforce_schema_contract -> write cleaned Parquet -> exit
 #
-# Matches :func:`~edvise.data_audit.custom_cleaning.clean_dataset` inference guidance:
-# ``generate_dtypes=False`` then apply the **onboard-frozen** JSON via
-# :func:`~edvise.data_audit.custom_cleaning.enforce_schema_contract` (no re-freeze).
+# ``generate_dtypes=False`` + ``frozen_schema_contract`` (cast before dedupe), then
+# ``enforce_schema_contract`` for column alignment and final contract enforcement.
 # ---------------------------------------------------------------------------
 
 
@@ -858,7 +857,7 @@ def run_execute(
     )
 
     LOGGER.info(
-        "[execute] Identity cleaning (clean_dataset, generate_dtypes=False); "
+        "[execute] Identity cleaning (clean_dataset, generate_dtypes=False, frozen schema); "
         "then enforce active frozen contract per custom_cleaning inference pattern"
     )
     cleaned_pre_enforce, _ = build_schema_contract_from_grain_contracts(
@@ -870,6 +869,7 @@ def run_execute(
         hook_modules_root=hook_modules_root_resolved,
         generate_dtypes=False,
         build_frozen_contract=False,
+        frozen_schema_contract=schema_contract,
     )
 
     incoming_datasets = set(cleaned_pre_enforce.keys())

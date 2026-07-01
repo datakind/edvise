@@ -610,6 +610,7 @@ def clean_dataset(
     cleaning_cfg: "CleaningConfig | None" = None,
     *,
     canonical_learner_column: t.Literal["student_id", "learner_id"] = "student_id",
+    frozen_dataset_schema: dict | None = None,
 ) -> pd.DataFrame:
     """
     End-to-end cleaner with robust training-time dtype generation and consistent policies.
@@ -619,12 +620,13 @@ def clean_dataset(
           clean_dataset(..., generate_dtypes=True)
           -> build_schema_contract(...)
       - INFERENCE:
-          clean_dataset(..., generate_dtypes=False)  # if you still want cleaning hooks
+          clean_dataset(..., generate_dtypes=False, frozen_dataset_schema=...)
           then enforce_schema(...) using the frozen schema.
 
-    `generate_dtypes=False` is useful at inference to avoid re-generating dtypes
-    and introducing train–inference skew; instead, `enforce_schema` should dictate
-    the final dtypes.
+    At inference, pass ``frozen_dataset_schema`` (one entry from the onboard contract)
+    so dtypes are applied **before** ``dedupe_fn`` and primary-key dedupe, matching
+    the onboard order. ``generate_dtypes=False`` avoids heuristic re-inference;
+    ``frozen_dataset_schema`` supplies the frozen dtypes instead.
 
     ``canonical_learner_column``:
       - ``\"student_id\"`` (default): rename alias → ``student_id`` (custom audit behavior).
@@ -742,9 +744,17 @@ def clean_dataset(
             g.shape,
         )
 
-    # 6) generate dtypes at training-time
+    # 6) dtypes before dedupe — training: infer; inference: frozen contract
     if generate_dtypes:
         g = generate_training_dtypes(g, opts=inference_opts)
+    elif frozen_dataset_schema is not None:
+        g = _apply_frozen_dtypes_to_dataframe(
+            g, frozen_dataset_schema, dataset_name=dataset_name
+        )
+        LOGGER.info(
+            "%s - Applied frozen schema dtypes before dedupe (inference)",
+            dataset_name,
+        )
     if canonical_col in g.columns:
         g[canonical_col] = g[canonical_col].astype("string")
 
@@ -784,18 +794,12 @@ def clean_dataset(
         )
 
     if enforce_uniqueness:
-        # 10) deduplicate rows based on primary keys
-        before = len(g)
-        if spec.unique_keys:
-            g = g.drop_duplicates(subset=spec.unique_keys, keep="first").reset_index(
-                drop=True
-            )
-        LOGGER.info(
-            "%s - Deduplicated rows based on primary keys %s | %d removed | shape=%s",
-            dataset_name,
+        # 10) deduplicate rows based on primary keys (after dtypes at train + inference)
+        g = _dedupe_rows_on_unique_keys(
+            g,
             spec.unique_keys,
-            before - len(g),
-            g.shape,
+            dataset_name=dataset_name,
+            log_context="primary keys",
         )
 
         # 11) enforce uniqueness by primary keys
@@ -914,6 +918,79 @@ def _hash_list(values: list[str]) -> str:
     return "sha256:" + h.hexdigest()
 
 
+def _apply_frozen_dtypes_to_dataframe(
+    df: pd.DataFrame,
+    schema: dict,
+    *,
+    dataset_name: str = "",
+    add_missing_columns: bool = True,
+) -> pd.DataFrame:
+    """
+    Cast columns to dtypes from a frozen per-dataset schema (onboard contract).
+
+    Used at inference so dedupe hooks and primary-key dedupe run on the same typed
+    values as training/onboard (``generate_dtypes=True``), without re-running
+    heuristic dtype inference.
+    """
+    g = df.copy()
+    dtypes = schema.get("dtypes") or {}
+    if not dtypes:
+        return g
+
+    if add_missing_columns:
+        for col in dtypes:
+            if col not in g.columns:
+                g[col] = pd.NA
+
+    bmap = schema.get(
+        "boolean_map",
+        {
+            "true": True,
+            "false": False,
+            "yes": True,
+            "no": False,
+            "1": True,
+            "0": False,
+        },
+    )
+    label = dataset_name or "dataset"
+    for col, dt in dtypes.items():
+        if col not in g.columns:
+            continue
+        try:
+            g[col] = _cast_series_to_nullable_dtype(g[col], dt, bmap)
+        except Exception as e:
+            raise ValueError(
+                f"{label} - Failed to cast column {col} to {dt}: {e}"
+            ) from e
+    return g
+
+
+def _dedupe_rows_on_unique_keys(
+    df: pd.DataFrame,
+    keys: list[str] | None,
+    *,
+    dataset_name: str = "",
+    log_context: str = "primary keys",
+) -> pd.DataFrame:
+    """Drop duplicate rows on ``keys`` (keep first), matching onboard ``clean_dataset`` step 10."""
+    if not keys:
+        return df
+    before = len(df)
+    out = df.drop_duplicates(subset=keys, keep="first").reset_index(drop=True)
+    removed = before - len(out)
+    label = dataset_name or "dataset"
+    LOGGER.info(
+        "%s - Deduplicated rows based on %s %s | %d removed | shape=%s",
+        label,
+        log_context,
+        keys,
+        removed,
+        out.shape,
+    )
+    return out
+
+
 def freeze_schema(
     df: pd.DataFrame, spec: dict[str, t.Any], opts: SchemaFreezeOptions | None = None
 ) -> dict[str, t.Any]:
@@ -966,15 +1043,9 @@ def enforce_schema(df: pd.DataFrame, schema: dict) -> pd.DataFrame:
     g = g[expected]
 
     # 3) cast to frozen (nullable) dtypes
-    bmap = schema.get(
-        "boolean_map",
-        {"true": True, "false": False, "yes": True, "no": False, "1": True, "0": False},
+    g = _apply_frozen_dtypes_to_dataframe(
+        g, schema, add_missing_columns=False
     )
-    for c, dt in schema["dtypes"].items():
-        try:
-            g[c] = _cast_series_to_nullable_dtype(g[c], dt, bmap)
-        except Exception as e:
-            raise ValueError(f"Failed to cast column {c} to {dt}: {e}")
 
     # 4) enforce non-nulls
     nn = schema.get("non_null_columns", [])
@@ -983,9 +1054,14 @@ def enforce_schema(df: pd.DataFrame, schema: dict) -> pd.DataFrame:
         g = g.dropna(subset=nn, how="any")
         LOGGER.info("Enforce non-nulls %s: dropped %d rows", nn, before - len(g))
 
-    # 5) enforce key uniqueness
+    # 5) dedupe then enforce key uniqueness (same policy as onboard clean_dataset)
     keys = schema.get("unique_keys")
     if keys:
+        g = _dedupe_rows_on_unique_keys(
+            g,
+            keys,
+            log_context="unique keys at inference",
+        )
         dups = g.duplicated(subset=keys)
         if dups.any():
             raise ValueError(

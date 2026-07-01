@@ -320,16 +320,56 @@ def test_freeze_schema_and_enforce_schema_main_flow(caplog):
     )
 
 
-def test_enforce_schema_raises_on_unique_key_duplicates():
+def test_enforce_schema_dedupes_post_cast_key_collisions():
+    """Post-cast formatting duplicates collapse like onboard clean_dataset (keep first)."""
+    schema = {
+        "dtypes": {"course_number": "Int64", "learner_id": "string"},
+        "non_null_columns": [],
+        "unique_keys": ["learner_id", "course_number"],
+    }
+    df = pd.DataFrame(
+        {
+            "course_number": ["101", "101.0"],
+            "learner_id": ["s1", "s1"],
+            "grade": ["A", "B"],
+        }
+    )
+    out = enforce_schema(df, schema)
+    assert len(out) == 1
+    assert out.iloc[0]["course_number"] == 101
+    assert out.iloc[0]["learner_id"] == "s1"
+
+
+def test_clean_dataset_inference_applies_frozen_dtypes_before_key_dedupe():
+    """Execute path: frozen cast before dedupe matches onboard ordering."""
+    schema = {
+        "dtypes": {"id": "Int64"},
+        "non_null_columns": [],
+        "unique_keys": ["id"],
+    }
+    df = pd.DataFrame({"id": ["1", "1.0", "2"]})
+    spec = {"unique keys": ["id"]}
+    out = clean_dataset(
+        df,
+        spec,
+        dataset_name="courses",
+        generate_dtypes=False,
+        frozen_dataset_schema=schema,
+    )
+    assert len(out) == 2
+    assert list(out["id"]) == [1, 2]
+
+
+def test_enforce_schema_dedupes_identical_post_cast_keys():
     schema = {
         "dtypes": {"id": "Int64"},
         "non_null_columns": [],
         "unique_keys": ["id"],
     }
     df = pd.DataFrame({"id": [1, 1]})
-    with pytest.raises(ValueError) as exc:
-        enforce_schema(df, schema)
-    assert "Duplicate rows on unique keys" in str(exc.value)
+    out = enforce_schema(df, schema)
+    assert len(out) == 1
+    assert out.iloc[0]["id"] == 1
 
 
 # -------------------------------------------------------------------
