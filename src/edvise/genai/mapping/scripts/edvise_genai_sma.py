@@ -749,6 +749,14 @@ def run_onboard_gate_2(
                 "entity_type": entity_type,
             }
             TransformationMap.model_validate(tm_dict)
+        from edvise.genai.mapping.schema_mapping_agent.transformation.validation import (
+            raise_pydantic_validation_error_if_any,
+            validate_transformation_plans_against_manifest,
+        )
+
+        raise_pydantic_validation_error_if_any(
+            validate_transformation_plans_against_manifest(data, manifest_2a)
+        )
         return data
 
     transformation_data = llm_complete_with_parse_retry(
@@ -818,6 +826,19 @@ def run_onboard_gate_2(
         cohort_review_path=paths.cohort_transformation_review,
         course_review_path=paths.course_transformation_review,
     )
+    from edvise.genai.mapping.schema_mapping_agent.transformation.validation import (
+        validate_transformation_plans_against_manifest,
+    )
+
+    post_review_plan_errors = validate_transformation_plans_against_manifest(
+        transformation_data,
+        manifest_2a,
+    )
+    if post_review_plan_errors:
+        details = "; ".join(e.detail for e in post_review_plan_errors)
+        raise ValueError(
+            "Transformation plan / manifest alignment failed after review: " + details
+        )
 
     _sma_gateway_model_id = resolve_gateway_model_id()
 

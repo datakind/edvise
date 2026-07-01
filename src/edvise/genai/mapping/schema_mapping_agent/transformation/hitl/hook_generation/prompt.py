@@ -22,26 +22,10 @@ def sma_transform_hook_item_id(
     return f"{institution_id}_{entity_type}_{_slug_target(target_field)}_hook_required"
 
 
-def manifest_mapping_for_target(
-    manifest_map: dict[str, Any],
-    entity_type: Literal["cohort", "course"],
-    target_field: str,
-) -> dict[str, Any] | None:
-    manifests = manifest_map.get("manifests")
-    if not isinstance(manifests, dict):
-        return None
-    section = manifests.get(entity_type)
-    if not isinstance(section, dict):
-        return None
-    mappings = section.get("mappings")
-    if not isinstance(mappings, list):
-        return None
-    for rec in mappings:
-        if not isinstance(rec, dict):
-            continue
-        if str(rec.get("target_field") or "").strip() == target_field:
-            return rec
-    return None
+from edvise.genai.mapping.schema_mapping_agent.transformation.validation import (
+    is_manifest_record_unmapped,
+    manifest_mapping_for_target,
+)
 
 
 def build_sma_transform_hook_system_prompt() -> str:
@@ -101,6 +85,7 @@ def build_sma_transform_hook_user_message(
 __all__ = [
     "build_sma_transform_hook_system_prompt",
     "build_sma_transform_hook_user_message",
+    "is_manifest_record_unmapped",
     "manifest_mapping_for_target",
     "sma_transform_hook_item_id",
 ]

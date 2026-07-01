@@ -26,6 +26,8 @@ from edvise.genai.mapping.identity_agent.term_normalization.schemas import (
 )
 from edvise.genai.mapping.identity_agent.term_normalization.validation import (
     assert_term_hook_groups_compatible,
+    collect_term_semantic_validation_errors,
+    raise_term_semantic_validation_error_if_any,
 )
 
 
@@ -131,6 +133,9 @@ def write_identity_term_artifacts(
         datasets=dict(contracts_by_dataset),
     )
     assert_term_hook_groups_compatible(inst_contract, hitl_items)
+    raise_term_semantic_validation_error_if_any(
+        collect_term_semantic_validation_errors(inst_contract)
+    )
     cfg = build_term_config_for_resolver(institution_id, contracts_by_dataset)
     env = InstitutionHITLItems(
         institution_id=institution_id,

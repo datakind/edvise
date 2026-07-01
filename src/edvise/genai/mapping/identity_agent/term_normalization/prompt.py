@@ -150,6 +150,20 @@ the intended **calendar year**.
 calendar year numerically from ``year_col`` and maps ``season_col`` through ``season_map`` — no regex
 year scan on a combined string.
 
+**Separate year + season columns (critical):** When profiling shows **two columns** — one with
+season tokens only (e.g. ``Fall`` / ``Spring`` / ``Summer``) and another with calendar year or start
+date (e.g. ``startdate``, ``term_year``) — you **must** use the split-column shape:
+
+- ``term_col``: null
+- ``year_col``: the date/year column
+- ``season_col``: the season-token column
+- ``term_extraction``: ``"standard"``, ``hook_spec``: null
+
+Do **not** set ``term_col`` to the season column and draft hooks to read year from the other column.
+``year_extractor`` / ``season_extractor`` receive **only** the string value of ``term_col`` as
+``term``; they cannot access ``startdate`` or any other dataframe column. ``hook_required`` is for a
+**single** combined or datetime column, not for joining two columns.
+
 **Prefer ``hook_required``** when samples show: **YYYYMM**-style compact numerics that stringify with
 artifacts like ``.0`` (suffix season match breaks); **opaque** codes without a clear ``\\d{4}`` year;
 **datetime** dtypes; **two calendar years** in one token (ranges); or **any** case where the **first**
@@ -291,6 +305,20 @@ the intended **calendar year**.
 **Split columns:** If ``year_col`` and ``season_col`` are set (no ``term_col``), standard mode reads
 calendar year numerically from ``year_col`` and maps ``season_col`` through ``season_map`` — no regex
 year scan on a combined string.
+
+**Separate year + season columns (critical):** When profiling shows **two columns** — one with
+season tokens only (e.g. ``Fall`` / ``Spring`` / ``Summer``) and another with calendar year or start
+date (e.g. ``startdate``, ``term_year``) — you **must** use the split-column shape:
+
+- ``term_col``: null
+- ``year_col``: the date/year column
+- ``season_col``: the season-token column
+- ``term_extraction``: ``"standard"``, ``hook_spec``: null
+
+Do **not** set ``term_col`` to the season column and draft hooks to read year from the other column.
+``year_extractor`` / ``season_extractor`` receive **only** the string value of ``term_col`` as
+``term``; they cannot access ``startdate`` or any other dataframe column. ``hook_required`` is for a
+**single** combined or datetime column, not for joining two columns.
 
 **Prefer ``hook_required``** when samples show: **YYYYMM**-style compact numerics that stringify with
 artifacts like ``.0`` (suffix season match breaks); **opaque** codes without a clear ``\\d{4}`` year;
