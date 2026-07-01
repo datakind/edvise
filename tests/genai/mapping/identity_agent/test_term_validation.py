@@ -3,6 +3,7 @@
 import json
 
 import pytest
+from pydantic import ValidationError
 
 from edvise.genai.mapping.identity_agent.grain_inference.schemas import (
     HookFunctionSpec,
@@ -34,6 +35,9 @@ from edvise.genai.mapping.identity_agent.term_normalization.schemas import (
 )
 from edvise.genai.mapping.identity_agent.term_normalization.validation import (
     assert_term_hook_groups_compatible,
+    build_parse_institution_term_contracts_with_semantic_checks,
+    collect_term_semantic_validation_errors,
+    raise_term_semantic_validation_error_if_any,
 )
 
 INST = "indiana_institute_of_technology"
@@ -217,3 +221,120 @@ def test_validate_term_hook_hitl_covers_hook_required_rejects_bad_group(tmp_path
             term_hitl_path=hitl_path,
             term_contract_by_dataset=contracts,
         )
+
+
+def _st_thomas_bad_course_contract() -> TermContract:
+    """Model drift case: season-only term_col + hooks that cannot read startdate."""
+    return TermContract(
+        institution_id="st_thomas_uni",
+        table="course",
+        term_config=TermOrderConfig(
+            term_col="semester",
+            season_map=[
+                {"raw": "spring", "canonical": "SPRING"},
+                {"raw": "summer", "canonical": "SUMMER"},
+                {"raw": "fall", "canonical": "FALL"},
+            ],
+            term_extraction="hook_required",
+            hook_spec=HookSpec(
+                file="identity_hooks/st_thomas_uni/term_hooks.py",
+                functions=[
+                    HookFunctionSpec(
+                        name="year_extractor_course_semester_year_extraction",
+                        signature=(
+                            "def year_extractor_course_semester_year_extraction(term: str) -> int"
+                        ),
+                        description="Extract year from startdate",
+                        draft="int(pd.to_datetime(term).year)",
+                    ),
+                    HookFunctionSpec(
+                        name="season_extractor_course_semester_year_extraction",
+                        signature=(
+                            "def season_extractor_course_semester_year_extraction(term: str) -> str"
+                        ),
+                        description="Season token from semester",
+                        draft="term.strip().lower()",
+                    ),
+                ],
+            ),
+        ),
+        confidence=0.75,
+        hitl_flag=True,
+        reasoning="semester has season only; year from startdate",
+    )
+
+
+def test_collect_term_semantic_validation_errors_st_thomas_course_drift():
+    inst = InstitutionTermContract(
+        institution_id="st_thomas_uni",
+        datasets={"course": _st_thomas_bad_course_contract()},
+    )
+    errors = collect_term_semantic_validation_errors(inst)
+    assert len(errors) == 1
+    assert "term_col='semester'" in errors[0]
+    assert "year_col" in errors[0]
+    assert "hook_required" in errors[0] or "standard" in errors[0]
+
+
+def test_raise_term_semantic_validation_error_if_any_raises_validation_error():
+    with pytest.raises(ValidationError, match="TermConfigSemanticValidation"):
+        raise_term_semantic_validation_error_if_any(
+            ["dataset course: use split year_col/season_col"]
+        )
+
+
+def test_build_parse_rejects_st_thomas_bad_course_with_profile():
+    from edvise.genai.mapping.identity_agent.profiling.schemas import (
+        RawColumnProfile,
+        RawTableProfile,
+    )
+
+    inst = InstitutionTermContract(
+        institution_id="st_thomas_uni",
+        datasets={"course": _st_thomas_bad_course_contract()},
+    )
+    run_by_dataset = {
+        "course": {
+            "raw_table_profile": RawTableProfile(
+                institution_id="st_thomas_uni",
+                dataset="course",
+                row_count=100,
+                column_count=2,
+                columns=[
+                    RawColumnProfile(
+                        name="semester",
+                        dtype="string",
+                        null_rate=0.0,
+                        null_rate_including_tokens=0.0,
+                        unique_count=3,
+                        unique_values=["Fall", "Spring", "Summer"],
+                        sample_values=["Fall", "Spring", "Summer"],
+                    ),
+                    RawColumnProfile(
+                        name="startdate",
+                        dtype="datetime64[ns]",
+                        null_rate=0.0,
+                        null_rate_including_tokens=0.0,
+                        unique_count=3,
+                        unique_values=None,
+                        sample_values=["8/15/19", "1/10/20", "8/20/21"],
+                    ),
+                ],
+            )
+        }
+    }
+    payload = {
+        "institution_id": "st_thomas_uni",
+        "datasets": {
+            "course": {
+                **inst.datasets["course"].model_dump(mode="json"),
+                "hitl_flag": False,
+            },
+        },
+        "hitl_items": [],
+    }
+    parse_fn = build_parse_institution_term_contracts_with_semantic_checks(
+        run_by_dataset
+    )
+    with pytest.raises(ValidationError):
+        parse_fn(json.dumps(payload))
