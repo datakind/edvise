@@ -1,3 +1,6 @@
+## 1.4.2 (2026-07-01)
+- fix(genai): ensure execution cleaning applies frozen dtypes before dedupe (#196)
+
 ## 1.4.1 (2026-07-01)
 - fix(genai): ensure transform hook is not generated on unmapped fields & term hook is utilized only on one source column  (#193)
 - fix: dropping academic term and cohort term during feature cleanup (#194)
