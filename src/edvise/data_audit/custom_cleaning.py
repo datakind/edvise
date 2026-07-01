@@ -1043,9 +1043,7 @@ def enforce_schema(df: pd.DataFrame, schema: dict) -> pd.DataFrame:
     g = g[expected]
 
     # 3) cast to frozen (nullable) dtypes
-    g = _apply_frozen_dtypes_to_dataframe(
-        g, schema, add_missing_columns=False
-    )
+    g = _apply_frozen_dtypes_to_dataframe(g, schema, add_missing_columns=False)
 
     # 4) enforce non-nulls
     nn = schema.get("non_null_columns", [])
