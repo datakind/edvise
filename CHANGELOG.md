@@ -1,3 +1,8 @@
+## 1.4.1 (2026-07-01)
+- fix(genai): ensure transform hook is not generated on unmapped fields & term hook is utilized only on one source column  (#193)
+- fix: dropping academic term and cohort term during feature cleanup (#194)
+- fix: import error in sync validated to bronze job (#195)
+
 ## 1.4.0 (2026-06-29)
 - fix: es letter grade feature generation (#160)
 - feat(es): batch GCS data ingestion in ES inference pipeline (#186)
