@@ -181,7 +181,9 @@ def run_onboard_start(
     from edvise.genai.mapping.identity_agent.term_normalization.prompt import (
         TERM_NORMALIZATION_BATCH_SYSTEM_PROMPT,
         build_term_normalization_batch_user_message_from_grain_and_profiles,
-        parse_institution_term_contracts_with_hitl,
+    )
+    from edvise.genai.mapping.identity_agent.term_normalization.validation import (
+        build_parse_institution_term_contracts_with_semantic_checks,
     )
     from edvise.genai.mapping.identity_agent.hitl import (
         write_identity_grain_artifacts,
@@ -292,7 +294,7 @@ def run_onboard_start(
         llm_complete,
         TERM_NORMALIZATION_BATCH_SYSTEM_PROMPT,
         term_batch_user,
-        parse_institution_term_contracts_with_hitl,
+        build_parse_institution_term_contracts_with_semantic_checks(run_by_dataset),
         logger=LOGGER,
     )
     term_contract_by_dataset = _institution_term.contracts_by_dataset()
