@@ -1,10 +1,16 @@
 import functools as ft
 import re
 import logging
+import typing as t
 
 import pandas as pd
 import numpy as np
 
+from edvise.data_audit.default_grade_map import (
+    INCOMPLETE_GRADE_CODES,
+    NON_NUMERIC_GRADE_CODES,
+    NON_PASS_FAIL_GRADE_CODES,
+)
 from . import constants, shared
 from .column_names import (
     CourseFeatureSpec,
@@ -14,44 +20,7 @@ from .column_names import (
 
 LOGGER = logging.getLogger(__name__)
 
-NON_NUMERIC_GRADES = {
-    "A",
-    "F",
-    "I",
-    "M",
-    "O",
-    "P",
-    "W",
-    "S",
-    "PASS",
-    "SAT",
-    "UNSAT",
-    "U",
-    "WD",
-    "IP",
-    "AU",
-    "NG",
-    "NR",
-    "M",
-}
-NON_PASS_FAIL_GRADES = {
-    "A",
-    "I",
-    "M",
-    "O",
-    "W",
-    "AU",
-    "S",
-    "SAT",
-    "UNSAT",
-    "U",
-    "WD",
-    "IP",
-    "NG",
-    "NR",
-    "M",
-}
-NON_COMPLETE_GRADES = {"I", "W", "WD", "IP"}
+GradeSemantics = t.Literal["pdp", "es"]
 
 
 def add_features(
@@ -61,6 +30,7 @@ def add_features(
     spec: CourseFeatureSpec | None = None,
     min_passing_grade: float = constants.DEFAULT_MIN_PASSING_GRADE,
     course_level_pattern: str = constants.DEFAULT_COURSE_LEVEL_PATTERN,
+    grade_semantics: GradeSemantics = "pdp",
 ) -> pd.DataFrame:
     """
     Compute course-level features from a pdp course dataset,
@@ -79,6 +49,8 @@ def add_features(
         course_level_pattern: Regex string that extracts a course's level from its number
             (e.g. 1 from "101"). *Must* include exactly one capture group,
             which is taken to be the course level.
+        grade_semantics: ``"pdp"`` treats ``A`` as audit; ``"es"`` expects letter grades
+            to be mapped to GPA strings at data audit (see ``preprocessing.features.grade_map``).
     """
     LOGGER.info("adding course features ...")
     s = spec or CourseFeatureSpec.all()
@@ -117,6 +89,7 @@ def add_features(
             course_grade,
             grade_col=cols.grade,
             grade_num_col="course_grade_numeric",
+            grade_semantics=grade_semantics,
         )
 
     return df.assign(**assign_kw)
@@ -152,7 +125,7 @@ def course_passed(
 
 
 def course_completed(df: pd.DataFrame, *, col: str = "grade") -> pd.Series:
-    return ~(df[col].astype("string").isin(NON_COMPLETE_GRADES))
+    return ~(df[col].astype("string").isin(INCOMPLETE_GRADE_CODES))
 
 
 def course_level(
@@ -201,7 +174,10 @@ def extract_course_level_from_course_number(num):
 
 
 def course_grade_numeric(df: pd.DataFrame, *, col: str = "grade") -> pd.Series:
-    return df[col].mask(df[col].isin(NON_NUMERIC_GRADES), pd.NA).astype("Float32")
+    """Numeric GPA from ``grade`` after ES ``grade_map`` (numeric strings or letters masked)."""
+    s = df[col].astype("string").str.strip().str.upper()
+    masked = s.where(~s.isin(NON_NUMERIC_GRADE_CODES), pd.NA)
+    return pd.to_numeric(masked, errors="coerce").astype("Float32")
 
 
 def course_grade(
@@ -209,16 +185,16 @@ def course_grade(
     *,
     grade_col: str = "grade",
     grade_num_col: str = "course_grade_numeric",
+    grade_semantics: GradeSemantics = "pdp",
 ) -> pd.Series:
+    non_numeric_grades = df[grade_col].mask(
+        ~df[grade_col].isin(NON_NUMERIC_GRADE_CODES), pd.NA
+    )
+    # PDP uses "A" for audit; ES schools map letters to GPA at data audit instead.
+    if grade_semantics == "pdp":
+        non_numeric_grades = non_numeric_grades.replace("A", value="AUDIT")
     non_numeric_grades = (
-        df[grade_col]
-        .mask(~df[grade_col].isin(NON_NUMERIC_GRADES), pd.NA)
-        # frustratingly, pdp uses "A" grade to indicate "Audit", which is just begging
-        # for confusion with the usual meaning of an "A" grade :/
-        # let's replace it with "AUDIT" for clarity, and so we can safely combine
-        # non-numeric grades with derived letter grades below
-        .replace("A", value="AUDIT")
-        .replace("AU", value="AUDIT")
+        non_numeric_grades.replace("AU", value="AUDIT")
         # similarly, "O" looks like "0", so let's replace with "OTHER" for clarity
         .replace("O", value="OTHER")
         .astype("string")
@@ -238,7 +214,7 @@ def course_grade(
 
 
 def _grade_is_passing(grade: str, min_passing_grade: float) -> bool | None:
-    if grade in NON_PASS_FAIL_GRADES:
+    if grade in NON_PASS_FAIL_GRADE_CODES:
         return None
     elif grade == "P" or grade == "PASS":
         return True

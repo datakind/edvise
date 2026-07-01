@@ -47,7 +47,8 @@ COHORT entry_year AND entry_term — transformation steps (mirror manifest hiera
 - If the manifest points at raw term codes and **validation_notes** flagged an IA gap, use extract
   utilities matching that column's format and **reviewer_notes:** IdentityAgent must materialize
   `_edvise_term_*` on student.
-- If unmappable in the manifest, use empty `steps` with appropriate reviewer_notes.
+- If unmappable in the manifest, use empty `steps` with appropriate reviewer_notes — **do not** set
+  `hook_required` (even when notes explain an ambiguous source encoding such as Excel serial dates).
 """
 
 
@@ -65,7 +66,8 @@ COURSE academic_year AND academic_term — transformation steps (mirror manifest
   explicitly maps from a raw term code column on **course**; **reviewer_notes** flag upstream IA.
 
 **(3) Unmappable in manifest**
-- Empty `steps`; do not invent transforms.
+- Empty `steps`; do not invent transforms. **Do not** set `hook_required` — Gate 1 already decided
+  there is no source column to transform.
 """
 
 
@@ -115,14 +117,20 @@ COHORT degree- and certificate-related DATETIME fields
 Targets: `bachelors_degree_conferral_date`, `associates_degree_conferral_date`,
 `certificate1_date`, `certificate2_date`, `certificate3_date`.
 
-The Step 2a manifest always resolves these to a single `source_column` that is **either** a
-true calendar datetime **or** a raw term-code column whose token embeds the season.
+The Step 2a manifest resolves each target to a single `source_column` that is **either** a
+true calendar datetime, a raw term-code column whose token embeds the season, or **null**
+when Gate 1 left the field unmappable (ambiguous encoding, no defensible source).
 IdentityAgent `_edvise_term_*` columns are never a legal manifest source for conferral
 targets (the manifest carries one `source_column` per record and the executor cannot
 co-resolve a paired `_edvise_term_season` from the same selected lookup row). If you ever
 see `_edvise_term_academic_year` or `_edvise_term_season` as the manifest `source_column`
 for one of these targets, that is a manifest error: emit empty `steps` with
 `hook_required: true` and `reviewer_notes` explicitly flagging the manifest fix.
+
+**(0) Manifest `source_column` is null (intentionally unmapped at Gate 1)**
+- Empty `steps` only; omit `hook_required` and `review_required`. Summarize manifest
+  rationale in `reviewer_notes` if needed (e.g. Excel serial ambiguity) — do **not** propose
+  a custom date-conversion hook; without a manifest source there is no Series for a hook to transform.
 
 **(1) Manifest `source_column` is a true calendar datetime / date**
 - The manifest sourced a `datetime64[ns]` (or date-typed) column directly. Use no
@@ -260,14 +268,12 @@ CONFIDENCE SCORING
   entry_term rules): strip/cast only — document semantic caveats in notes, not HITL.
 - **0.7–0.8** — inferred mapping from sample_values, ambiguous format, or an **ad-hoc** semantic
   proxy not justified by the manifest rules (see below).
-- **≤ {t}** — `review_required` must be true; always set when:
-  - `map_values` mapping was inferred from sample_values rather than explicit schema evidence;
-  - format was ambiguous and a utility chain was chosen by best-guess;
-  - manifest `source_column` for a **conferral / completion datetime** target is an IdentityAgent
-    `_edvise_term_*` column (the manifest validator should have rejected this; if it slipped through,
-    emit `hook_required: true` with empty `steps` and flag the manifest fix in `reviewer_notes` —
-    see COHORT degree- and certificate-related DATETIME rules);
-  - term code column required season fragment extraction and mapping.
+- **≤ {t}** — set `review_required: true` OR `hook_required: true` (never both); use:
+  - `review_required` when a utility chain is plausible but parameters need confirmation (e.g.
+    inferred `map_values` from sample_values);
+  - `hook_required` when built-ins cannot express the encoding (opaque STRM/CYYT, suffix outside
+    EXECUTOR SUFFIX TABLE, impossible paired columns on a single lookup Series) — see conferral rules.
+  - manifest `source_column` for conferral targets on `_edvise_term_*` → `hook_required: true`, not review.
 
 MAPPING PROXY VS MANIFEST-CONTRACTED SOURCE
 - **Do not** treat IdentityAgent term columns on student/lookup rows as `proxy_source` when the
@@ -297,17 +303,27 @@ FLAGGED STEPS (`flagged_steps` on the plan)
 - Multiple steps may be flagged in one plan.
 - Flagged steps are **evidence only** — reviewer resolution is always at the **plan** level.
 
-HITL OPTIONS (`hitl_options` on the plan)
-- Every plan with `review_required: true` must include **exactly three** options **in order**:
-  1. **approve** — reviewer accepts the proposed steps as-is.
-     `resolution`: `{{"approved": true}}`
-  2. **correct** — reviewer supplies corrected steps.
-     `resolution`: null (out-of-band correction) **or** pre-filled with the proposed steps for in-place editing.
-  3. **unmappable** — reviewer decides the field cannot be mapped.
-     `resolution`: `{{"steps": [], "output_dtype": null}}`
-- **Label** and **description** must be specific — name the target field and what is being confirmed
-  (e.g. "Confirm season fragment mapping for deg_comp_term", not a generic "Approve mapping").
-- Omit `hitl_options` (null) when `review_required` is omitted.
+STEP 2b REVIEW ROUTING (mutually exclusive)
+- Manifest unmappability is Step 2a only — never emit a Step 2b HITL "unmappable" option.
+- When the manifest record has **null** ``source_column`` **and** **null** ``source_table`` (Gate 1
+  ``leave_unmapped`` / intentionally unmappable): emit **empty** ``steps`` only; **omit**
+  ``hook_required`` and ``review_required``. Copy or summarize manifest ``rationale`` /
+  ``validation_notes`` in ``reviewer_notes`` if helpful — **do not** propose custom hook work or
+  describe encodings that *could* be hooked later. The executor skips these targets; hooks require a
+  resolved source Series from the manifest.
+- ``hook_required: true`` → custom hook for the **whole target field** (plan-level, not one step).
+  **Only when** the manifest supplies a non-null ``source_column``. Set ``review_required: null``,
+  omit ``hitl_options`` and ``flagged_steps``. Document intent in ``reviewer_notes``.
+- ``review_required: true`` → built-in utility chain needs human confirmation. Set ``hook_required: false`` or omit.
+
+HITL OPTIONS (`hitl_options` on the plan) — only when `review_required` is true
+- Exactly **three** options **in order**:
+  1. **approve** — proposed steps and mappings are correct. `resolution`: `{{"approved": true}}`
+  2. **correct** — same chain shape; reviewer fixes flagged step parameters (usually `map_values.mapping`).
+     `resolution`: null
+  3. **hook_required** — escalate to custom hook for this field. `resolution`: `{{"hook_required": true}}`
+- **Label** and **description** must be field-specific (e.g. confirm STRM→season mapping for deg_comp_term).
+- Omit `hitl_options` when `review_required` is omitted or when `hook_required` is true.
 
 See schema definitions for `FlaggedStep`, `TransformationHITLOption`, `TransformationHITLItem`, and
 `TransformationReview` in the transformation map schema context.
@@ -451,8 +467,8 @@ STRUCTURE
   and optional refinement
 - Generate separate transformation maps for cohort and course entities
 - When `review_required` is true: set `confidence`, non-empty `flagged_steps`, and exactly three
-  `hitl_options` (approve / correct / unmappable) per CONFIDENCE AND HITL RULES below; omit both
-  `flagged_steps` and `hitl_options` when `review_required` is omitted
+  `hitl_options` (approve / correct / hook_required) per CONFIDENCE AND HITL RULES below; omit
+  `flagged_steps` and `hitl_options` when `review_required` is omitted or `hook_required` is true
 
 TRANSFORMATION STEPS
 - Use only utilities from the transformation_utilities library
@@ -461,10 +477,14 @@ TRANSFORMATION STEPS
 - Steps are applied in order to the resolved source Series from the manifest
 
 HOOK REQUIRED
-- When no existing utility or combination of utilities can produce the correct output,
-  set "hook_required": true on the plan and provide a full explanation in reviewer_notes:
-  what transformation is needed, what was attempted, and why no existing utility covers it.
+- When no existing utility or combination of utilities can produce the correct output **and the
+  manifest record has a non-null source_column**, set "hook_required": true on the plan and provide
+  a full explanation in reviewer_notes: what transformation is needed, what was attempted, and why
+  no existing utility covers it.
   (Same vocabulary as IdentityAgent's hook_required — custom hook work, distinct from built-in utilities.)
+- **Never** set hook_required when source_column and source_table are both null — that is a Step 2a
+  unmappable field; empty steps only (see MANIFEST UNMAPPED below). Uncertainty about a source format
+  is not grounds for hook_required if Gate 1 already left the field unmapped.
 - hook_required is a first-class plan field — not a step type, not a step in the steps array.
 - steps may be empty or contain a best-effort partial chain alongside hook_required: true.
 - Do not use hook_required as a shortcut — always attempt a utility chain first.
@@ -473,6 +493,10 @@ MANIFEST ALIGNMENT
 - Generate plans only for target_fields that have mappings in the mapping manifest
 - The manifest defines source_column, source_table, join, and row_selection —
   the transformation map only handles value transformations
+- **MANIFEST UNMAPPED:** When a manifest FieldMappingRecord has source_column null and source_table
+  null, Gate 1 decided the field has no defensible source. Emit a plan with empty steps; omit
+  hook_required and review_required. Do not suggest hooks in reviewer_notes — the pipeline will not
+  generate or run transform hooks without a manifest source_column.
 - Use the source_column names from the manifest when specifying column in transformation steps
 - For fields with a join in the manifest, the field executor resolves the cross-table Series before transformation steps run.
   Do NOT add join logic, merge logic, or cross-table lookups inside transformation steps —
@@ -562,7 +586,9 @@ TRANSFORMATION MAP COMPACTNESS
 - Include all required top-level keys and all required plan records
 - For each plan, omit optional fields when their value would be null (e.g., reviewer_notes)
 - For each step, omit optional fields when their value would be null (e.g., rationale, extra_columns, default)
-- Do not omit steps array — use empty array [] for unmappable fields
+- Empty `steps` only for manifest-unmapped targets (2a) — **never** combine empty steps with
+  `hook_required: true` on the same plan. `hook_required` applies only when the manifest supplies a
+  source_column but utilities cannot express the encoding — not a reviewer HITL outcome
 
 TARGET SCHEMA AUTHORITY
 - Use the target schema definitions as the authoritative source for expected output types and allowed values

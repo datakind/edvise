@@ -28,6 +28,10 @@ class BaseCleanup:
     """
 
     cols_to_drop: t.ClassVar[list[str]] = []
+    # Used by masking below; dropped from the modeling dataset afterward.
+    cols_to_drop_after_masking: t.ClassVar[list[str]] = [
+        "year_of_enrollment_at_cohort_inst",
+    ]
 
     def clean_up_labeled_dataset_cols_and_vals(
         self,
@@ -73,7 +77,7 @@ class BaseCleanup:
             },
         )
 
-        return df
+        return drop_columns_safely(df, cols_to_drop=self.cols_to_drop_after_masking)
 
     def mask_year_values_based_on_enrollment_year(
         self,
@@ -119,9 +123,9 @@ class PDPCleanup(BaseCleanup):
         "institution_id",
         "term_id",
         "academic_year",
-        # "academic_term",  # keeping this to see if useful
+        "academic_term",
         "cohort",
-        # "cohort_term",  # keeping this to see if useful
+        "cohort_term",
         "cohort_id",
         "term_rank",
         "min_student_term_rank",
@@ -184,10 +188,10 @@ class ESCleanup(BaseCleanup):
         "institution_id",
         "term_id",
         "academic_year",
-        # "academic_term",  # keeping this for parity with PDPCleanup
+        "academic_term",
         # Edvise cohort identifiers (analog of PDP "cohort" / "cohort_term")
         "entry_year",
-        # "entry_term",  # keeping this for parity with PDPCleanup
+        "entry_term",
         "cohort_id",
         "term_rank",
         "min_student_term_rank",
@@ -206,8 +210,9 @@ class ESCleanup(BaseCleanup):
         "sections_num_students_completed",
         "term_start_dt",
         "cohort_start_dt",
-        # Edvise raw pell column (replaced by derived "pell" feature)
+        # Edvise raw pell (source for student_is_pell_recipient_first_year; also snake_case alias)
         "pell_recipient_year1",
+        "pell_recipient_year_1",
         # Edvise raw cohort dates feeding credential-year derivation
         "matriculation_date",
         "bachelors_degree_conferral_date",

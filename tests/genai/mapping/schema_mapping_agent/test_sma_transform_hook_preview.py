@@ -12,6 +12,7 @@ from edvise.genai.mapping.shared.hitl.hook_spec.schemas import (
 )
 from edvise.genai.mapping.shared.hitl.hook_spec.paths import ensure_hook_spec_file
 from edvise.genai.mapping.schema_mapping_agent.transformation.hitl.hook_generation import (
+    generate_sma_transform_hook_preview_rows_for_entity,
     generate_sma_transform_hook_spec,
     load_hook_specs_from_sma_preview_path,
     manifest_mapping_for_target,
@@ -20,6 +21,9 @@ from edvise.genai.mapping.schema_mapping_agent.transformation.hitl.hook_generati
 )
 from edvise.genai.mapping.schema_mapping_agent.transformation.hitl.hook_required_hitl import (
     iter_hook_required_plans,
+)
+from edvise.genai.mapping.schema_mapping_agent.transformation.validation import (
+    is_manifest_record_unmapped,
 )
 
 
@@ -51,6 +55,95 @@ def test_manifest_mapping_for_target() -> None:
     hit = manifest_mapping_for_target(mm, "course", "credits")
     assert hit == {"target_field": "credits", "source_column": "cr"}
     assert manifest_mapping_for_target(mm, "course", "missing") is None
+
+
+def test_is_manifest_record_unmapped() -> None:
+    assert is_manifest_record_unmapped(None) is True
+    assert (
+        is_manifest_record_unmapped(
+            {
+                "target_field": "bachelors_degree_conferral_date",
+                "source_column": None,
+                "source_table": None,
+            }
+        )
+        is True
+    )
+    assert (
+        is_manifest_record_unmapped(
+            {
+                "target_field": "gpa",
+                "source_column": "gpa_val",
+                "source_table": "cohort",
+            }
+        )
+        is False
+    )
+
+
+def test_generate_preview_skips_unmapped_manifest_targets() -> None:
+    td = {
+        "transformation_maps": {
+            "cohort": {
+                "plans": [
+                    {
+                        "target_field": "bachelors_degree_conferral_date",
+                        "hook_required": True,
+                        "steps": [],
+                    },
+                    {
+                        "target_field": "gpa",
+                        "hook_required": True,
+                        "steps": [],
+                    },
+                ]
+            }
+        }
+    }
+    mm = {
+        "manifests": {
+            "cohort": {
+                "mappings": [
+                    {
+                        "target_field": "bachelors_degree_conferral_date",
+                        "source_column": None,
+                        "source_table": None,
+                    },
+                    {
+                        "target_field": "gpa",
+                        "source_column": "gpa_val",
+                        "source_table": "cohort",
+                    },
+                ]
+            }
+        }
+    }
+    llm_calls: list[str] = []
+
+    def llm(_sys: str, _user: str) -> str:
+        llm_calls.append(_user)
+        return json.dumps(
+            {
+                "functions": [
+                    {
+                        "name": "transform_cohort_gpa",
+                        "description": "gpa",
+                        "draft": "def transform_cohort_gpa(s):\n    return s",
+                    }
+                ]
+            }
+        )
+
+    rows = generate_sma_transform_hook_preview_rows_for_entity(
+        td,
+        mm,
+        institution_id="u1",
+        entity_type="cohort",
+        llm_complete=llm,
+    )
+    assert len(rows) == 1
+    assert rows[0]["review_context"]["target_field"] == "gpa"
+    assert len(llm_calls) == 1
 
 
 def test_sma_transform_hook_item_id_stable() -> None:

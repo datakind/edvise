@@ -269,7 +269,6 @@ def test_infer_num_terms_in_year(series, exp):
             ),
             pd.DataFrame(
                 {
-                    "year_of_enrollment_at_cohort_inst": [1, 2, 3, 4],
                     "cumnum_terms_enrolled": [2, 3, 4, 5],
                     "first_year_to_certificate_at_cohort_inst": [
                         pd.NA,

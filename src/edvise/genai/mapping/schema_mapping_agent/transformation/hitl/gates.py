@@ -39,8 +39,8 @@ def check_transformation_review_hitl_gate(hitl_path: str | Path) -> None:
         hitl_path=path,
         format_item=_fmt,
         instructions=(
-            "  • For each item set ``status`` to approved | corrected | unmappable, **or** set "
-            "``choice`` to the 1-based option index (1=approve, 2=correct, 3=unmappable).\n"
+            "  • For each item set ``status`` to approved | corrected | hook_required, **or** set "
+            "``choice`` to the 1-based option index (1=approve, 2=correct, 3=hook_required).\n"
             "  • For **correct**, edit ``steps`` on the item before saving.\n"
             "  • Save the JSON, then approve the UC hitl_reviews row."
         ),

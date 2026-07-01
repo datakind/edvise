@@ -13,9 +13,18 @@ import mlflow
 from mlflow.tracking import MlflowClient
 from mlflow.entities import Run
 
+# Immediate children of ``…/silver_volume/`` that must never be removed by cleanup.
+# ``genai_mapping`` holds promoted active artifacts and run trees used by ES GenAI execute.
+SILVER_VOLUME_PRESERVE_DIRS: frozenset[str] = frozenset({"genai_mapping"})
+
 # -------------------------
 # Utilities & helpers
 # -------------------------
+
+
+def silver_volume_child_basename(path: str) -> str:
+    """Return the final path segment (folder name) for a silver_volume child path."""
+    return path.rstrip("/").rsplit("/", 1)[-1]
 
 
 def log(msg: str) -> None:
@@ -107,6 +116,12 @@ def rm_path(spark: SparkSession, path: str, recurse: bool, dry_run: bool) -> Non
     else:
         log(f"EXEC: dbutils.fs.rm('{path}', recurse={recurse})")
         dbutils.fs.rm(path, recurse=recurse)
+
+
+def is_institution_gold_model(name: str, catalog: str, institution: str) -> bool:
+    """Return True if `name` is a UC model in the institution's gold schema."""
+    prefix = f"{catalog}.{institution}_gold."
+    return name.startswith(prefix)
 
 
 # --- UC-safe model deletion (replaces stage transition logic) ---
@@ -241,6 +256,9 @@ if __name__ == "__main__":
             if not children:
                 log(f"Silver volume is already empty: {silver_root}")
             for child in children:
+                if silver_volume_child_basename(child) in SILVER_VOLUME_PRESERVE_DIRS:
+                    log(f"PRESERVE (skip): {child}")
+                    continue
                 rm_path(
                     spark, child, recurse=True, dry_run=dry_run
                 )  # deletes child + contents
@@ -268,7 +286,7 @@ if __name__ == "__main__":
             client = MlflowClient()
             for rm in client.search_registered_models():
                 name = rm.name  # In UC this is "<catalog>.<schema>.<model_name>"
-                if name.startswith(f"{catalog}.{inst}_gold.{inst}"):
+                if is_institution_gold_model(name, catalog, inst):
                     log(f"DELETE model: {name}")
                     delete_uc_model_completely(client, name, dry_run)
         except Exception as e:

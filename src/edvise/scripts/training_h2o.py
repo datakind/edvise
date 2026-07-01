@@ -3,6 +3,7 @@ import logging
 import argparse
 import json
 import pandas as pd
+from dataclasses import dataclass
 import mlflow
 import os
 import pathlib
@@ -26,11 +27,13 @@ from databricks.connect import DatabricksSession
 from pyspark.sql import SparkSession
 from mlflow.tracking import MlflowClient
 
-from edvise import modeling, dataio
+from edvise import configs, modeling, dataio
 from edvise.configs.schema_type import project_config_class
 from edvise.modeling.h2o_ml import utils as h2o_utils
 from edvise.reporting.model_card.base import ModelCard
 from edvise.reporting.model_card.h2o_pdp import H2OPDPModelCard
+from edvise.reporting.model_card.h2o_legacy import H2OLegacyModelCard
+
 from edvise import utils as edvise_utils
 from edvise.shared.logger import (
     resolve_run_path,
@@ -51,12 +54,49 @@ from edvise.shared.validation import (
 )
 
 
+from edvise.modeling.inference import is_feature_defined_in_table
 from edvise.scripts.predictions_h2o import (
     PredConfig,
     PredPaths,
     RunType,
     run_predictions,
 )
+
+
+@dataclass(frozen=True)
+class SchemaSpec:
+    schema_type: t.Literal["pdp", "edvise", "legacy"]
+    cfg_schema: type[t.Any]
+    model_card_cls: type["ModelCard[t.Any]"]
+    features_table_path: str
+
+
+def resolve_spec(args: argparse.Namespace) -> SchemaSpec:
+    if args.schema_type == "pdp":
+        return SchemaSpec(
+            schema_type="pdp",
+            cfg_schema=configs.pdp.PDPProjectConfig,
+            model_card_cls=H2OPDPModelCard,
+            features_table_path="shared/assets/features_table.toml",
+        )
+
+    if args.schema_type == "edvise":
+        return SchemaSpec(
+            schema_type="edvise",
+            cfg_schema=configs.es.ESProjectConfig,
+            model_card_cls=H2OPDPModelCard,
+            features_table_path="shared/assets/features_table.toml",
+        )
+
+    if not args.features_table_path:
+        raise ValueError("--features_table_path required when --schema_type=legacy")
+
+    return SchemaSpec(
+        schema_type="legacy",
+        cfg_schema=configs.legacy.LegacyProjectConfig,
+        model_card_cls=H2OLegacyModelCard,
+        features_table_path=args.features_table_path,
+    )
 
 
 class TrainingParams(t.TypedDict, total=False):
@@ -83,14 +123,19 @@ class TrainingTask:
 
     def __init__(self, args: argparse.Namespace):
         self.args = args
+        self.spec = resolve_spec(self.args)
         self.spark_session = self.get_spark_session()
         cfg_cls = project_config_class(getattr(args, "schema_type", "pdp"))
         self.cfg = dataio.read.read_config(
             self.args.config_file_path,
             schema=cfg_cls,
         )
+        if self.spec.schema_type == "legacy":
+            self.cfg = configs.legacy.apply_runtime_uc_catalog(
+                t.cast(configs.legacy.LegacyProjectConfig, self.cfg),
+                self.args.DB_workspace,
+            )
         self.client = MlflowClient()
-        self.features_table_path = "shared/assets/pdp_features_table.toml"
         h2o_utils.safe_h2o_init()
         os.environ["MLFLOW_ENABLE_ARTIFACTS_PROGRESS_BAR"] = "false"
 
@@ -125,12 +170,192 @@ class TrainingTask:
         )
         logging.info("%s data written to: %s", table_name_suffix, table_path)
 
+    def _load_or_build_modeling_df(
+        self,
+        current_run_path: str,
+    ) -> pd.DataFrame:
+        """
+        Returns the modeling dataset used for training.
+
+        PDP:
+          - prefer modeling.parquet if present
+          - else read preprocessed.parquet -> feature selection -> write modeling.parquet
+
+        Legacy:
+          - read from cfg.datasets.silver.modeling (table_path or file_path)
+          - do NOT run feature selection here
+        """
+        # Legacy: use config-specified path
+        if self.spec.schema_type == "legacy":
+            legacy_cfg = t.cast(configs.legacy.LegacyProjectConfig, self.cfg)
+            modeling_dataset = legacy_cfg.datasets.silver.modeling
+            if not modeling_dataset:
+                raise ValueError(
+                    "Legacy training requires cfg.datasets.silver.modeling to be configured"
+                )
+
+            # Try table paths first (Delta table), then file paths (parquet)
+            # Support both new (train_*) and legacy (*) field names
+            if modeling_dataset.table_path or modeling_dataset.train_table_path:
+                table_path = (
+                    modeling_dataset.train_table_path or modeling_dataset.table_path
+                )
+                if not table_path:
+                    raise ValueError(
+                        "Legacy training requires a non-empty table path in "
+                        "cfg.datasets.silver.modeling"
+                    )
+                logging.info(
+                    "Legacy: loading modeling dataset from Delta table: %s", table_path
+                )
+                df_modeling = dataio.read.from_delta_table(
+                    table_path,
+                    spark_session=self.spark_session,
+                )
+            elif modeling_dataset.file_path or modeling_dataset.train_file_path:
+                file_path = (
+                    modeling_dataset.train_file_path or modeling_dataset.file_path
+                )
+                if not file_path:
+                    raise ValueError(
+                        "Legacy training requires a non-empty file path in "
+                        "cfg.datasets.silver.modeling"
+                    )
+                logging.info(
+                    "Legacy: loading modeling dataset from file: %s", file_path
+                )
+                df_modeling = dataio.read.read_parquet(file_path)
+            else:
+                raise ValueError(
+                    "Legacy training requires either table_path/train_table_path or "
+                    "file_path/train_file_path in cfg.datasets.silver.modeling"
+                )
+
+            self._validate_modeling_contract(df_modeling)
+            return df_modeling
+
+        # PDP / Edvise: use run-specific path
+        modeling_path = os.path.join(current_run_path, "modeling.parquet")
+        modeling_path_local = local_fs_path(modeling_path)
+
+        if os.path.exists(modeling_path_local):
+            logging.info("Loading modeling.parquet: %s", modeling_path)
+            df_modeling = pd.read_parquet(modeling_path_local)
+            self._validate_modeling_contract(df_modeling)
+            return df_modeling
+
+        # PDP / Edvise fallback path
+        preproc_path = os.path.join(current_run_path, "preprocessed.parquet")
+        preproc_path_local = local_fs_path(preproc_path)
+        if not os.path.exists(preproc_path_local):
+            raise FileNotFoundError(
+                f"Missing preprocessed.parquet at: {preproc_path} (local: {preproc_path_local})"
+            )
+
+        logging.info("PDP: loading preprocessed.parquet: %s", preproc_path)
+        df_preprocessed = pd.read_parquet(preproc_path_local)
+
+        logging.info("PDP: running feature selection")
+        df_modeling = self.feature_selection(df_preprocessed)
+
+        os.makedirs(local_fs_path(current_run_path), exist_ok=True)
+        df_modeling.to_parquet(modeling_path_local, index=False)
+        logging.info("Saved modeling.parquet: %s", modeling_path)
+
+        self._validate_modeling_contract(df_modeling)
+        return df_modeling
+
+    def _validate_modeling_contract(self, df_modeling: pd.DataFrame) -> None:
+        """
+        Enforce the modeling dataset contract so training/inference/model cards stay consistent.
+        """
+        require(
+            df_modeling is not None and not df_modeling.empty, "modeling df is empty"
+        )
+        require(df_modeling.columns.is_unique, "modeling df has duplicate columns")
+
+        required_cols = [self.cfg.student_id_col, self.cfg.target_col]
+        if self.cfg.split_col:
+            required_cols.append(self.cfg.split_col)
+
+        missing = [c for c in required_cols if c not in df_modeling.columns]
+        require(not missing, f"modeling df missing required columns: {missing}")
+
+        if self.cfg.split_col:
+            allowed = {"train", "test", "validate"}
+            bad = sorted(
+                set(df_modeling[self.cfg.split_col].dropna().unique()) - allowed
+            )
+            require(
+                not bad, f"Unexpected split values in '{self.cfg.split_col}': {bad}"
+            )
+
+        non_feature_cols = set(self.cfg.non_feature_cols)
+        feature_cols = [c for c in df_modeling.columns if c not in non_feature_cols]
+        require(
+            len(feature_cols) > 0,
+            "No feature columns found after excluding non_feature_cols",
+        )
+
+        if self.spec.schema_type == "legacy":
+            forbidden = set(self.cfg.student_group_cols or [])
+            leak = sorted([c for c in feature_cols if c in forbidden])
+            require(not leak, f"Student-group columns leaked into features: {leak}")
+
+    def _validate_features_in_ft(self, df_modeling: pd.DataFrame) -> None:
+        """
+        Validate that:
+        1. All features in modeling dataset match an exact or regex key in features_table
+        2. All features have at least some non-null values
+        """
+        features_table_path = self.spec.features_table_path
+        logging.info("Validating features from: %s", features_table_path)
+
+        features_table = dataio.read.read_features_table(features_table_path)
+
+        # Get feature columns from modeling dataset
+        non_feature_cols = set(self.cfg.non_feature_cols)
+        feature_cols = [c for c in df_modeling.columns if c not in non_feature_cols]
+
+        # Check 1: All features exist in features_table (exact key or regex pattern)
+        undefined_features = [
+            f
+            for f in feature_cols
+            if not is_feature_defined_in_table(
+                f, features_table, schema_type=self.spec.schema_type
+            )
+        ]
+        if undefined_features:
+            raise ValueError(
+                f"Features in modeling dataset but not defined in features_table: {undefined_features}"
+            )
+
+        # Check 2: All features have non-null values
+        null_features = []
+        for feat in feature_cols:
+            if df_modeling[feat].isna().all():
+                null_features.append(feat)
+
+        if null_features:
+            raise ValueError(
+                f"Features with all null values in modeling dataset: {null_features}"
+            )
+
+        logging.info(
+            "Features validation passed: %d features validated (all defined in features_table with non-null values)",
+            len(feature_cols),
+        )
+
     def feature_selection(self, df_preprocessed: pd.DataFrame) -> pd.DataFrame:
         if self.cfg.modeling is None or self.cfg.modeling.feature_selection is None:
             raise ValueError(
                 "FEATURE SELECTION SECTION OF MODELING DOES NOT EXIST IN THE CONFIG, PLEASE ADD"
             )
-
+        if self.spec.schema_type == "legacy":
+            raise RuntimeError(
+                "feature_selection() should not run for legacy schools in this job. "
+                "Legacy training must provide modeling.parquet."
+            )
         modeling_cfg = self.cfg.modeling
         fs = modeling_cfg.feature_selection
         if (
@@ -340,8 +565,31 @@ class TrainingTask:
             self.args.config_file_path,
             schema=cfg_cls,
         )
+        if self.spec.schema_type == "legacy":
+            self.cfg = configs.legacy.apply_runtime_uc_catalog(
+                t.cast(configs.legacy.LegacyProjectConfig, self.cfg),
+                self.args.DB_workspace,
+            )
 
-    def make_predictions(self, current_run_path):
+    def make_predictions(self, df_modeling: pd.DataFrame) -> None:
+        if self.cfg.model is None:
+            raise ValueError("cfg.model is required for predictions")
+        if self.cfg.inference is None:
+            raise ValueError("cfg.inference is required for predictions")
+        if self.cfg.pos_label is None:
+            raise ValueError("cfg.pos_label is required for predictions")
+        if self.cfg.random_state is None:
+            raise ValueError("cfg.random_state is required for predictions")
+
+        model_cfg = self.cfg.model
+        inference_cfg = self.cfg.inference
+        min_prob_pos_label = inference_cfg.min_prob_pos_label
+        if min_prob_pos_label is None:
+            min_prob_pos_label = 0.5
+        background_data_sample = inference_cfg.background_data_sample
+        if background_data_sample is None:
+            background_data_sample = 500
+
         # Get threshold from config
         classification_threshold = (
             self.cfg.modeling.training.classification_threshold
@@ -349,20 +597,19 @@ class TrainingTask:
             else 0.5
         )
         cfg = PredConfig(
-            model_run_id=self.cfg.model.run_id,
-            experiment_id=self.cfg.model.experiment_id,
+            model_run_id=model_cfg.run_id,
+            experiment_id=model_cfg.experiment_id,
             split_col=self.cfg.split_col,
             student_id_col=self.cfg.student_id_col,
             pos_label=self.cfg.pos_label,
-            min_prob_pos_label=self.cfg.inference.min_prob_pos_label,
-            background_data_sample=self.cfg.inference.background_data_sample,
-            cfg_inference_params=self.cfg.inference.dict(),
+            min_prob_pos_label=min_prob_pos_label,
+            background_data_sample=background_data_sample,
+            cfg_inference_params=inference_cfg.dict(),
             random_state=self.cfg.random_state,
             classification_threshold=classification_threshold,
+            schema_type=self.spec.schema_type,
         )
-        paths = PredPaths(
-            features_table_path="shared/assets/pdp_features_table.toml",
-        )
+        paths = PredPaths(features_table_path=self.spec.features_table_path)
 
         try:
             out = run_predictions(
@@ -379,35 +626,30 @@ class TrainingTask:
             # write to silver for FE tables
             self.write_delta(
                 df=out.shap_feature_importance,
-                table_name_suffix=f"training_{self.cfg.model.run_id}_shap_feature_importance",
+                table_name_suffix=f"training_{model_cfg.run_id}_shap_feature_importance",
                 label="Training SHAP Feature Importance table",
             )
 
             self.write_delta(
                 df=out.support_score_distribution,
-                table_name_suffix=f"training_{self.cfg.model.run_id}_support_overview",
+                table_name_suffix=f"training_{model_cfg.run_id}_support_overview",
                 label="Training Support Overview table",
-            )
-
-            # read modeling parquet for roc table
-            modeling_df = dataio.read.read_parquet(
-                local_fs_path(os.path.join(current_run_path, "modeling.parquet"))
             )
 
             # training-only logging
             if mlflow.active_run():
                 mlflow.end_run()
-            with mlflow.start_run(run_id=self.cfg.model.run_id):
-                _ = modeling.evaluation.log_confusion_matrix(
+            with mlflow.start_run(run_id=model_cfg.run_id):
+                modeling.evaluation.log_confusion_matrix(
                     catalog=self.args.DB_workspace,
                     institution_id=self.cfg.institution_id,
-                    automl_run_id=self.cfg.model.run_id,
+                    automl_run_id=model_cfg.run_id,
                 )
-                _ = modeling.h2o_ml.evaluation.log_roc_table(
+                modeling.h2o_ml.evaluation.log_roc_table(
                     catalog=self.args.DB_workspace,
                     institution_id=self.cfg.institution_id,
-                    automl_run_id=self.cfg.model.run_id,
-                    modeling_df=modeling_df,
+                    automl_run_id=model_cfg.run_id,
+                    modeling_df=df_modeling,
                 )
 
         finally:
@@ -539,7 +781,7 @@ class TrainingTask:
 
     def create_model_card(self, model_name):
         # Initialize card
-        card = H2OPDPModelCard(
+        card = self.spec.model_card_cls(
             config=self.cfg,
             catalog=self.args.DB_workspace,
             model_name=model_name,
@@ -565,22 +807,28 @@ class TrainingTask:
         current_run_path_local = local_fs_path(current_run_path)
         os.makedirs(current_run_path_local, exist_ok=True)
 
-        logging.info("Loading preprocessed data")
-        preproc_path = os.path.join(current_run_path, "preprocessed.parquet")
-        preproc_path_local = local_fs_path(preproc_path)
-        if not os.path.exists(preproc_path_local):
-            raise FileNotFoundError(
-                f"Missing preprocessed.parquet at: {preproc_path} (local: {preproc_path_local})"
+        # Copy features_table file to run folder for legacy schools
+        if self.spec.schema_type == "legacy":
+            import shutil
+
+            features_table_src = local_fs_path(self.spec.features_table_path)
+            features_table_name = os.path.basename(self.spec.features_table_path)
+            features_table_dest = os.path.join(
+                current_run_path_local, features_table_name
             )
-        df_preprocessed = pd.read_parquet(preproc_path_local)
+            logging.info(
+                "Copying features table from %s to %s",
+                features_table_src,
+                features_table_dest,
+            )
+            shutil.copy2(features_table_src, features_table_dest)
 
-        logging.info("Selecting features")
-        df_modeling = self.feature_selection(df_preprocessed)
+        df_modeling = self._load_or_build_modeling_df(
+            current_run_path=current_run_path,
+        )
 
-        logging.info("Saving modeling data")
-        modeling_path = os.path.join(current_run_path, "modeling.parquet")
-        df_modeling.to_parquet(local_fs_path(modeling_path), index=False)
-        logging.info(f"Modeling file saved to {modeling_path}")
+        logging.info("Validating all selected features exist in features_table")
+        self._validate_features_in_ft(df_modeling)
 
         logging.info("Training model")
         # Convert to pandas nullable dtypes right before training to preserve nullable dtypes prior to sklearn imputation
@@ -596,7 +844,7 @@ class TrainingTask:
         )
 
         logging.info("Generating training predictions & SHAP values")
-        self.make_predictions(current_run_path=current_run_path)
+        self.make_predictions(df_modeling=df_modeling)
 
         logging.info("Validate training tables were created for FE")
         self.validate_train_tables(
@@ -606,7 +854,7 @@ class TrainingTask:
         )
 
         logging.info("Validate that model artifacts needed for model card exist")
-        self.validate_model_card_artifacts(card_cls=H2OPDPModelCard)
+        self.validate_model_card_artifacts(card_cls=self.spec.model_card_cls)
 
         logging.info("Registering model in UC gold volume")
         model_name = self.register_model()
@@ -647,19 +895,141 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--pipeline_version", type=str, required=False)
     parser.add_argument("--DB_workspace", type=str, required=True)
     parser.add_argument("--silver_volume_path", type=str, required=True)
-    parser.add_argument("--config_file_path", type=str, required=True)
+    parser.add_argument(
+        "--config_file_path",
+        type=str,
+        default="",
+        help="PDP: path to config TOML (typically bronze). Legacy: leave empty; resolved from UC training_inputs.",
+    )
     parser.add_argument("--db_run_id", type=str, required=False)
     parser.add_argument("--ds_run_as", type=str, required=False)
     parser.add_argument("--gold_table_path", type=str, required=True)
-    parser.add_argument("--config_file_name", type=str, required=True)
+    parser.add_argument(
+        "--config_file_name",
+        type=str,
+        default="",
+        help=(
+            "Config TOML basename: PDP silver run folder; legacy UC training_inputs "
+            "(default config.toml)."
+        ),
+    )
     parser.add_argument(
         "--schema_type",
         type=str,
         default="pdp",
-        help="pdp | edvise | es — selects PDP vs ES project config schema.",
+        choices=["pdp", "edvise", "legacy"],
+        help="pdp | edvise | legacy — selects project config schema.",
     )
     parser.add_argument("--job_type", type=str, choices=["training"], required=False)
+    parser.add_argument(
+        "--features_table_path",
+        type=str,
+        default="",
+        help="Legacy: leave empty; resolved from UC bronze training_inputs volume.",
+    )
+    parser.add_argument(
+        "--features_table_name",
+        type=str,
+        default="",
+        help="Legacy only: features TOML basename under bronze training_inputs (default features_table.toml).",
+    )
+    parser.add_argument(
+        "--databricks_institution_name",
+        type=str,
+        default="",
+        help="Legacy only: institution folder under SSI pipelines/ for workspace TOML resolution.",
+    )
+    parser.add_argument(
+        "--model_name",
+        type=str,
+        default="",
+        help=(
+            "Legacy only: SSI folder under pipelines/<inst>/ with preprocessing.py, or full UC "
+            "name catalog.inst_gold.<folder>; the short segment is used."
+        ),
+    )
+    parser.add_argument(
+        "--ssi_pipelines_workspace_root",
+        type=str,
+        default="",
+        help="Legacy only: optional override for .../student-success-intervention/pipelines path.",
+    )
     return parser.parse_args()
+
+
+def _apply_legacy_training_uc_toml_paths(args: argparse.Namespace) -> None:
+    """For schema_type=legacy, load config and features TOMLs from UC training_inputs."""
+    if args.schema_type != "legacy":
+        return
+    from edvise.scripts.legacy_preprocessing import (
+        DEFAULT_FEATURES_TABLE_NAME,
+        DEFAULT_LEGACY_CONFIG_BASENAME,
+        copy_legacy_uc_config_for_training,
+        resolve_legacy_training_toml_paths,
+    )
+
+    inst = (args.databricks_institution_name or "").strip()
+    if not inst:
+        raise SystemExit(
+            "--databricks_institution_name is required when --schema_type=legacy"
+        )
+    cfg_name = (getattr(args, "config_file_name", None) or "").strip()
+    if not cfg_name:
+        cfg_name = DEFAULT_LEGACY_CONFIG_BASENAME
+    feat_name = (getattr(args, "features_table_name", None) or "").strip()
+    if not feat_name:
+        feat_name = DEFAULT_FEATURES_TABLE_NAME
+    try:
+        cfg_path, feat_path = resolve_legacy_training_toml_paths(
+            args.DB_workspace,
+            inst,
+            config_file_name=cfg_name,
+            features_table_name=feat_name,
+        )
+    except (FileNotFoundError, ValueError) as exc:
+        raise SystemExit(str(exc)) from exc
+
+    cfg_path = copy_legacy_uc_config_for_training(cfg_path)
+
+    args.config_file_path = cfg_path
+    args.features_table_path = feat_path
+    args.config_file_name = cfg_name
+    logging.info(
+        "Legacy training: UC config %s (writable copy), features %s",
+        cfg_path,
+        feat_path,
+    )
+
+
+def _try_set_training_postprocess_task_values(
+    *,
+    silver_volume_path: str,
+    config_file_name: str,
+    model_run_id: str,
+) -> None:
+    """Expose updated training config path for downstream legacy_postprocessing."""
+    from edvise.utils.databricks import get_dbutils_or_none
+
+    if not model_run_id:
+        return
+    config_path = os.path.join(
+        silver_volume_path.rstrip("/"),
+        model_run_id,
+        "training",
+        config_file_name,
+    )
+    dbutils = get_dbutils_or_none()
+    if dbutils is None:
+        logging.warning(
+            "dbutils not available; training postprocess task values not set."
+        )
+        return
+    dbutils.jobs.taskValues.set(key="training_config_path", value=config_path)
+    dbutils.jobs.taskValues.set(key="model_run_id", value=model_run_id)
+    logging.info(
+        "Task values set for training postprocessing: training_config_path=%s",
+        config_path,
+    )
 
 
 if __name__ == "__main__":
@@ -667,11 +1037,22 @@ if __name__ == "__main__":
     if not getattr(args, "job_type", None):
         args.job_type = "training"
         logging.info("No --job_type passed; defaulting to job_type='training'.")
+    if args.schema_type == "legacy":
+        _apply_legacy_training_uc_toml_paths(args)
+    else:
+        if not (args.config_file_path or "").strip():
+            raise SystemExit(
+                "--config_file_path is required when --schema_type is pdp or edvise"
+            )
+        if not (args.config_file_name or "").strip():
+            raise SystemExit(
+                "--config_file_name is required when --schema_type is pdp or edvise"
+            )
     # try:
-    #     if args.custom_schemas_path:
-    #         sys.path.append(args.custom_schemas_path)
+    #     if args.legacy_schemas_path:
+    #         sys.path.append(args.legacy_schemas_path)
     #         schemas = importlib.import_module("schemas")
-    #         logging.info("Using custom schemas")
+    #         logging.info("Using legacy schemas")
     # except Exception:
     #     logging.info("Using default schemas")
 
@@ -681,7 +1062,7 @@ if __name__ == "__main__":
         args,
         task.cfg,
         logger_name=__name__,
-        log_file_name="pdp_training.log",
+        log_file_name=f"{args.schema_type}_training.log",
     )
     # Best-effort: infer databricks_institution_name from volume path like:
     # /Volumes/<catalog>/<inst>_silver/silver_volume
@@ -785,6 +1166,11 @@ if __name__ == "__main__":
                 getattr(task.cfg, "model", None), "experiment_id", None
             ),
             pipeline_version=getattr(args, "pipeline_version", None),
+        )
+        _try_set_training_postprocess_task_values(
+            silver_volume_path=args.silver_volume_path,
+            config_file_name=args.config_file_name,
+            model_run_id=getattr(getattr(task.cfg, "model", None), "run_id", "") or "",
         )
     except Exception as e:
         append_pipeline_run_event(

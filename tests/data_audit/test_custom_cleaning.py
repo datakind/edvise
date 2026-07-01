@@ -401,6 +401,31 @@ def test_save_and_load_schema_contract_roundtrip(tmp_path):
     assert loaded == schema
 
 
+def test_generate_column_training_dtype_calendar_year_strings_stay_int64():
+    """Four-digit year codes must not be inferred as datetime (Indiana Tech year_code)."""
+    opts = DtypeGenerationOptions()
+    s = pd.Series(
+        ["2021", "2022", "2023", "2024", "2025"] * 500,
+        name="year_code",
+    )
+    out = generate_column_training_dtype(s, opts)
+    assert str(out.dtype) == "Int64"
+    assert int(out.iloc[0]) == 2021
+    assert int(out.iloc[-1]) == 2025
+
+
+def test_generate_training_dtypes_calendar_year_column():
+    df = pd.DataFrame(
+        {
+            "year_code": ["2021", "2022", "2023", "2024", "2025"] * 500,
+            "term_code": ["10", "20"] * 1250,
+        }
+    )
+    out = generate_training_dtypes(df, DtypeGenerationOptions())
+    assert str(out["year_code"].dtype) == "Int64"
+    assert str(out["term_code"].dtype) == "Int64"
+
+
 def test_generate_training_dtypes_respects_forced_dtypes():
     # Without forcing, both columns would be inferred as numeric:
     # - "id" → Int64

@@ -323,6 +323,23 @@ class TestGetModelNameFromConfig:
         )
         assert result == "my_school_my_custom_target_my_checkpoint"
 
+    def test_edvise_retention_uses_intended_program_type(self):
+        """Edvise Schema retention config should name models from intended_program_type."""
+        preprocessing = type("Preprocessing", (), {})()
+        preprocessing.target = {"type_": "retention", "max_academic_year": "2024"}
+        preprocessing.checkpoint = {"type_": "first_within_cohort"}
+        preprocessing.selection = type(
+            "Selection",
+            (),
+            {"student_criteria": {"intended_program_type": "Associate's Degree"}},
+        )()
+
+        result = get_model_name_from_config(
+            preprocessing=preprocessing,
+            institution_id="test_inst",
+        )
+        assert result == "retention_into_year_2_associates"
+
     def test_fallback_when_pdp_raises_unsupported_target_type(self):
         """When target type is unsupported, fall back to .name."""
         preprocessing = type("Preprocessing", (), {})()
@@ -378,20 +395,35 @@ class TestPDPGetModelName:
         assert result == "retention_into_year_2_associates"
 
     @pytest.mark.parametrize(
-        "second_credential",
+        "second_credential,expected_suffix",
         [
-            "LESS THAN ONE-YEAR CERTIFICATE, LESS THAN ASSOCIATE DEGREE",
-            "ONE TO TWO YEAR CERTIFICATE, LESS THAN ASSOCIATE DEGREE",
-            "1-2 YEAR CERTIFICATE, LESS THAN ASSOCIATE DEGREE",
-            "2-4 YEAR CERTIFICATE, LESS THAN BACHELOR'S DEGREE",
-            "UNDERGRADUATE CERTIFICATE OR DIPLOMA PROGRAM",
+            (
+                "LESS THAN ONE-YEAR CERTIFICATE, LESS THAN ASSOCIATE DEGREE",
+                "associates_and_cert",
+            ),
+            (
+                "ONE TO TWO YEAR CERTIFICATE, LESS THAN ASSOCIATE DEGREE",
+                "associates_and_cert",
+            ),
+            (
+                "1-2 YEAR CERTIFICATE, LESS THAN ASSOCIATE DEGREE",
+                "associates_and_cert",
+            ),
+            (
+                "2-4 YEAR CERTIFICATE, LESS THAN BACHELOR'S DEGREE",
+                "associates_and_bachelors_and_cert",
+            ),
+            (
+                "UNDERGRADUATE CERTIFICATE OR DIPLOMA PROGRAM",
+                "associates_and_cert",
+            ),
         ],
     )
     def test_retention_with_associates_and_certificate_selection(
-        self, second_credential: str
+        self, second_credential: str, expected_suffix: str
     ) -> None:
         """
-        Multi-select ASSOCIATE'S DEGREE + certificate-type credential → associates_and_cert.
+        Multi-select ASSOCIATE'S DEGREE + certificate-type credential.
 
         Raw cohort schema keeps credential_type_sought_year_1 as strings (no remap);
         configs use uppercase PDP-style values as ingested.
@@ -417,7 +449,7 @@ class TestPDPGetModelName:
             checkpoint=checkpoint,
             student_criteria=student_criteria,
         )
-        assert result == "retention_into_year_2_associates_and_cert"
+        assert result == f"retention_into_year_2_{expected_suffix}"
 
     def test_retention_with_bachelor_degree(self):
         """Retention with Bachelor's degree variant"""
@@ -430,6 +462,136 @@ class TestPDPGetModelName:
         }
         student_criteria = {
             "credential_type_sought_year_1": "BACHELOR'S DEGREE",
+        }
+
+        result = pdp_get_model_name(
+            target=target,
+            checkpoint=checkpoint,
+            student_criteria=student_criteria,
+        )
+        assert result == "retention_into_year_2_bachelors"
+
+    def test_retention_with_intended_program_type(self):
+        """Edvise Schema uses intended_program_type instead of credential_type_sought_year_1."""
+        target = {"type_": "retention", "max_academic_year": "2024"}
+        checkpoint = {"type_": "first_within_cohort"}
+        student_criteria = {
+            "intended_program_type": "Associate's Degree",
+        }
+
+        result = pdp_get_model_name(
+            target=target,
+            checkpoint=checkpoint,
+            student_criteria=student_criteria,
+        )
+        assert result == "retention_into_year_2_associates"
+
+    def test_retention_with_intended_program_type_shorthand(self):
+        """Edvise configs may use shorthand program labels such as 'Associate'."""
+        target = {"type_": "retention", "max_academic_year": "2024"}
+        checkpoint = {"type_": "first_within_cohort"}
+        student_criteria = {
+            "intended_program_type": {"Associate"},
+        }
+
+        result = pdp_get_model_name(
+            target=target,
+            checkpoint=checkpoint,
+            student_criteria=student_criteria,
+        )
+        assert result == "retention_into_year_2_associates"
+
+    def test_retention_with_many_edvise_program_types_and_cert(self):
+        """Multiple Edvise program-type labels collapse to associates_and_cert."""
+        target = {"type_": "retention", "max_academic_year": "2024"}
+        checkpoint = {"type_": "first_within_cohort"}
+        student_criteria = {
+            "intended_program_type": [
+                "engineering science_associate",
+                "applied science_associate",
+                "arts_associate",
+                "fine arts_associate",
+                "general studies_associate",
+                "science_associate",
+                "cert",
+                "cert",
+            ],
+        }
+
+        result = pdp_get_model_name(
+            target=target,
+            checkpoint=checkpoint,
+            student_criteria=student_criteria,
+        )
+        assert result == "retention_into_year_2_associates_and_cert"
+
+    def test_retention_with_cert_only(self):
+        """Certificate-only selection maps to cert suffix."""
+        target = {"type_": "retention", "max_academic_year": "2024"}
+        checkpoint = {"type_": "first_within_cohort"}
+        student_criteria = {
+            "intended_program_type": "UNDERGRADUATE CERTIFICATE OR DIPLOMA PROGRAM",
+        }
+
+        result = pdp_get_model_name(
+            target=target,
+            checkpoint=checkpoint,
+            student_criteria=student_criteria,
+        )
+        assert result == "retention_into_year_2_cert"
+
+    def test_retention_with_associates_and_bachelors(self):
+        target = {"type_": "retention", "max_academic_year": "2024"}
+        checkpoint = {"type_": "first_within_cohort"}
+        student_criteria = {
+            "intended_program_type": ["ASSOCIATE'S DEGREE", "BACHELOR'S DEGREE"],
+        }
+
+        result = pdp_get_model_name(
+            target=target,
+            checkpoint=checkpoint,
+            student_criteria=student_criteria,
+        )
+        assert result == "retention_into_year_2_associates_and_bachelors"
+
+    def test_retention_with_associates_bachelors_and_cert(self):
+        target = {"type_": "retention", "max_academic_year": "2024"}
+        checkpoint = {"type_": "first_within_cohort"}
+        student_criteria = {
+            "intended_program_type": [
+                "ASSOCIATE'S DEGREE",
+                "BACHELOR'S DEGREE",
+                "UNDERGRADUATE CERTIFICATE OR DIPLOMA PROGRAM",
+            ],
+        }
+
+        result = pdp_get_model_name(
+            target=target,
+            checkpoint=checkpoint,
+            student_criteria=student_criteria,
+        )
+        assert result == "retention_into_year_2_associates_and_bachelors_and_cert"
+
+    def test_retention_with_empty_program_type(self):
+        """Empty credential criteria falls back to all_degrees."""
+        target = {"type_": "retention", "max_academic_year": "2024"}
+        checkpoint = {"type_": "first_within_cohort"}
+        student_criteria = {"intended_program_type": []}
+
+        result = pdp_get_model_name(
+            target=target,
+            checkpoint=checkpoint,
+            student_criteria=student_criteria,
+        )
+        assert result == "retention_into_year_2_all_degrees"
+
+    def test_retention_prefers_pdp_credential_key_over_intended_program_type(self):
+        """When both keys are present, PDP credential column takes precedence."""
+        target = {"type_": "retention", "max_academic_year": "2024"}
+        checkpoint = {"type_": "first_within_cohort"}
+        student_criteria = {
+            "credential_type_sought_year_1": "BACHELOR'S DEGREE",
+            "intended_program_type": "Associate's Degree",
         }
 
         result = pdp_get_model_name(
@@ -564,7 +726,8 @@ class TestPDPGetModelName:
         )
         assert result == "graduation_in_3y_ft_6y_pt_checkpoint_30_credits"
 
-    def test_graduation_first_student_terms_checkpoint(self):
+    @pytest.mark.parametrize("checkpoint_type", ["first", "first_student_terms"])
+    def test_graduation_first_student_terms_checkpoint(self, checkpoint_type):
         """Graduation with first term checkpoint"""
         target = {
             "type_": "graduation",
@@ -573,7 +736,7 @@ class TestPDPGetModelName:
             "num_terms_in_year": 4,
             "max_term_rank": "infer",
         }
-        checkpoint = {"type_": "first_student_terms"}
+        checkpoint = {"type_": checkpoint_type}
         student_criteria = {}
 
         result = pdp_get_model_name(
@@ -583,7 +746,13 @@ class TestPDPGetModelName:
         )
         assert result == "graduation_in_2y_ft_checkpoint_first_term"
 
-    def test_graduation_first_student_terms_within_cohort_checkpoint(self):
+    @pytest.mark.parametrize(
+        "checkpoint_type",
+        ["first_within_cohort", "first_student_terms_within_cohort"],
+    )
+    def test_graduation_first_student_terms_within_cohort_checkpoint(
+        self, checkpoint_type
+    ):
         """Graduation with first cohort term checkpoint"""
         target = {
             "type_": "graduation",
@@ -592,7 +761,7 @@ class TestPDPGetModelName:
             "num_terms_in_year": 4,
             "max_term_rank": "infer",
         }
-        checkpoint = {"type_": "first_student_terms_within_cohort"}
+        checkpoint = {"type_": checkpoint_type}
         student_criteria = {}
 
         result = pdp_get_model_name(

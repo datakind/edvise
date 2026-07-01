@@ -49,6 +49,23 @@ def parse_data_audit_args() -> argparse.Namespace:
     parser.add_argument("--DB_workspace", type=str, required=True)
     parser.add_argument("--job_type", type=str, required=True)
     parser.add_argument("--db_run_id", type=str, required=False)
+    parser.add_argument(
+        "--is_genai_institution",
+        default=None,
+        help=(
+            "ES inference only: true for GenAI institutions (genai_id), false for Edvise "
+            "Schema (edvise_id). Set from SST API via job parameter; validated against "
+            "config.toml use_genai_inputs. Ignored for training."
+        ),
+    )
+    parser.add_argument(
+        "--bronze_batch_dir",
+        default=None,
+        help=(
+            "ES inference only: batch input dir from batch_gcs_ingest task "
+            "(gcs_uploads/{batch_id}/)."
+        ),
+    )
     return parser.parse_args()
 
 

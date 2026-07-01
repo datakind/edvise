@@ -1780,6 +1780,19 @@ class EdaSummary:
     """
 
     @staticmethod
+    def _pell_recipient_yes_no(series: pd.Series) -> pd.Series:
+        """
+        Map raw ``pell_status_first_year`` values to recipient labels.
+
+        Only ``Y`` / ``YES`` (case-insensitive, trimmed) count as recipients; every other
+        value, including missing, ``N``, ``UK``, and other unknown codes, is non-recipient.
+        """
+        s = series.astype("string").fillna("").str.strip().str.upper()
+        return pd.Series(
+            np.where(s.isin(("Y", "YES")), "Yes", "No"), index=series.index
+        )
+
+    @staticmethod
     def required_columns(
         *,
         cohort: list[str] | None = None,
@@ -2188,28 +2201,23 @@ class EdaSummary:
                     - data: List of counts per category
         """
         df = self.df_cohort
-        df = df.dropna(subset=["first_gen", "pell_status_first_year"])
         if "first_gen" not in df.columns or "pell_status_first_year" not in df.columns:
             return None
-        if (
-            df["first_gen"].dropna().empty
-            or df["pell_status_first_year"].dropna().empty
-        ):
+        df = df.dropna(subset=["first_gen"])
+        if df["first_gen"].dropna().empty:
             return None
 
         pell_df = (
             df.assign(
-                pell_status_first_year=df["pell_status_first_year"]
-                .astype(str)
-                .str.strip()
-                .str.title(),
+                pell_status_first_year=self._pell_recipient_yes_no(
+                    df["pell_status_first_year"]
+                ),
                 first_gen=df["first_gen"]
                 .fillna("N")
                 .astype(str)
                 .str.upper()
                 .map({"Y": "Yes", "N": "No"}),
             )[["pell_status_first_year", "first_gen"]]
-            .dropna(subset=["pell_status_first_year"])
             .value_counts()
             .unstack(fill_value=0)
         )
@@ -2232,15 +2240,8 @@ class EdaSummary:
             Dictionary with keys:
                 - series: Single series with counts per Pell status
         """
-        s = (
-            self.df_cohort["pell_status_first_year"]
-            .astype("string")
-            .fillna("")
-            .str.strip()
-            .str.upper()
-        )
         data = (
-            pd.Series(np.where(s.isin(("Y", "YES")), "Yes", "No"), index=s.index)
+            self._pell_recipient_yes_no(self.df_cohort["pell_status_first_year"])
             .value_counts()
             .to_dict()
         )
@@ -2295,17 +2296,12 @@ class EdaSummary:
                 - series: List of dicts with "name" (Pell status) and "data" (counts per category)
         """
 
-        race_df = (
-            self.df_cohort.assign(
-                race=self.df_cohort["race"].astype(str).str.strip().str.title(),
-                pell_status_first_year=self.df_cohort["pell_status_first_year"]
-                .astype(str)
-                .str.upper()
-                .map({"Y": "Yes", "N": "No"}),
-            )[["race", "pell_status_first_year"]]
-            .dropna()
-            .loc[lambda d: d["pell_status_first_year"].isin(["Yes", "No"])]
-        )
+        race_df = self.df_cohort.assign(
+            race=self.df_cohort["race"].astype(str).str.strip().str.title(),
+            pell_status_first_year=self._pell_recipient_yes_no(
+                self.df_cohort["pell_status_first_year"]
+            ),
+        )[["race", "pell_status_first_year"]].dropna(subset=["race"])
 
         counts_df = (
             race_df.groupby(["pell_status_first_year", "race"], observed=True)

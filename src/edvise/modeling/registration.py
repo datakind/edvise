@@ -10,6 +10,7 @@ from edvise.shared.utils import (
     format_enrollment_intensity_time_limits,
     normalize_degree,
 )
+from edvise.utils import types as utils_types
 
 if t.TYPE_CHECKING:
     from edvise.configs.pdp import (
@@ -39,6 +40,12 @@ __all__ = [
 
 LOGGER = logging.getLogger(__name__)
 
+# student_criteria keys that encode credential / program type for retention naming
+_RETENTION_PROGRAM_TYPE_CRITERIA_KEYS = (
+    "credential_type_sought_year_1",  # PDP
+    "intended_program_type",  # Edvise Schema
+)
+
 
 def _get_attr(obj: t.Any, key: str, default: t.Any = None) -> t.Any:
     """Get attribute from dict or object (supports both config representations)."""
@@ -47,30 +54,56 @@ def _get_attr(obj: t.Any, key: str, default: t.Any = None) -> t.Any:
     return getattr(obj, key, default)
 
 
-def _retention_credential_suffix(raw: str | list[str]) -> str:
+def _retention_credential_suffix(raw: str | list[str]) -> str | None:
     """
     Build the lowercase credential segment for retention model names.
 
-    Single value: ``normalize_degree(...).lower()``. Multiple distinct values:
-    short tokens sorted and joined with underscores; associates + certificate
-    becomes ``associates_and_cert``. Credential strings are typically uppercase
-    in config (e.g. ``ASSOCIATE'S DEGREE``, ``1-2 YEAR CERTIFICATE, LESS THAN
-    ASSOCIATE DEGREE``); labels may contain the word "certificate".
+    Collapses criteria to fixed suffixes via case-insensitive substring matching.
+    Raw criteria strings are never joined into the model name. Empty values yield
+    ``None`` (``all_degrees``).
     """
-    items = [str(x) for x in raw] if isinstance(raw, list) else [str(raw)]
-    unique = list(dict.fromkeys(normalize_degree(x) for x in items))
-    if len(unique) == 1:
-        return unique[0].lower()
+    if utils_types.is_collection_but_not_string(raw):
+        items = [str(x).strip() for x in raw if x is not None and str(x).strip()]
+    elif raw is None or not str(raw).strip():
+        items = []
+    else:
+        items = [str(raw).strip()]
 
-    def _tok(norm: str) -> str:
-        if re.search(r"\bcertificate\b", norm, re.IGNORECASE):
-            return "cert"
-        return "associates" if norm.lower() == "associates" else norm.lower()
+    if not items:
+        return None
 
-    toks = sorted(_tok(n) for n in unique)
-    if toks == ["associates", "cert"]:
+    text = re.sub(r"['\u2019]", "", " ".join(items)).casefold()
+    has_assoc = "assoc" in text
+    has_cert = "cert" in text
+    has_bach = "bach" in text
+
+    if has_assoc and has_bach and has_cert:
+        return "associates_and_bachelors_and_cert"
+    if has_assoc and has_bach:
+        return "associates_and_bachelors"
+    if has_assoc and has_cert:
         return "associates_and_cert"
-    return "_".join(toks)
+    if has_assoc:
+        return "associates"
+    if has_bach:
+        return "bachelors"
+    if has_cert:
+        return "cert"
+    if len(items) == 1:
+        return normalize_degree(items[0]).lower()
+    return None
+
+
+def _retention_credential_from_student_criteria(
+    student_criteria: dict[str, t.Any],
+) -> str | None:
+    """Return credential suffix from the first matching program-type filter key."""
+    for key in _RETENTION_PROGRAM_TYPE_CRITERIA_KEYS:
+        if key in student_criteria:
+            return _retention_credential_suffix(
+                t.cast(str | list[str], student_criteria[key])
+            )
+    return None
 
 
 def _checkpoint_suffix(
@@ -83,10 +116,10 @@ def _checkpoint_suffix(
         core = bool(_get_attr(checkpoint, "exclude_non_core_terms"))
         return f"checkpoint_{n_plus_1}_{'core_terms' if core else 'total_terms'}"
 
-    if checkpoint_type == "first_student_terms":
+    if checkpoint_type in ("first", "first_student_terms"):
         return "checkpoint_first_term"
 
-    if checkpoint_type == "first_student_terms_within_cohort":
+    if checkpoint_type in ("first_within_cohort", "first_student_terms_within_cohort"):
         return "checkpoint_first_cohort_term"
 
     if checkpoint_type == "first_at_num_credits_earned":
@@ -245,13 +278,8 @@ def pdp_get_model_name(
 
     # --- Retention ---
     if target_type == "retention":
-        if "credential_type_sought_year_1" in student_criteria:
-            credential = _retention_credential_suffix(
-                t.cast(
-                    str | list[str],
-                    student_criteria["credential_type_sought_year_1"],
-                )
-            )
+        credential = _retention_credential_from_student_criteria(student_criteria)
+        if credential is not None:
             target_name = f"retention_into_year_2_{credential}"
         else:
             target_name = "retention_into_year_2_all_degrees"

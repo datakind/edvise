@@ -27,6 +27,15 @@ def test_guess_month_codes_from_quoted_tokens() -> None:
     assert all(r["canonical"] in ("SPRING", "SUMMER", "FALL") for r in rows)
 
 
+def test_guess_month_code_12_maps_to_fall() -> None:
+    rows = guess_month_code_rows_from_hitl_text(
+        "Confirm mapping",
+        "month code '12' observed in 201312.0",
+    )
+    dec = next(r for r in rows if r["raw"] == "12")
+    assert dec["canonical"] == "FALL"
+
+
 def test_build_seed_prefers_json_then_guess() -> None:
     df = build_season_map_seed_dataframe(
         resolution_season_map_replace=[],

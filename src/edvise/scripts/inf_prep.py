@@ -1,8 +1,6 @@
 import argparse
 import pandas as pd
 import logging
-import json
-import typing as t
 import os
 import sys
 
@@ -25,7 +23,11 @@ from edvise.configs.pdp import InferenceConfig as PDPInferenceConfig
 from edvise.configs.es import InferenceConfig as ESInferenceConfig
 from edvise.model_prep import cleanup_features as cleanup
 from edvise.dataio.read import read_parquet, read_config
-from edvise.student_selection.filter_inference import filter_inference_term
+from edvise.student_selection.filter_inference import (
+    exclude_training_cohort_students,
+    filter_inference_term,
+    parse_term_filter_param,
+)
 from edvise.dataio.write import write_parquet
 from edvise.shared.logger import resolve_run_path, local_fs_path, init_file_logging
 from edvise.shared.utils import cohort_pair_columns
@@ -40,27 +42,6 @@ logging.basicConfig(
 )
 LOGGER = logging.getLogger(__name__)
 logging.getLogger("py4j").setLevel(logging.WARNING)
-
-
-def parse_term_filter_param(value: t.Optional[str]) -> t.Optional[list[str]]:
-    """Parse --term_filter job param. Treat None, '', 'null' as not provided; else json.loads.
-    Empty list after parse -> not provided (use config). Invalid JSON -> raise."""
-    if value is None:
-        return None
-    s = value.strip()
-    if s in ("", "null", "None"):
-        return None
-    try:
-        parsed = json.loads(s)
-    except json.JSONDecodeError as e:
-        LOGGER.error("Invalid JSON for term_filter param: %s", value)
-        raise ValueError(f"Invalid JSON for --term_filter: {e}") from e
-    if not isinstance(parsed, list):
-        raise ValueError("--term_filter must be a JSON list of strings")
-    labels = [str(item).strip() for item in parsed if str(item).strip()]
-    if not labels:
-        return None  # empty list -> use config
-    return labels
 
 
 class InferencePrepTask:
@@ -205,6 +186,26 @@ class InferencePrepTask:
         df_selected_terms = filter_inference_term(df_labeled, term_list=inf_terms)
 
         cohort_pair = cohort_pair_columns(df_selected_terms)
+        training_cohorts = (
+            self.cfg.modeling.training.cohort
+            if self.cfg.modeling and self.cfg.modeling.training
+            else None
+        )
+        if training_cohorts:
+            if cohort_pair is not None:
+                cy, ct = cohort_pair
+                df_selected_terms = exclude_training_cohort_students(
+                    df_selected_terms,
+                    training_cohorts=training_cohorts,
+                    cohort_term_column=ct,
+                    cohort_column=cy,
+                )
+            else:
+                LOGGER.warning(
+                    "Training cohorts configured but cohort columns not found; "
+                    "skipping stop-out exclusion."
+                )
+
         if cohort_pair is not None:
             cy, ct = cohort_pair
             cohort_counts = (

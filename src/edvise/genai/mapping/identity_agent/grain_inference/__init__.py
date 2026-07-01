@@ -9,12 +9,14 @@ messages plus :class:`~profiling.schemas.RankedCandidateProfiles`. Step 1 stats 
 from ..dataset_io import load_school_dataset_dataframe
 from . import deduplication
 from edvise.genai.mapping.shared.databricks_ai_gateway import (
-    DEFAULT_GATEWAY_MODEL_ID,
+    DEFAULT_GATEWAY_CLAUDE_HAIKU_MODEL_ID,
+    DEFAULT_GATEWAY_CLAUDE_SONNET_MODEL_ID,
     build_mlflow_ai_gateway_base_url,
     create_openai_client_for_databricks_gateway,
     make_databricks_gateway_llm_complete,
     require_databricks_token,
     resolve_ai_gateway_base_url,
+    resolve_column_roles_gateway_model_id,
     resolve_databricks_workspace_host,
     resolve_databricks_workspace_id,
     resolve_gateway_model_id,
@@ -23,6 +25,8 @@ from edvise.genai.mapping.shared.databricks_ai_gateway import (
 from .grain_gateway_logging import log_grain_auto_approve, log_grain_hitl_queue
 from .hitl_uniqueness_backfill import (
     backfill_hitl_uniqueness_scores,
+    backfill_hitl_uniqueness_scores_by_table,
+    backfill_hitl_uniqueness_scores_from_measured_keys,
     backfill_hitl_uniqueness_scores_from_key_profile,
 )
 from .prompt import (
@@ -64,7 +68,8 @@ from .schemas import (
 )
 
 __all__ = [
-    "DEFAULT_GATEWAY_MODEL_ID",
+    "DEFAULT_GATEWAY_CLAUDE_HAIKU_MODEL_ID",
+    "DEFAULT_GATEWAY_CLAUDE_SONNET_MODEL_ID",
     "build_mlflow_ai_gateway_base_url",
     "PIPELINE_HITL_CONFIDENCE_THRESHOLD",
     "IdentityProfilingDatasetResult",
@@ -87,6 +92,8 @@ __all__ = [
     "format_column_list",
     "build_institution_grain_contracts",
     "backfill_hitl_uniqueness_scores",
+    "backfill_hitl_uniqueness_scores_by_table",
+    "backfill_hitl_uniqueness_scores_from_measured_keys",
     "backfill_hitl_uniqueness_scores_from_key_profile",
     "build_identity_profiling_run_by_dataset",
     "create_openai_client_for_databricks_gateway",
@@ -104,6 +111,7 @@ __all__ = [
     "resolve_ai_gateway_base_url",
     "resolve_databricks_workspace_host",
     "resolve_databricks_workspace_id",
+    "resolve_column_roles_gateway_model_id",
     "resolve_gateway_model_id",
     "strip_json_fences",
 ]

@@ -20,7 +20,11 @@ print("Repo root:", repo_root)
 print("src_path:", src_path)
 print("sys.path:", sys.path)
 
-from edvise.data_audit.raw_course_grade_map import apply_raw_course_grade_map
+from edvise.data_audit.raw_course_grade_map import (
+    apply_raw_course_grade_map,
+    log_unmapped_gpa_grades,
+    resolve_es_grade_map,
+)
 from edvise.data_audit.schemas import (
     RawEdviseStudentDataSchema,
     RawEdviseCourseDataSchema,
@@ -31,6 +35,7 @@ from edvise.data_audit.standardizer import (
 )
 from edvise.utils.databricks import get_spark_session
 from edvise.dataio.genai_registry_paths import resolve_genai_pipeline_input_dir
+from edvise.data_audit.batch_dataset_paths import resolve_es_raw_dataset_paths
 from edvise.dataio.path_management import pick_existing_path
 from edvise.dataio.path_management import path_exists
 from edvise.dataio.read import (
@@ -94,6 +99,33 @@ class ESDataAuditTask:
             return None
         return pre.features.grade_map
 
+    def _resolve_use_genai_inputs(self) -> bool:
+        use_genai = bool(self.cfg.use_genai_inputs)
+        if self.args.job_type != "inference":
+            return use_genai
+
+        raw = getattr(self.args, "is_genai_institution", None)
+        if raw is None:
+            job_is_genai = True
+        elif isinstance(raw, bool):
+            job_is_genai = raw
+        else:
+            normalized = str(raw).strip().lower()
+            if normalized in ("true", "1", "yes"):
+                job_is_genai = True
+            elif normalized in ("false", "0", "no"):
+                job_is_genai = False
+            else:
+                raise ValueError(f"Invalid is_genai_institution job parameter: {raw!r}")
+
+        if use_genai != job_is_genai:
+            raise ValueError(
+                f"config use_genai_inputs={use_genai!r} does not match "
+                f"job parameter is_genai_institution={job_is_genai!r}. "
+                "Update config.toml to match the institution type in the SST API or vice versa."
+            )
+        return use_genai
+
     def run(self):
         """Executes the data preprocessing pipeline."""
         # Ensure correct folder: training or inference
@@ -113,12 +145,20 @@ class ESDataAuditTask:
         except Exception as e:
             LOGGER.exception("Failed to initialize file logging: %s", e)
 
-        # Resolve inputs (GenAI parquets or bronze CSVs) based on config toggle.
-        use_genai = bool(getattr(self.cfg, "use_genai_inputs", True))
-        if use_genai:
-            # GenAI active registry -> runs/onboard/{onboard_run_id}/pipeline_input
+        use_genai_inputs = self._resolve_use_genai_inputs()
+        if self.args.job_type == "inference":
+            LOGGER.info(
+                "use_genai_inputs=%s (config, validated against is_genai_institution job param)",
+                use_genai_inputs,
+            )
+        else:
+            LOGGER.info("use_genai_inputs=%s (from config)", use_genai_inputs)
+        if use_genai_inputs:
             silver_root = self.args.silver_volume_path.rstrip("/")
-            genai_input_dir = resolve_genai_pipeline_input_dir(silver_root)
+            genai_input_dir = resolve_genai_pipeline_input_dir(
+                silver_root,
+                job_type=self.args.job_type,
+            )
             cohort_dataset_raw_path = os.path.join(genai_input_dir, "cohort.parquet")
             course_dataset_raw_path = os.path.join(genai_input_dir, "course.parquet")
             require(
@@ -132,18 +172,36 @@ class ESDataAuditTask:
         else:
             require(
                 bool(self.args.bronze_volume_path),
-                "bronze_volume_path is required when cfg.use_genai_inputs=false.",
+                "bronze_volume_path is required for Edvise Schema (edvise_id) institutions.",
             )
-            cohort_dataset_raw_path = pick_existing_path(
-                self.args.cohort_dataset_validated_path,
-                f"{self.args.bronze_volume_path}/{self.cfg.datasets.raw_cohort}",
-                "cohort",
-            )
-            course_dataset_raw_path = pick_existing_path(
-                self.args.course_dataset_validated_path,
-                f"{self.args.bronze_volume_path}/{self.cfg.datasets.raw_course}",
-                "course",
-            )
+            bronze_batch_dir = (
+                getattr(self.args, "bronze_batch_dir", None) or ""
+            ).strip()
+            if bronze_batch_dir:
+                LOGGER.info(
+                    "Resolving cohort/course from batch ingest bronze_batch_dir=%s",
+                    bronze_batch_dir,
+                )
+                cohort_dataset_raw_path, course_dataset_raw_path = (
+                    resolve_es_raw_dataset_paths(
+                        bronze_batch_dir,
+                        raw_cohort_name=self.cfg.datasets.raw_cohort,
+                        raw_course_name=self.cfg.datasets.raw_course,
+                    )
+                )
+            else:
+                cohort_prefer = (self.args.cohort_dataset_validated_path or "").strip()
+                course_prefer = (self.args.course_dataset_validated_path or "").strip()
+                cohort_dataset_raw_path = pick_existing_path(
+                    cohort_prefer or None,
+                    f"{self.args.bronze_volume_path}/{self.cfg.datasets.raw_cohort}",
+                    "cohort",
+                )
+                course_dataset_raw_path = pick_existing_path(
+                    course_prefer or None,
+                    f"{self.args.bronze_volume_path}/{self.cfg.datasets.raw_course}",
+                    "course",
+                )
 
         # --- Load RAW datasets w/o schema---
         LOGGER.info(" Loading raw cohort and course datasets:")
@@ -182,7 +240,7 @@ class ESDataAuditTask:
                 " Failed to parse course data with all known datetime formats."
             )
 
-        course_grade_map = self._course_grade_map()
+        course_grade_map = resolve_es_grade_map(self._course_grade_map())
         df_course_raw = apply_raw_course_grade_map(df_course_raw, course_grade_map)
 
         # Ensure files are non-empty
@@ -305,6 +363,7 @@ class ESDataAuditTask:
 
         # Course exploratory EDA (pre-standardize)
         log_grade_distribution(df_course_validated)
+        log_unmapped_gpa_grades(df_course_validated)
         # Log high null columns
         log_high_null_columns(df_course_validated)
         # Standardize course data

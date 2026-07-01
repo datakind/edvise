@@ -625,6 +625,9 @@ def register_sma_gate_2_hook_required_artifacts(
     """
     Register Step 2b ``hook_required`` review JSON paths under ``sma_gate_2_hook_required``.
 
+    **Deprecated:** ``edvise_genai_sma`` no longer calls this; hook disposition is handled in
+    ``sma_gate_2_transformation_review`` (option ``hook_required``). Kept for in-flight UC rows.
+
     Empty ``items`` lists auto-approve like empty SMA manifest HITL artifacts.
     """
     c = cohort_transformation_hook_hitl_path.as_posix()

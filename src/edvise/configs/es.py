@@ -22,7 +22,7 @@ _ALLOWED_PRIMARY_METRICS = {
 
 
 class ESProjectConfig(pyd.BaseModel):
-    """Configuration schema for SST PDP projects."""
+    """Configuration schema for Edvise (ES) projects."""
 
     institution_id: str = pyd.Field(
         ...,
@@ -42,10 +42,13 @@ class ESProjectConfig(pyd.BaseModel):
     use_genai_inputs: bool = pyd.Field(
         default=True,
         description=(
-            "Controls where ES data_audit reads its cohort/course inputs from. "
-            "If True (default), read GenAI-mapped parquets from the institution silver volume "
-            "(via genai_active_registry.json). "
-            "If False, read raw CSVs from the institution bronze volume using datasets.raw_* paths."
+            "Controls where ES data_audit reads cohort/course inputs during training. "
+            "If True, read GenAI-mapped parquets from the institution silver volume "
+            "(via genai_active_registry.json onboard snapshot). "
+            "If False, read raw CSVs from the institution bronze volume using "
+            "datasets.raw_* paths. Set during onboarding to match institution type. "
+            "During ES inference, must equal the is_genai_institution job parameter "
+            "(from SST API genai_id vs edvise_id)."
         ),
     )
 
@@ -62,7 +65,13 @@ class ESProjectConfig(pyd.BaseModel):
     split_col: t.Optional[str] = "split"
     sample_weight_col: t.Optional[str] = "sample_weight"
     student_group_cols: t.Optional[list[str]] = pyd.Field(
-        default=["student_age", "race", "ethnicity", "gender", "first_gen"],
+        default=[
+            "learner_age",
+            "race",
+            "ethnicity",
+            "gender",
+            "first_generation_status",
+        ],
         description=(
             "One or more column names in datasets containing student 'groups' "
             "to use for model bias assessment, but *not* as model features"
@@ -256,10 +265,20 @@ class FeaturesConfig(pyd.BaseModel):
     grade_map: t.Optional[dict[str, str]] = pyd.Field(
         default=None,
         description=(
-            "Maps raw grade codes from the institution upload to canonical Edvise grades "
-            "(subset of ALLOWED_LETTER_GRADES) or a numeric string in [0, 4]. "
-            "Applied in ES data audit before course schema validation. "
+            "Institution-specific grade codes merged with platform defaults at ES data audit "
+            "(status/withdrawal tokens and standard letter→GPA scale in "
+            "edvise.data_audit.default_grade_map). Values must be canonical "
+            "ALLOWED_LETTER_GRADES or a numeric string in [0, 4]. Institution entries "
+            "override platform defaults on duplicate keys. "
+            "Do not map pass/fail tokens (P) to GPA. Applied before course schema validation. "
             'Example: {"W1": "W", "W2": "W", "OTHER": "O", "NC": "NC"}.'
+        ),
+    )
+    student_term_add_overrides: t.Optional[dict[str, bool]] = pyd.Field(
+        default=None,
+        description=(
+            "Optional overrides for auto-resolved student-term add feature toggles "
+            "(``StudentTermAddFeatureSpec`` field names)."
         ),
     )
 

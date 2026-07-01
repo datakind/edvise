@@ -5,9 +5,12 @@ from itertools import combinations
 
 import pandas as pd
 
-from edvise.configs.custom import CleaningConfig
+from edvise.data_audit.custom_cleaning import CleaningConfig
 
+from edvise.genai.mapping.identity_agent.column_roles.schemas import ColumnRolesResult
 from edvise.genai.mapping.shared.profiling.variance import compute_within_group_variance
+
+from .semantic_keys import build_semantic_key_column_sets
 
 from .constants import (
     EARLY_STOP_UNIQUENESS,
@@ -298,6 +301,75 @@ def _detect_candidate_keys(df: pd.DataFrame) -> list[CandidateKey]:
     return top
 
 
+def _uniqueness_for_columns(cols: list[str], df: pd.DataFrame) -> float:
+    n_rows = len(df)
+    if n_rows == 0:
+        return 1.0
+    if len(cols) == 1:
+        return float(df[cols[0]].nunique() / n_rows)
+    compound = sum(
+        pd.util.hash_pandas_object(df[c], index=False) * (31**i)
+        for i, c in enumerate(cols)
+    )
+    return float(compound.nunique() / n_rows)
+
+
+def _candidate_key_from_columns(df: pd.DataFrame, cols: list[str]) -> CandidateKey:
+    missing = [c for c in cols if c not in df.columns]
+    if missing:
+        raise ValueError(f"Semantic key columns not in dataframe: {missing}")
+    uniqueness = _uniqueness_for_columns(cols, df)
+    null_rate = float(max(df[c].isnull().mean() for c in cols))
+    return CandidateKey(
+        columns=list(cols),
+        uniqueness_score=round(uniqueness, 4),
+        null_rate=round(null_rate, 4),
+        rank=0,
+    )
+
+
+def _merge_semantic_and_statistical_candidates(
+    df: pd.DataFrame,
+    dataset: str,
+    statistical: list[CandidateKey],
+    column_roles: ColumnRolesResult,
+) -> list[CandidateKey]:
+    """
+    Guarantee semantic grain keys appear in the candidate list (not truncated by top-k search).
+    """
+    semantic_sets = build_semantic_key_column_sets(dataset, column_roles)
+    merged: list[CandidateKey] = []
+    seen: set[frozenset[str]] = set()
+
+    for cols in semantic_sets:
+        try:
+            ck = _candidate_key_from_columns(df, cols)
+        except ValueError as exc:
+            logger.warning("Skipping semantic key %s — %s", cols, exc)
+            continue
+        sig = frozenset(cols)
+        if sig in seen:
+            continue
+        seen.add(sig)
+        merged.append(ck)
+        logger.info(
+            "  Semantic key: %s (uniqueness=%.4f)",
+            cols,
+            ck.uniqueness_score,
+        )
+
+    for ck in statistical:
+        sig = frozenset(ck.columns)
+        if sig in seen:
+            continue
+        seen.add(sig)
+        merged.append(ck)
+
+    for i, ck in enumerate(merged):
+        ck.rank = i + 1
+    return merged
+
+
 # ---------------------------------------------------------------------------
 # Per-candidate key profiling — facts only, no interpretation
 # ---------------------------------------------------------------------------
@@ -358,6 +430,7 @@ def profile_candidate_keys(
     dataset: str,
     *,
     cleaning: CleaningConfig | None = None,
+    column_roles: ColumnRolesResult | None = None,
 ) -> KeyProfileResult:
     """
     Deterministic key profiler. Runs raw column profiling, then detects candidate
@@ -381,6 +454,8 @@ def profile_candidate_keys(
         institution_id: Institution identifier (passed through to raw table profile)
         dataset: Logical dataset name (e.g. ``student``, ``course``)
         cleaning: Optional per-school cleaning config (e.g. from ``SchoolMappingConfig.cleaning``).
+        column_roles: Optional ColumnRolesAgent output; when set, semantic grain keys are
+            profiled first and guaranteed in the candidate list.
 
     Returns:
         KeyProfileResult with raw column stats and per-candidate-key stats
@@ -416,6 +491,15 @@ def profile_candidate_keys(
     )
 
     candidate_keys = _detect_candidate_keys(df)
+    if column_roles is not None:
+        candidate_keys = _merge_semantic_and_statistical_candidates(
+            df,
+            dataset,
+            candidate_keys,
+            column_roles,
+        )
+        for warning in column_roles.profiler_warnings:
+            logger.warning("ColumnRoles: %s", warning)
     logger.info("Top %d candidate keys identified", len(candidate_keys))
 
     profiles = []

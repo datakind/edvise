@@ -368,10 +368,17 @@ class TestEdaSummary:
 
     def test_race_by_pell_status(self, sample_cohort_data):
         assert EdaSummary(sample_cohort_data).race_by_pell_status == {
-            "categories": ["Hispanic", "Nonresident Alien", "White"],
+            "categories": [
+                "Asian",
+                "Black Or African American",
+                "Hispanic",
+                "Nonresident Alien",
+                "Unknown",
+                "White",
+            ],
             "series": [
-                {"name": "No", "data": [0.0, 1.0, 0.0]},
-                {"name": "Yes", "data": [1.0, 0.0, 1.0]},
+                {"name": "No", "data": [1.0, 1.0, 2.0, 1.0, 1.0, 1.0]},
+                {"name": "Yes", "data": [0.0, 0.0, 1.0, 0.0, 0.0, 1.0]},
             ],
         }
 
@@ -384,6 +391,47 @@ class TestEdaSummary:
         data_keys = result["series"][0]["data"].keys()
         assert all(pd.notna(k) for k in data_keys)
         assert set(data_keys) <= {"Yes", "No"}
+
+    def test_pell_recipient_status_maps_unknown_uk_to_no(self) -> None:
+        df = pd.DataFrame(
+            {
+                "pell_status_first_year": ["Y", "UK", "Uk", "N", pd.NA],
+                "first_gen": ["Y", "N", "Y", "N", "Y"],
+            }
+        )
+        result = EdaSummary(df).pell_recipient_status
+        assert result == {
+            "series": [{"name": "All Students", "data": {"No": 4, "Yes": 1}}]
+        }
+
+    def test_pell_recipient_by_first_gen_maps_unknown_uk_to_no(self) -> None:
+        df = pd.DataFrame(
+            {
+                "pell_status_first_year": ["Y", "UK", "Uk", pd.NA],
+                "first_gen": ["Y", "N", "Y", "N"],
+            }
+        )
+        result = EdaSummary(df).pell_recipient_by_first_gen
+        assert result is not None
+        assert set(result["categories"]) == {"No", "Yes"}
+        assert "Uk" not in result["categories"]
+
+    def test_race_by_pell_status_maps_unknown_uk_to_no(self) -> None:
+        df = pd.DataFrame(
+            {
+                "pell_status_first_year": ["UK", "Y"],
+                "race": ["White", "Hispanic"],
+            }
+        )
+        result = EdaSummary(df).race_by_pell_status
+        assert result["categories"] == ["Hispanic", "White"]
+        assert [s["name"] for s in result["series"]] == ["No", "Yes"]
+        no_series = next(s for s in result["series"] if s["name"] == "No")
+        yes_series = next(s for s in result["series"] if s["name"] == "Yes")
+        white_idx = result["categories"].index("White")
+        hispanic_idx = result["categories"].index("Hispanic")
+        assert no_series["data"][white_idx] == 1.0
+        assert yes_series["data"][hispanic_idx] == 1.0
 
     def test_student_age_by_gender_handles_nulls(self, sample_cohort_data):
         """Test that NaN gender values are properly excluded."""

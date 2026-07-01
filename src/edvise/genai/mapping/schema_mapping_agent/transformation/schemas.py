@@ -372,16 +372,15 @@ class FlaggedStep(StrictBaseModel):
 
 
 class TransformationHITLOption(StrictBaseModel):
-    option_id: Literal["approve", "correct", "unmappable"]
+    option_id: Literal["approve", "correct", "hook_required"]
     label: str
     description: str
     resolution: Optional[Dict[str, Any]] = Field(
         default=None,
         description=(
             "approve: {'approved': True}. "
-            "correct: {'steps': [...corrected steps...]}. "
-            "unmappable: {'steps': [], 'output_dtype': None}. "
-            "Null on 'correct' when reviewer supplies steps out-of-band."
+            "correct: null — reviewer supplies corrected steps on the HITL item. "
+            "hook_required: {'hook_required': True} — custom Series→Series hook; no utility chain."
         ),
     )
 
@@ -469,23 +468,43 @@ class FieldTransformationPlan(StrictBaseModel):
     hitl_options: Optional[List[TransformationHITLOption]] = Field(
         default=None,
         description=(
-            "When review_required is true: exactly three entries in order approve, correct, unmappable "
-            "with field-specific labels and descriptions. Omit (null) when review_required is omitted."
+            "When review_required is true: exactly three entries in order approve, correct, "
+            "hook_required with field-specific labels and descriptions. Omit (null) when "
+            "review_required is omitted or hook_required is true."
         ),
     )
 
     @model_validator(mode="after")
     def confidence_review_and_hitl_consistency(self) -> FieldTransformationPlan:
+        if self.hook_required is True and self.review_required is True:
+            raise ValueError(
+                "hook_required and review_required cannot both be true on one plan"
+            )
+        if self.hook_required is True:
+            if self.flagged_steps is not None:
+                raise ValueError(
+                    "flagged_steps must be omitted (null) when hook_required is true"
+                )
+            if self.hitl_options is not None:
+                raise ValueError(
+                    "hitl_options must be omitted (null) when hook_required is true"
+                )
+
         if (
             self.confidence is not None
             and self.confidence <= PIPELINE_HITL_CONFIDENCE_THRESHOLD
         ):
             hitl_finalized = self.review_status == ReviewStatus.corrected_by_hitl
-            if self.review_required is not True and not hitl_finalized:
+            on_hook_path = self.hook_required is True
+            if (
+                self.review_required is not True
+                and not hitl_finalized
+                and not on_hook_path
+            ):
                 raise ValueError(
                     "review_required must be True when confidence <= "
                     f"{PIPELINE_HITL_CONFIDENCE_THRESHOLD} unless review_status is "
-                    f"{ReviewStatus.corrected_by_hitl.value!r} (transformation review HITL applied); "
+                    f"{ReviewStatus.corrected_by_hitl.value!r} or hook_required is true; "
                     f"(got confidence={self.confidence})"
                 )
 
@@ -504,10 +523,14 @@ class FieldTransformationPlan(StrictBaseModel):
                     "hitl_options must contain exactly three options when review_required is True"
                 )
             ho_ids = [o.option_id for o in self.hitl_options]
-            if ho_ids != ["approve", "correct", "unmappable"]:
+            if ho_ids != ["approve", "correct", "hook_required"]:
                 raise ValueError(
-                    "hitl_options must be approve, correct, unmappable in that order "
+                    "hitl_options must be approve, correct, hook_required in that order "
                     f"(got {ho_ids!r})"
+                )
+            if self.hook_required is True:
+                raise ValueError(
+                    "hook_required must be false or omitted when review_required is true"
                 )
         else:
             if self.flagged_steps is not None:
@@ -560,25 +583,58 @@ class TransformationHITLItem(StrictBaseModel):
         min_length=3,
         max_length=3,
         description=(
-            "Always exactly three options in order: approve, correct, unmappable."
+            "Always exactly three options in order: approve, correct, hook_required."
         ),
     )
-    status: Literal["pending", "approved", "corrected", "unmappable"] = "pending"
+    status: Literal["pending", "approved", "corrected", "hook_required"] = "pending"
+    reviewer_note: Optional[str] = Field(
+        default=None,
+        description=(
+            "Reviewer instructions when option hook_required is selected (hook generation input)."
+        ),
+    )
     # Streamlit HITL persists 1-based index as JSON int; manual edits may use strings.
     choice: Optional[Union[str, int]] = Field(
         default=None,
         description=(
-            "1-based index into ``options`` (1=approve, 2=correct, 3=unmappable). "
+            "1-based index into ``options`` (1=approve, 2=correct, 3=hook_required). "
             "Stored as int by the generic option UI."
         ),
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_legacy_unmappable(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        out = dict(data)
+        if out.get("status") == "unmappable":
+            out["status"] = "hook_required"
+        opts = out.get("options")
+        if isinstance(opts, list):
+            migrated: list[Any] = []
+            for o in opts:
+                if not isinstance(o, dict):
+                    migrated.append(o)
+                    continue
+                oc = dict(o)
+                if oc.get("option_id") == "unmappable":
+                    oc["option_id"] = "hook_required"
+                    if oc.get("label") == "Unmappable":
+                        oc["label"] = "Hook required"
+                    oc["resolution"] = {"hook_required": True}
+                migrated.append(oc)
+            out["options"] = migrated
+        return out
+
     @model_validator(mode="after")
-    def _options_must_be_approve_correct_unmappable(self) -> "TransformationHITLItem":
+    def _options_must_be_approve_correct_hook_required(
+        self,
+    ) -> "TransformationHITLItem":
         ids = [o.option_id for o in self.options]
-        if ids != ["approve", "correct", "unmappable"]:
+        if ids != ["approve", "correct", "hook_required"]:
             raise ValueError(
-                f"options must be exactly ['approve', 'correct', 'unmappable'] "
+                f"options must be exactly ['approve', 'correct', 'hook_required'] "
                 f"in that order, got {ids}"
             )
         return self
@@ -612,7 +668,8 @@ class TransformationReview(StrictBaseModel):
     def is_clear(self) -> bool:
         """True when all hitl_items are resolved."""
         return all(
-            i.status in ("approved", "corrected", "unmappable") for i in self.hitl_items
+            i.status in ("approved", "corrected", "hook_required")
+            for i in self.hitl_items
         )
 
     @property
@@ -637,10 +694,13 @@ def _default_transformation_hitl_options() -> List[TransformationHITLOption]:
             resolution=None,
         ),
         TransformationHITLOption(
-            option_id="unmappable",
-            label="Unmappable",
-            description="Mark as unmappable: no steps and no output dtype.",
-            resolution={"steps": [], "output_dtype": None},
+            option_id="hook_required",
+            label="Hook required",
+            description=(
+                "Built-in utilities cannot express this field; proceed to custom hook "
+                "generation after review."
+            ),
+            resolution={"hook_required": True},
         ),
     ]
 
@@ -668,6 +728,8 @@ def extract_transformation_review(
 
     hitl_items: List[TransformationHITLItem] = []
     for plan in transformation_map.plans:
+        if plan.hook_required is True:
+            continue
         if plan.review_required is not True:
             continue
         if plan.confidence is None:

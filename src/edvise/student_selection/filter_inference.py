@@ -1,6 +1,48 @@
+import json
 import logging
+import typing as t
 
 import pandas as pd
+
+
+def parse_term_filter_param(value: t.Optional[str]) -> t.Optional[list[str]]:
+    """Parse ``--term_filter`` job param (same semantics as PDP ``pdp_inf_prep``).
+
+    Treat ``None``, ``''``, ``'null'`` as not provided (use config). Invalid JSON
+    raises ``ValueError``. After parsing, an empty list means not provided.
+    """
+    if value is None:
+        return None
+    s = value.strip()
+    if s in ("", "null", "None"):
+        return None
+    try:
+        parsed = json.loads(s)
+    except json.JSONDecodeError as e:
+        logging.error("Invalid JSON for term_filter param: %s", value)
+        raise ValueError(f"Invalid JSON for --term_filter: {e}") from e
+    if not isinstance(parsed, list):
+        raise ValueError("--term_filter must be a JSON list of strings")
+    labels = [str(item).strip() for item in parsed if str(item).strip()]
+    if not labels:
+        return None
+    return labels
+
+
+def _normalize_label_list(labels: list[str]) -> list[str]:
+    return [label.strip().lower() for label in labels if label and str(label).strip()]
+
+
+def _joined_labels(
+    df: pd.DataFrame,
+    first_column: str,
+    second_column: str,
+) -> pd.Series:
+    return (
+        df[first_column].astype(str).str.lower()
+        + " "
+        + df[second_column].astype(str).str.lower()
+    )
 
 
 def _filter_by_joined_columns(
@@ -27,11 +69,7 @@ def _filter_by_joined_columns(
         ValueError: If selection_list has no non-empty labels, or if filtering results in empty DataFrame.
     """
     # Normalize labels to lowercase so matching is case-insensitive
-    selection_list_normalized = [
-        label.strip().lower()
-        for label in selection_list
-        if label and str(label).strip()
-    ]
+    selection_list_normalized = _normalize_label_list(selection_list)
     if not selection_list_normalized:
         raise ValueError(
             f"{selection_type}_list had no non-empty {selection_type} labels."
@@ -39,11 +77,7 @@ def _filter_by_joined_columns(
 
     # Combine columns and normalize to lowercase
     temp_column = f"{selection_type}_selection"
-    df[temp_column] = (
-        df[first_column].astype(str).str.lower()
-        + " "
-        + df[second_column].astype(str).str.lower()
-    )
+    df[temp_column] = _joined_labels(df, first_column, second_column)
 
     # Filter to only the specified values
     df_filtered = df[df[temp_column].isin(selection_list_normalized)].copy()
@@ -101,6 +135,45 @@ def filter_inference_cohort(
         second_column=cohort_column,
         selection_type="cohorts",
     )
+
+
+def exclude_training_cohort_students(
+    df: pd.DataFrame,
+    training_cohorts: list[str],
+    cohort_term_column: str = "cohort_term",
+    cohort_column: str = "cohort",
+) -> pd.DataFrame:
+    """Exclude students whose entry cohort was used in model training."""
+    training_labels = _normalize_label_list(training_cohorts)
+    if not training_labels:
+        return df
+
+    if cohort_term_column not in df.columns or cohort_column not in df.columns:
+        logging.warning(
+            "Cannot exclude training cohort students: missing columns %r and/or %r.",
+            cohort_term_column,
+            cohort_column,
+        )
+        return df
+
+    labels = _joined_labels(df, cohort_term_column, cohort_column)
+    exclude_mask = labels.isin(training_labels)
+    n_excluded = int(exclude_mask.sum())
+    if n_excluded:
+        logging.info(
+            "Excluded %d stop-out students from training cohorts %s.\n%s",
+            n_excluded,
+            training_cohorts,
+            labels[exclude_mask].value_counts().to_string(),
+        )
+
+    df_filtered = df.loc[~exclude_mask]
+    if df_filtered.empty and not df.empty:
+        raise ValueError(
+            "Excluding training cohort students resulted in empty DataFrame; "
+            f"training_cohorts={training_cohorts!r}."
+        )
+    return df_filtered
 
 
 def filter_inference_term(

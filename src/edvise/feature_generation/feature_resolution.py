@@ -6,10 +6,16 @@ plus frame column presence, with optional per-field overrides (``dict`` of field
 from __future__ import annotations
 
 import dataclasses
+import logging
 import typing as t
 
 import pandas as pd
 
+from .cip_columns import (
+    has_sufficient_cip_values,
+    resolve_term_program_of_study_source,
+    warn_non_cip_program_column,
+)
 from .column_names import (
     CohortInputColumns,
     CourseInputColumns,
@@ -23,6 +29,9 @@ from .column_names import (
     TermFeatureSpec,
     ES_STUDENT_FEATURE_SPEC_DEFAULT,
 )
+from .feature_dependencies import multicol_grade_enabled
+
+LOGGER = logging.getLogger(__name__)
 
 _TSpec = t.TypeVar("_TSpec")
 
@@ -84,12 +93,16 @@ def resolve_course_feature_spec(
     df: pd.DataFrame, cols: CourseInputColumns
 ) -> CourseFeatureSpec:
     g = has_data_col(df, cols.grade)
-    cip = has_data_col(df, cols.course_cip)
+    cip_col = cols.course_cip
+    has_cip_col = has_data_col(df, cip_col)
+    use_subject_area = has_cip_col and has_sufficient_cip_values(df, cip_col)
+    if has_cip_col and not use_subject_area:
+        warn_non_cip_program_column(df, cip_col, role="course_cip", logger=LOGGER)
     pfx = has_data_col(df, cols.course_prefix)
     num = has_data_col(df, cols.course_number)
     return CourseFeatureSpec(
         course_id=pfx and num,
-        course_subject_area=cip,
+        course_subject_area=use_subject_area,
         course_passed=g,
         course_completed=g,
         course_level=bool(num and g),
@@ -161,6 +174,7 @@ def resolve_student_term_aggregate_spec(
     cols: CourseInputColumns,
     *,
     course_flags: CourseFeatureSpec,
+    section_flags: SectionFeatureSpec,
 ) -> StudentTermAggregateSpec:
     g = has_data_col(df, cols.grade)
     pfx = has_data_col(df, cols.course_prefix)
@@ -181,7 +195,9 @@ def resolve_student_term_aggregate_spec(
         summary_aggregations=True,
         dummies=dummies,
         value_equality=bool(value_equality),
-        multicol_grade=bool(g),
+        multicol_grade=multicol_grade_enabled(
+            course_flags=course_flags, section_flags=section_flags
+        ),
     )
 
 
@@ -215,7 +231,25 @@ def resolve_student_term_add_feature_spec(
         )
     )
     will_have_cohort_start = has_cohort_keys
-    has_term_prog = has_data_col(df_course, course_cols.term_program_of_study)
+    prog_source = resolve_term_program_of_study_source(
+        df_course, course_cols, logger=LOGGER
+    )
+    has_term_prog = prog_source is not None
+    has_course_subject_areas = bool(
+        has_term_prog and has_sufficient_cip_values(df_course, course_cols.course_cip)
+    )
+    if (
+        has_term_prog
+        and not has_course_subject_areas
+        and has_data_col(df_course, course_cols.course_cip)
+    ):
+        warn_non_cip_program_column(
+            df_course,
+            course_cols.course_cip,
+            role="course_cip",
+            logger=LOGGER,
+        )
+    has_term_degree = has_data_col(df_course, course_cols.term_degree)
     has_cr = has_data_col(
         df_course, course_cols.number_of_credits_earned
     ) and has_data_col(df_course, course_cols.number_of_credits_attempted)
@@ -233,11 +267,12 @@ def resolve_student_term_add_feature_spec(
         ),
         program_of_study_area=has_term_prog,
         credit_fraction_and_intensity=has_cr,
-        num_courses_in_program_area=has_term_prog,
+        num_courses_in_program_area=has_term_prog and has_course_subject_areas,
         num_course_by_category_fracs=True,
         section_student_fractions=bool(section_enrolled and g),
         student_rate_vs_section_fractions=bool(section_enrolled and g),
         program_change_from_prior_term=bool(has_term_prog and term_on),
+        term_degree_changed_prev_term=bool(has_term_degree and term_on),
     )
 
 

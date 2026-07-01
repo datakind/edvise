@@ -22,8 +22,8 @@ resources:
               - "{{job.parameters.databricks_institution_name}}"
               - --gcp_bucket_name
               - "{{job.parameters.gcp_bucket_name}}"
-              - --sync_run_id
-              - "{{job.parameters.sync_run_id}}"
+              - --batch_id
+              - "{{job.parameters.batch_id}}"
               - --gcs_source_prefix
               - "{{job.parameters.gcs_source_prefix}}"
               - --bronze_subdir
@@ -70,7 +70,7 @@ resources:
         - name: gcp_bucket_name
           default: ""
         # Empty = files land directly under bronze_subdir (default gcs_uploads).
-        - name: sync_run_id
+        - name: batch_id
           default: ""
         - name: gcs_source_prefix
           default: validated/

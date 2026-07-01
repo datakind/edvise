@@ -21,10 +21,9 @@ After Step 2b, ``gate_2`` registers ``sma_gate_2_transformation_review`` when pl
 (``cohort_transformation_review.json`` / ``course_transformation_review.json`` — artifact types
 ``cohort_transformation_review`` / ``course_transformation_review``), merges resolutions, then
 ``sma_gate_2_hook_preview`` for ``HookSpec`` previews
-(``cohort_transformation_hook_preview.json`` / ``course_transformation_hook_preview.json``), then
-materializes ``transform_hooks.py`` after UC approval. When any plan has ``hook_required: true``,
-``sma_gate_2_hook_required`` gates ``cohort_transformation_hook_hitl.json`` /
-``course_transformation_hook_hitl.json`` as before. When manifest grain is stricter than cleaned
+(``cohort_transformation_hook_preview.json`` / ``course_transformation_hook_preview.json``) for plans
+with ``hook_required: true`` (set in Step 2b or via transformation review option 3), then
+materializes ``transform_hooks.py`` after UC approval. When manifest grain is stricter than cleaned
 row count, ``sma_gate_2_grain`` gates ``cohort_sma_grain_hitl.json`` / ``course_sma_grain_hitl.json``
 (see :mod:`edvise.genai.mapping.schema_mapping_agent.grain_resolution`).
 """
@@ -64,7 +63,10 @@ from edvise.genai.mapping.shared.utilities import (
 disable_mlflow_side_effects_for_openai_gateway()
 
 from edvise.configs import genai as genai_cfg
-from edvise.genai.mapping.shared.active_promotion import promote_genai_mapping_to_active
+from edvise.genai.mapping.shared.active_promotion import (
+    promote_genai_mapping_to_active,
+    update_genai_active_registry_execute,
+)
 from edvise.genai.mapping.shared.databricks_ai_gateway import resolve_gateway_model_id
 from edvise.genai.mapping.schema_mapping_agent.grain_resolution import (
     execute_transformation_map_for_sma_execute_mode,
@@ -747,6 +749,14 @@ def run_onboard_gate_2(
                 "entity_type": entity_type,
             }
             TransformationMap.model_validate(tm_dict)
+        from edvise.genai.mapping.schema_mapping_agent.transformation.validation import (
+            raise_pydantic_validation_error_if_any,
+            validate_transformation_plans_against_manifest,
+        )
+
+        raise_pydantic_validation_error_if_any(
+            validate_transformation_plans_against_manifest(data, manifest_2a)
+        )
         return data
 
     transformation_data = llm_complete_with_parse_retry(
@@ -816,6 +826,19 @@ def run_onboard_gate_2(
         cohort_review_path=paths.cohort_transformation_review,
         course_review_path=paths.course_transformation_review,
     )
+    from edvise.genai.mapping.schema_mapping_agent.transformation.validation import (
+        validate_transformation_plans_against_manifest,
+    )
+
+    post_review_plan_errors = validate_transformation_plans_against_manifest(
+        transformation_data,
+        manifest_2a,
+    )
+    if post_review_plan_errors:
+        details = "; ".join(e.detail for e in post_review_plan_errors)
+        raise ValueError(
+            "Transformation plan / manifest alignment failed after review: " + details
+        )
 
     _sma_gateway_model_id = resolve_gateway_model_id()
 
@@ -837,14 +860,6 @@ def run_onboard_gate_2(
         generate_sma_transform_hook_preview_rows_for_entity,
         load_hook_specs_from_sma_preview_path,
         write_sma_transform_hook_preview_json,
-    )
-    from edvise.genai.mapping.schema_mapping_agent.transformation.hitl.hook_required_hitl import (
-        apply_transformation_hook_hitl_resolutions,
-        build_transformation_hook_hitl_envelope_for_entity,
-        write_transformation_hook_hitl_envelope,
-    )
-    from edvise.genai.mapping.schema_mapping_agent.transformation.hitl.gates import (
-        check_transformation_hook_hitl_gate,
     )
 
     LOGGER.info("[onboard/gate_2] Transform hook generation (preview)")
@@ -912,58 +927,6 @@ def run_onboard_gate_2(
             "[onboard/gate_2] Materialized transform_hooks.py (%d HookSpec(s))",
             len(preview_hook_specs),
         )
-
-    cohort_hook_env = build_transformation_hook_hitl_envelope_for_entity(
-        transformation_data,
-        institution_id=institution_id,
-        entity_type="cohort",
-    )
-    course_hook_env = build_transformation_hook_hitl_envelope_for_entity(
-        transformation_data,
-        institution_id=institution_id,
-        entity_type="course",
-    )
-    write_transformation_hook_hitl_envelope(
-        paths.cohort_transformation_hook_hitl, cohort_hook_env
-    )
-    write_transformation_hook_hitl_envelope(
-        paths.course_transformation_hook_hitl, course_hook_env
-    )
-    LOGGER.info(
-        "[onboard/gate_2] Transformation hook_required HITL — cohort_items=%d course_items=%d",
-        len(cohort_hook_env.items),
-        len(course_hook_env.items),
-    )
-    _pipeline_job_state.register_sma_gate_2_hook_required_artifacts(
-        catalog,
-        institution_id,
-        onboard_run_id,
-        cohort_transformation_hook_hitl_path=paths.cohort_transformation_hook_hitl,
-        course_transformation_hook_hitl_path=paths.course_transformation_hook_hitl,
-    )
-    LOGGER.info(
-        "[onboard/gate_2] Waiting for Unity Catalog HITL approval (sma_gate_2_hook_required)"
-    )
-    _pipeline_job_state.wait_for_sma_gate_2_hook_required_hitl(
-        catalog,
-        onboard_run_id,
-        institution_id=institution_id,
-        poll_interval_seconds=DEFAULT_HITL_POLL_INTERVAL_SECONDS,
-        timeout_seconds=DEFAULT_HITL_POLL_TIMEOUT_SECONDS,
-    )
-    for _hook_hitl_path in (
-        paths.cohort_transformation_hook_hitl,
-        paths.course_transformation_hook_hitl,
-    ):
-        check_transformation_hook_hitl_gate(_hook_hitl_path)
-    _pipeline_job_state.after_sma_gate_2_hook_required_approved(
-        catalog, institution_id, onboard_run_id
-    )
-    transformation_data = apply_transformation_hook_hitl_resolutions(
-        transformation_data,
-        cohort_hitl_path=paths.cohort_transformation_hook_hitl,
-        course_hitl_path=paths.course_transformation_hook_hitl,
-    )
 
     tmaps = transformation_data.get("transformation_maps") or {}
     for _entity in ("cohort", "course"):
@@ -1073,6 +1036,8 @@ def run_execute(
     institution_id: str,
     paths: SMAPaths,
     spark_session: Any,
+    *,
+    execute_run_id: str,
 ) -> None:
     from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import (
         FieldMappingManifest,
@@ -1168,6 +1133,11 @@ def run_execute(
 
     # Write output data
     _write_output_data(paths.output_data, cohort_result, course_result)
+    LOGGER.info("[execute] Updating genai_active_registry execute pointer")
+    update_genai_active_registry_execute(
+        paths.active_root,
+        execute_run_id=execute_run_id,
+    )
     LOGGER.info("[execute] Complete. Exiting.")
 
 
@@ -1188,6 +1158,7 @@ def run(
     inputs_toml_path: str | None = None,
     db_run_id: str | None = None,
     pipeline_version: str | None = None,
+    bronze_batch_dir: str | None = None,
 ) -> None:
     if mode == "onboard":
         if not (onboard_run_id or "").strip():
@@ -1264,6 +1235,17 @@ def run(
         pipeline_version=_pv_job,
     )
     LOGGER.info("pipeline_version=%s", school_config.pipeline_version)
+
+    if mode == "execute":
+        from edvise.genai.mapping.shared.batch_input_paths import (
+            apply_bronze_batch_dir_overrides,
+        )
+
+        school_config = apply_bronze_batch_dir_overrides(
+            school_config,
+            bronze_batch_dir=bronze_batch_dir,
+        )
+
     input_file_paths: dict[str, list[str]] = {
         ds_name: [
             str(resolve_genai_data_path(school_config.bronze_volumes_path, f))
@@ -1298,7 +1280,12 @@ def run(
                 e,
             )
 
-        run_execute(institution_id, paths, spark_session)
+        run_execute(
+            institution_id,
+            paths,
+            spark_session,
+            execute_run_id=str(execute_run_id).strip(),
+        )
         try:
             _pipeline_state.update_execute_pipeline_run_status(
                 catalog,
@@ -1401,6 +1388,14 @@ if __name__ == "__main__":
         help="Databricks job run id (orchestration id) stored on pipeline_runs.db_run_id; empty omits.",
     )
     parser.add_argument(
+        "--bronze_batch_dir",
+        default="",
+        help=(
+            "ES inference only: batch landing dir from batch_gcs_ingest "
+            "(gcs_uploads/{batch_id}/). Resolves inputs.toml filenames inside it."
+        ),
+    )
+    parser.add_argument(
         "--new_onboard_run",
         action="store_true",
         help=(
@@ -1462,6 +1457,7 @@ if __name__ == "__main__":
             inputs_toml_path=(args.inputs_toml_path or "").strip() or None,
             db_run_id=_db_run_id,
             pipeline_version=(args.pipeline_version or "").strip() or None,
+            bronze_batch_dir=(args.bronze_batch_dir or "").strip() or None,
         )
     except BaseException:
         if args.mode == "execute" and _execute_run_id:
