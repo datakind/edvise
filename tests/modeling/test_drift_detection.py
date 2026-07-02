@@ -31,7 +31,9 @@ def test_compute_numeric_ks_drift_ignores_non_numeric_columns() -> None:
     assert results[0].ks_stat == pytest.approx(0.0)
 
 
-def test_log_numeric_ks_drift_writes_to_logger(caplog: pytest.LogCaptureFixture) -> None:
+def test_log_numeric_ks_drift_writes_to_logger(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     df_train = pd.DataFrame({"x": [0.0, 0.1, 0.2], "y": [1.0, 1.0, 1.0]})
     df_infer = pd.DataFrame({"x": [0.8, 0.9, 1.0], "y": [1.0, 1.0, 1.0]})
     logger = logging.getLogger("test.drift")
