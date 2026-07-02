@@ -28,7 +28,7 @@ from h2o.estimators.estimator_base import H2OEstimator
 
 from edvise import modeling, dataio
 from edvise.modeling.h2o_ml import utils as h2o_utils
-from edvise.modeling import inference
+from edvise.modeling import drift_detection, inference
 
 
 class RunType(str, Enum):
@@ -292,6 +292,14 @@ def run_predictions(
     features_df, unique_ids = align_features(
         df_test_imp, model_feature_names, pred_cfg.student_id_col
     )
+
+    df_train_imp = imp.transform(df_train)
+    drift_detection.log_numeric_ks_drift(
+        df_train_imp.loc[:, model_feature_names],
+        features_df,
+        context=f"numeric KS drift ({run_type.value})",
+    )
+
     pred_labels, pred_probs = predict_probs(
         features_df,
         model,
