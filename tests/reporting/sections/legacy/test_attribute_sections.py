@@ -232,21 +232,6 @@ def test_checkpoint_valid_variants(mock_card, unit, value, expected_snippet):
     assert expected_snippet in result
 
 
-def test_checkpoint_section_uses_optional_desc(mock_card):
-    mock_card.cfg.preprocessing.checkpoint.unit = "term"
-    mock_card.cfg.preprocessing.checkpoint.value = 1
-    mock_card.cfg.preprocessing.checkpoint.optional_desc = (
-        "The model makes this prediction at the end of the first term."
-    )
-
-    registry = SectionRegistry()
-    legacy_attribute_sections.register_attribute_sections(mock_card, registry)
-    rendered = registry.render_all()
-    result = rendered["checkpoint_section"]
-
-    assert result == "The model makes this prediction at the end of the first term."
-
-
 def test_checkpoint_section_missing_config(mock_card, caplog):
     # Simulate exception due to missing checkpoint
     del mock_card.cfg.preprocessing.checkpoint

@@ -167,12 +167,6 @@ def register_attribute_sections(card, registry):
         ordinal function.
         """
         try:
-            optional_desc = getattr(
-                card.cfg.preprocessing.checkpoint, "optional_desc", None
-            )
-            if optional_desc:
-                return optional_desc
-
             unit = card.cfg.preprocessing.checkpoint.unit
             value = card.cfg.preprocessing.checkpoint.value
             base_message = "The model makes this prediction when the student has"
@@ -181,7 +175,6 @@ def register_attribute_sections(card, registry):
             elif unit in {"year", "term", "semester"}:
                 unit_label = unit + ("s" if value != 1 else "")
                 return f"{base_message} completed {value} {unit_label}"
-            return "Unable to retrieve model checkpoint information"
         except (AttributeError, TypeError, KeyError) as e:
             LOGGER.warning(
                 f"[checkpoint_section] Failed to generate checkpoint description: {e}"
