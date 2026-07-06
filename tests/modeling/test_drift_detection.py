@@ -4,6 +4,8 @@ import pandas as pd
 import pytest
 
 from edvise.modeling.drift_detection import (
+    DRIFT_REPORT_COLUMNS,
+    build_numeric_drift_report_df,
     compute_numeric_ks_drift,
     log_numeric_ks_drift,
 )
@@ -39,7 +41,7 @@ def test_log_numeric_ks_drift_writes_to_logger(
     logger = logging.getLogger("test.drift")
 
     with caplog.at_level(logging.INFO, logger="test.drift"):
-        log_numeric_ks_drift(
+        report = log_numeric_ks_drift(
             df_train,
             df_infer,
             top_n=2,
@@ -50,3 +52,19 @@ def test_log_numeric_ks_drift_writes_to_logger(
     messages = [record.message for record in caplog.records]
     assert any("unit test" in message for message in messages)
     assert any("x" in message and "KS=" in message for message in messages)
+    assert list(report.columns) == list(DRIFT_REPORT_COLUMNS)
+    assert report.iloc[0]["feature"] == "x"
+    assert report.iloc[0]["mean_delta"] > 0
+
+
+def test_build_numeric_drift_report_df_includes_summary_stats() -> None:
+    df_train = pd.DataFrame({"gpa": [2.0, 2.5, 3.0]})
+    df_infer = pd.DataFrame({"gpa": [3.0, 3.5, 4.0]})
+
+    report = build_numeric_drift_report_df(df_train, df_infer)
+
+    assert len(report) == 1
+    assert report.loc[0, "train_mean"] == pytest.approx(2.5)
+    assert report.loc[0, "infer_mean"] == pytest.approx(3.5)
+    assert report.loc[0, "mean_delta"] == pytest.approx(1.0)
+    assert report.loc[0, "ks_stat"] > 0.5

@@ -12,6 +12,22 @@ from sklearn.preprocessing import MinMaxScaler
 
 LOGGER = logging.getLogger(__name__)
 
+DRIFT_REPORT_COLUMNS: tuple[str, ...] = (
+    "feature",
+    "train_mean",
+    "infer_mean",
+    "mean_delta",
+    "train_median",
+    "infer_median",
+    "median_delta",
+    "train_std",
+    "infer_std",
+    "train_null_pct",
+    "infer_null_pct",
+    "ks_stat",
+    "p_value",
+)
+
 
 @dataclass(frozen=True)
 class FeatureDriftResult:
@@ -20,18 +36,12 @@ class FeatureDriftResult:
     p_value: float
 
 
-def compute_numeric_ks_drift(
+def _select_numeric_feature_frames(
     df_train: pd.DataFrame,
     df_infer: pd.DataFrame,
     *,
     feature_columns: t.Sequence[str] | None = None,
-) -> list[FeatureDriftResult]:
-    """
-    Compare numeric feature distributions (training reference vs inference) via KS test.
-
-    Numeric columns are MinMax-scaled using the training split fit, matching legacy
-    notebook behavior. Categorical features are not evaluated.
-    """
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.Index]:
     if feature_columns is not None:
         cols = [
             c
@@ -47,15 +57,14 @@ def compute_numeric_ks_drift(
     numeric_cols = train.select_dtypes(include="number").columns.intersection(
         infer.select_dtypes(include="number").columns
     )
-    if len(numeric_cols) == 0:
-        return []
+    return train.loc[:, numeric_cols], infer.loc[:, numeric_cols], numeric_cols
 
-    train_numeric = train.loc[:, numeric_cols]
-    infer_numeric = infer.loc[:, numeric_cols]
 
+def _scale_numeric_frames(
+    train_numeric: pd.DataFrame, infer_numeric: pd.DataFrame
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     scaler = MinMaxScaler()
     scaler.fit(train_numeric)
-
     train_scaled = pd.DataFrame(
         scaler.transform(train_numeric),
         columns=train_numeric.columns,
@@ -66,6 +75,28 @@ def compute_numeric_ks_drift(
         columns=infer_numeric.columns,
         index=infer_numeric.index,
     )
+    return train_scaled, infer_scaled
+
+
+def compute_numeric_ks_drift(
+    df_train: pd.DataFrame,
+    df_infer: pd.DataFrame,
+    *,
+    feature_columns: t.Sequence[str] | None = None,
+) -> list[FeatureDriftResult]:
+    """
+    Compare numeric feature distributions (training reference vs inference) via KS test.
+
+    Numeric columns are MinMax-scaled using the training split fit, matching legacy
+    notebook behavior. Categorical features are not evaluated.
+    """
+    train_numeric, infer_numeric, numeric_cols = _select_numeric_feature_frames(
+        df_train, df_infer, feature_columns=feature_columns
+    )
+    if len(numeric_cols) == 0:
+        return []
+
+    train_scaled, infer_scaled = _scale_numeric_frames(train_numeric, infer_numeric)
 
     results: list[FeatureDriftResult] = []
     for col in infer_scaled.columns:
@@ -76,6 +107,65 @@ def compute_numeric_ks_drift(
     return results
 
 
+def build_numeric_drift_report_df(
+    df_train: pd.DataFrame,
+    df_infer: pd.DataFrame,
+    *,
+    feature_columns: t.Sequence[str] | None = None,
+) -> pd.DataFrame:
+    """
+    Build a per-feature drift report comparing training reference vs inference cohorts.
+
+    Summary statistics (mean, median, std, null %) are computed on the imputed feature
+    values passed in. KS statistics use MinMax scaling fit on the training split.
+    """
+    train_numeric, infer_numeric, numeric_cols = _select_numeric_feature_frames(
+        df_train, df_infer, feature_columns=feature_columns
+    )
+    if len(numeric_cols) == 0:
+        return pd.DataFrame(columns=list(DRIFT_REPORT_COLUMNS))
+
+    ks_by_feature = {
+        r.feature: r
+        for r in compute_numeric_ks_drift(
+            df_train, df_infer, feature_columns=list(numeric_cols)
+        )
+    }
+
+    rows: list[dict[str, t.Any]] = []
+    for col in numeric_cols:
+        train_s = pd.to_numeric(train_numeric[col], errors="coerce")
+        infer_s = pd.to_numeric(infer_numeric[col], errors="coerce")
+        train_mean = float(train_s.mean())
+        infer_mean = float(infer_s.mean())
+        train_median = float(train_s.median())
+        infer_median = float(infer_s.median())
+        ks = ks_by_feature[col]
+        rows.append(
+            {
+                "feature": col,
+                "train_mean": train_mean,
+                "infer_mean": infer_mean,
+                "mean_delta": infer_mean - train_mean,
+                "train_median": train_median,
+                "infer_median": infer_median,
+                "median_delta": infer_median - train_median,
+                "train_std": float(train_s.std()),
+                "infer_std": float(infer_s.std()),
+                "train_null_pct": float(train_s.isna().mean()),
+                "infer_null_pct": float(infer_s.isna().mean()),
+                "ks_stat": ks.ks_stat,
+                "p_value": ks.p_value,
+            }
+        )
+
+    return (
+        pd.DataFrame(rows, columns=list(DRIFT_REPORT_COLUMNS))
+        .sort_values("ks_stat", ascending=False)
+        .reset_index(drop=True)
+    )
+
+
 def log_numeric_ks_drift(
     df_train: pd.DataFrame,
     df_infer: pd.DataFrame,
@@ -84,28 +174,28 @@ def log_numeric_ks_drift(
     feature_columns: t.Sequence[str] | None = None,
     context: str = "model drift detection",
     logger: logging.Logger | None = None,
-) -> list[FeatureDriftResult]:
-    """Run :func:`compute_numeric_ks_drift` and log the top features by KS statistic."""
+) -> pd.DataFrame:
+    """Log top drifting features and return the full drift report DataFrame."""
     log = logger or LOGGER
-    results = compute_numeric_ks_drift(
+    report = build_numeric_drift_report_df(
         df_train, df_infer, feature_columns=feature_columns
     )
-    if not results:
+    if report.empty:
         log.info("[%s] No numeric features to compare.", context)
-        return results
+        return report
 
-    sorted_results = sorted(results, key=lambda r: r.ks_stat, reverse=True)
-    n = min(top_n, len(sorted_results))
+    n = min(top_n, len(report))
     log.info(
         "[%s] Top %d numeric features by KS statistic (categorical not evaluated):",
         context,
         n,
     )
-    for result in sorted_results[:n]:
+    for row in report.head(n).itertuples(index=False):
         log.info(
-            "  %-30s  KS=%.4f  p=%.4e",
-            result.feature,
-            result.ks_stat,
-            result.p_value,
+            "  %-30s  KS=%.4f  p=%.4e  mean_delta=%+.4f",
+            row.feature,
+            row.ks_stat,
+            row.p_value,
+            row.mean_delta,
         )
-    return sorted_results
+    return report

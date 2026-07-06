@@ -61,6 +61,7 @@ class PredOutputs:
     top_features_result: pd.DataFrame
     shap_feature_importance: pd.DataFrame | None
     support_score_distribution: pd.DataFrame
+    feature_drift_report: pd.DataFrame
     grouped_features: pd.DataFrame
     grouped_contribs_df: pd.DataFrame
     unique_ids: pd.Series
@@ -294,8 +295,9 @@ def run_predictions(
     )
 
     df_train_imp = imp.transform(df_train)
-    drift_detection.log_numeric_ks_drift(
-        df_train_imp.loc[:, model_feature_names],
+    train_features = df_train_imp.loc[:, model_feature_names]
+    feature_drift_report = drift_detection.log_numeric_ks_drift(
+        train_features,
         features_df,
         context=f"numeric KS drift ({run_type.value})",
     )
@@ -374,6 +376,7 @@ def run_predictions(
         top_features_result=top_features_result,
         shap_feature_importance=sfi,
         support_score_distribution=ssd,
+        feature_drift_report=feature_drift_report,
         grouped_features=grouped_features,
         grouped_contribs_df=grouped_contribs_df,
         unique_ids=unique_ids,
