@@ -155,6 +155,11 @@ from edvise.utils.databricks import normalize_legacy_uc_model_short_name
 
 SSI_PIPELINES_SUBPATH = "student-success-intervention/pipelines"
 
+# Dev test override — remove before merging to develop.
+_HARDCODED_SSI_PIPELINES_WORKSPACE_ROOT = (
+    "/Workspace/Users/vishakh@datakind.org/student-success-intervention/pipelines"
+)
+
 # Fixed basenames under ``…/bronze_volume/training_inputs/`` on UC.
 DEFAULT_LEGACY_CONFIG_BASENAME = "config.toml"
 DEFAULT_FEATURES_TABLE_NAME = "features_table.toml"
@@ -183,6 +188,13 @@ def resolve_ssi_pipelines_workspace_root(
     Uses ``--ssi_pipelines_workspace_root`` when set; otherwise derives from
     ``--ds_run_as`` (same identity as ``training_h2o`` workspace paths).
     """
+    if _HARDCODED_SSI_PIPELINES_WORKSPACE_ROOT:
+        LOGGER.warning(
+            "Using hardcoded SSI pipelines workspace root: %s",
+            _HARDCODED_SSI_PIPELINES_WORKSPACE_ROOT,
+        )
+        return _HARDCODED_SSI_PIPELINES_WORKSPACE_ROOT
+
     explicit = (workspace_root or "").strip()
     if explicit:
         return explicit
