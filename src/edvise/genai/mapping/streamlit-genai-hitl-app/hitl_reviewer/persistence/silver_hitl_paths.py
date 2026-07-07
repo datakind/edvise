@@ -102,27 +102,19 @@ def set_item_reviewer_note(
         row["reviewer_note"] = str(note).strip()
 
 
+_CANONICAL_SEASONS = frozenset({"FALL", "SPRING", "SUMMER", "WINTER"})
+
+
 def validated_season_map_replace_from_dataframe(
     df: object,
 ) -> tuple[list[dict[str, str]] | None, str | None]:
     """
-    Build and validate ``season_map_replace`` rows from the Streamlit ``data_editor`` dataframe.
+    Build ``season_map_replace`` rows from the Streamlit ``data_editor`` dataframe.
 
-    Lives here (not :mod:`hitl_json_batch_commit`) so unit tests avoid a hard dependency on
-    ``streamlit``.
+    Shape checks only; pipeline resolve validates :class:`SeasonMapEntry`.
 
     Returns ``(rows, None)`` on success, or ``(None, error_message)``.
     """
-    try:
-        from edvise.genai.mapping.identity_agent.term_normalization.schemas import (
-            SeasonMapEntry,
-        )
-    except ImportError:
-        return (
-            None,
-            "``edvise`` SeasonMapEntry schema is not available in this environment.",
-        )
-
     if df is None:
         return None, "Season map table is missing — reload the page and try again."
     if not isinstance(df, pd.DataFrame):
@@ -138,11 +130,14 @@ def validated_season_map_replace_from_dataframe(
             return None, "Each non-empty season row needs a **raw** token."
         if not can:
             return None, f"Season row for raw `{raw}` needs a **canonical** label."
-        try:
-            ent = SeasonMapEntry.model_validate({"raw": raw, "canonical": can.upper()})
-        except Exception as e:  # noqa: BLE001
-            return None, f"Season map row `{raw}` → `{can}`: {e}"
-        rows_out.append(ent.model_dump(mode="json"))
+        canonical = can.upper()
+        if canonical not in _CANONICAL_SEASONS:
+            return (
+                None,
+                f"Season row `{raw}` → `{can}`: canonical must be one of "
+                f"{sorted(_CANONICAL_SEASONS)}.",
+            )
+        rows_out.append({"raw": raw, "canonical": canonical})
     return rows_out, None
 
 

@@ -1,3 +1,6 @@
+## 1.4.4 (2026-07-07)
+- fix: removing edvise dependency from genai HITL app due to deployment issue on databricks (#198)
+
 ## 1.4.3 (2026-07-07)
 - feat: add numeric KS drift detection logging to shared H2O inference pipeline (#197)
 
