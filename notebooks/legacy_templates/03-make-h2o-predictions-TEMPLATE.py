@@ -37,7 +37,7 @@ import pandas as pd
 from databricks.connect import DatabricksSession
 
 from edvise import configs, dataio, modeling
-from edvise.modeling import h2o_ml
+from edvise.modeling import drift_detection, h2o_ml
 from py4j.protocol import Py4JJavaError
 
 import h2o
@@ -149,6 +149,20 @@ df_test = imputer.transform(df_test)
 
 features_df = df_test.loc[:, model_feature_names]
 unique_ids = df_test[cfg.student_id_col]
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ## model drift detection
+# MAGIC Numeric features only (categorical would need KL divergence or similar).
+
+# COMMAND ----------
+
+drift_detection.log_numeric_ks_drift(
+    df_train.loc[:, model_feature_names],
+    features_df,
+    context="model drift detection",
+)
 
 # COMMAND ----------
 
