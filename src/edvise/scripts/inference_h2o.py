@@ -167,6 +167,10 @@ class ModelInferenceTask:
                 f"{silver_schema}.inference_{run_id}_box_plot_table",
                 "inference box plot table (silver)",
             ),
+            ExpectedTable(
+                f"{silver_schema}.inference_{run_id}_feature_drift",
+                "inference numeric feature drift report (silver)",
+            ),
         ]
 
         validate_tables_exist(self.spark_session, inference_tables)
@@ -446,6 +450,10 @@ class ModelInferenceTask:
             f"inference_{self.args.db_run_id}_box_plot_table": (
                 box_whiskers_table,
                 "Box plot table",
+            ),
+            f"inference_{self.args.db_run_id}_feature_drift": (
+                out.feature_drift_report,
+                "Feature drift report",
             ),
         }
 
