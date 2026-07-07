@@ -1,7 +1,7 @@
 # Databricks App: GenAI HITL reviewer (Streamlit, UC hitl_reviews).
 # OAuth: DATABRICKS_GENAI_MAPPING_DEV_CLIENT_*. Host: DATABRICKS_DEV_HOST (workspace URL, same as PDP dev).
 # SQL warehouse: DATABRICKS_DEV_SQL_WAREHOUSE_ID.
-# Push to hotfix/deployment-genai-hitlapp → dev only (temporary, no edvise wheel).
+# Push to hotfix/deployment-genai-hitlapp → dev + staging (temporary hotfix testing).
 # Push tag v* → dev + staging. Restore tags-only trigger before merging hotfix to main/develop.
 
 name: deploy-genai-hitl-app
@@ -62,7 +62,6 @@ jobs:
 
   deploy-staging:
     name: Deploy GenAI HITL app to staging (staging_sst_01)
-    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
