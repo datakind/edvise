@@ -2,10 +2,8 @@
 """
 Databricks task 1: resolve ``pipeline_version`` and materialize the runtime bundle on UC volume.
 
-Fetches archived DAB YAML from GitHub at the resolved SHA into
-``<release_base>/<pipeline_version>/databricks_bundle_snapshot/``. Inference is submitted
-from Git at that SHA; no wheel, ``release.json``, ``pyproject.toml``, or
-``release_requirements.txt`` are materialized here.
+Fetches archived DAB YAML from GitHub at the resolved ref (Git SHA in dev, release tag in
+staging) into ``<release_base>/<pipeline_version>/databricks_bundle_snapshot/``.
 """
 
 from __future__ import annotations
@@ -18,7 +16,6 @@ from pathlib import Path
 
 
 def _setup_import_path() -> None:
-    """Databricks may exec this file without ``__file__``; use stack trace to find launchers/."""
     try:
         launcher = Path(__file__).resolve().parent
     except NameError:
@@ -53,14 +50,19 @@ from pipelines.pdp.launchers.bundle_materialize import (  # noqa: E402
     inference_yml_in_bundle,
     materialize_runtime_bundle_dir,
 )
+from pipelines.pdp.launchers.launcher_cli import add_model_resolution_args  # noqa: E402
+from pipelines.pdp.launchers.launcher_run_metadata import (  # noqa: E402
+    get_databricks_run_id,
+    record_versioned_inference_launcher_event,
+)
 from pipelines.pdp.launchers.model_metadata import (  # noqa: E402
     get_spark_session,
     resolve_model_run_and_pipeline_version,
     resolve_release_dir,
 )
+from pipelines.pdp.launchers.pipeline_version_ref import git_ref_kind  # noqa: E402
 
 LOGGER = logging.getLogger("materialize_runtime_bundle")
-DEFAULT_RELEASE_BASE = "/Volumes/dev_sst_02/default/edvise_releases"
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -69,13 +71,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "Resolve pipeline_version and materialize DAB YAML snapshot on the release volume."
         ),
     )
-    parser.add_argument("--databricks_institution_name", required=True)
-    parser.add_argument("--model_name", required=True)
-    parser.add_argument("--DB_workspace", required=True)
-    parser.add_argument(
-        "--release_base_path",
-        default=DEFAULT_RELEASE_BASE,
-    )
+    add_model_resolution_args(parser)
     parser.add_argument(
         "--github_repo",
         default=DEFAULT_GITHUB_REPO,
@@ -111,6 +107,16 @@ def main(argv: list[str] | None = None) -> int:
         LOGGER.error("SparkSession is required (run on Databricks).")
         return 1
 
+    launcher_run_id = get_databricks_run_id()
+    record_versioned_inference_launcher_event(
+        catalog=db_ws,
+        event="started",
+        databricks_institution_name=inst,
+        model_name=model,
+        launcher_run_id=launcher_run_id,
+        logger=LOGGER,
+    )
+
     resolved = resolve_model_run_and_pipeline_version(
         spark=spark,
         db_workspace=db_ws,
@@ -119,34 +125,81 @@ def main(argv: list[str] | None = None) -> int:
         logger=LOGGER,
     )
     if resolved is None:
+        record_versioned_inference_launcher_event(
+            catalog=db_ws,
+            event="failed",
+            databricks_institution_name=inst,
+            model_name=model,
+            launcher_run_id=launcher_run_id,
+            error_message="Could not resolve model_run_id / pipeline_version",
+            logger=LOGGER,
+        )
         return 1
     model_run_id, pipeline_version = resolved
     LOGGER.info(
-        "Materializing bundle for model_run_id=%s pipeline_version=%s",
+        "Materializing bundle for model_run_id=%s pipeline_version=%s (git %s)",
         model_run_id,
         pipeline_version,
+        git_ref_kind(pipeline_version),
     )
 
-    release_dir = resolve_release_dir(args.release_base_path, pipeline_version)
+    from pipelines.pdp.launchers.release_config import resolve_release_base_path
+
+    release_base = resolve_release_base_path(db_ws, args.release_base_path)
+    release_dir = resolve_release_dir(release_base, pipeline_version)
     try:
         materialize_runtime_bundle_dir(
             release_dir,
             pipeline_version,
-            git_sha=pipeline_version,
+            git_ref=pipeline_version,
             github_repo=args.github_repo.strip() or DEFAULT_GITHUB_REPO,
             skip_snapshot_if_present=args.skip_snapshot_if_present,
             logger=LOGGER,
         )
     except (OSError, ValueError) as exc:
         LOGGER.error("Failed to materialize runtime bundle: %s", exc)
+        record_versioned_inference_launcher_event(
+            catalog=db_ws,
+            event="failed",
+            databricks_institution_name=inst,
+            model_name=model,
+            model_run_id=model_run_id,
+            pipeline_version=pipeline_version,
+            launcher_run_id=launcher_run_id,
+            error_message=str(exc),
+            logger=LOGGER,
+        )
         return 1
 
     marker = inference_yml_in_bundle(release_dir)
     if not marker.is_file():
-        LOGGER.error("DAB snapshot missing after materialize: %s", marker)
+        msg = f"DAB snapshot missing after materialize: {marker}"
+        LOGGER.error(msg)
+        record_versioned_inference_launcher_event(
+            catalog=db_ws,
+            event="failed",
+            databricks_institution_name=inst,
+            model_name=model,
+            model_run_id=model_run_id,
+            pipeline_version=pipeline_version,
+            launcher_run_id=launcher_run_id,
+            error_message=msg,
+            logger=LOGGER,
+        )
         return 1
 
     LOGGER.info("Runtime bundle materialized at %s", release_dir)
+    record_versioned_inference_launcher_event(
+        catalog=db_ws,
+        event="started",
+        databricks_institution_name=inst,
+        model_name=model,
+        model_run_id=model_run_id,
+        pipeline_version=pipeline_version,
+        launcher_run_id=launcher_run_id,
+        payload={"bundle_materialized": str(release_dir), "task": "materialize_runtime_bundle"},
+        logger=LOGGER,
+    )
     return 0
 
 

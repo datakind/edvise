@@ -153,9 +153,10 @@ def test_build_submit_run_body_includes_acl() -> None:
 
 def test_build_submit_run_body_from_minimal_fixture() -> None:
     job = load_inference_job_definition(_FIXTURE)
+    sha = "87b641939205110d03ce8c300e68980327dd6732"
     body = build_submit_run_body(
         job,
-        pipeline_version="abc123sha456",
+        pipeline_version=sha,
         git_url="https://github.com/datakind/edvise",
         run_name="test-run",
         parameter_overrides={
@@ -164,7 +165,7 @@ def test_build_submit_run_body_from_minimal_fixture() -> None:
             "DB_workspace": "dev_sst_02",
         },
     )
-    assert body["git_source"]["git_commit"] == "abc123sha456"
+    assert body["git_source"]["git_commit"] == sha
     assert len(body["tasks"]) == 2
     assert body["tasks"][0]["task_key"] == "feature_generation"
     assert "job_clusters" not in body
@@ -172,6 +173,23 @@ def test_build_submit_run_body_from_minimal_fixture() -> None:
     assert "job_cluster_key" not in body["tasks"][0]
     assert "permissions" not in body
     assert "access_control_list" not in body
+
+
+def test_build_submit_run_body_uses_git_tag_for_release() -> None:
+    job = load_inference_job_definition(_FIXTURE)
+    body = build_submit_run_body(
+        job,
+        pipeline_version="v2.4.0",
+        git_url="https://github.com/datakind/edvise",
+        run_name="test-tag-run",
+        parameter_overrides={
+            "databricks_institution_name": "miles_cc",
+            "model_name": "retention_into_year_2_associates",
+            "DB_workspace": "staging_sst_01",
+        },
+    )
+    assert body["git_source"]["git_tag"] == "v2.4.0"
+    assert "git_commit" not in body["git_source"]
 
 
 @pytest.mark.skipif(not _FULL_YML.is_file(), reason="example bundle snapshot missing")

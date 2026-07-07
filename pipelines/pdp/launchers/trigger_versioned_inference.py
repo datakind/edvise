@@ -2,9 +2,9 @@
 """
 Databricks task 3: submit the full PDP inference pipeline from the archived bundle.
 
-Reads ``databricks_bundle_snapshot/resources/github_pdp_inference.yml`` materialized
-at ``pipeline_version``, submits a multi-task Jobs API run with ``git_source`` at that
-SHA, and polls until the child run finishes (Task 3 fails if child inference fails).
+Reads materialized YAML at ``pipeline_version`` (Git SHA in dev, release tag in staging),
+submits a multi-task Jobs API run pinned to that ref, and polls until completion.
+Fails closed — no fallback to current-deploy inference.
 """
 
 from __future__ import annotations
@@ -51,106 +51,32 @@ from pipelines.pdp.launchers.inference_job_submit import (  # noqa: E402
     DEFAULT_GIT_URL,
     submit_versioned_inference_from_bundle,
 )
-from pipelines.pdp.launchers.inference_parameters import (  # noqa: E402
-    build_stable_trigger_payload,
-    deep_merge_stable_dict,
-    parse_stable_trigger_json,
+from pipelines.pdp.launchers.launcher_cli import (  # noqa: E402
+    add_inference_trigger_args,
+    build_launcher_trigger_inputs,
+)
+from pipelines.pdp.launchers.launcher_run_metadata import (  # noqa: E402
+    get_databricks_run_id,
+    record_versioned_inference_launcher_event,
 )
 from pipelines.pdp.launchers.model_metadata import (  # noqa: E402
     get_spark_session,
     resolve_model_run_and_pipeline_version,
     resolve_release_dir,
 )
+from pipelines.pdp.launchers.pipeline_version_ref import git_ref_kind  # noqa: E402
 
 LOGGER = logging.getLogger("trigger_versioned_inference")
-DEFAULT_RELEASE_BASE = "/Volumes/dev_sst_02/default/edvise_releases"
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Submit versioned PDP inference (multi-task) from archived bundle YAML "
-            "at pipeline_version git SHA."
+            "at pipeline_version (Git SHA or release tag)."
         ),
     )
-    parser.add_argument("--databricks_institution_name", required=True)
-    parser.add_argument("--model_name", required=True)
-    parser.add_argument("--DB_workspace", required=True)
-    parser.add_argument(
-        "--release_base_path",
-        default=DEFAULT_RELEASE_BASE,
-    )
-    parser.add_argument(
-        "--git_url",
-        default=DEFAULT_GIT_URL,
-        help="Git remote for inference task source (default: datakind/edvise on GitHub).",
-    )
-    parser.add_argument(
-        "--cohort_file_name",
-        default="",
-        help="Override inference job parameter cohort_file_name.",
-    )
-    parser.add_argument(
-        "--course_file_name",
-        default="",
-        help="Override inference job parameter course_file_name.",
-    )
-    parser.add_argument(
-        "--gcp_bucket_name",
-        default="",
-        help="Override inference job parameter gcp_bucket_name.",
-    )
-    parser.add_argument(
-        "--datakind_notification_email",
-        default="",
-    )
-    parser.add_argument(
-        "--DK_CC_EMAIL",
-        default="",
-    )
-    parser.add_argument(
-        "--ds_run_as",
-        default="",
-        help="Service principal / run-as for inference tasks (job parameter).",
-    )
-    parser.add_argument(
-        "--service_account_executer",
-        default="",
-    )
-    parser.add_argument(
-        "--datakind_group_to_manage_workflow",
-        default="",
-        help="Group granted CAN_MANAGE_RUN on the submitted inference run.",
-    )
-    parser.add_argument(
-        "--viewer_user",
-        default="",
-        help="User granted CAN_VIEW on the submitted inference run.",
-    )
-    parser.add_argument(
-        "--inference_output_run_id",
-        default="",
-        help=(
-            "Optional inference output key (maps to job parameter db_run_id). "
-            "Use the same value as a previous run to overwrite silver Delta tables and "
-            "gold volume inference_jobs paths (e.g. 32-char hex from table names, or "
-            "versioned_<hex>). If empty, a new versioned_<uuid> id is generated."
-        ),
-    )
-    parser.add_argument(
-        "--inference_parameters_json",
-        default="",
-        help="Optional JSON object of archived-name parameter overrides.",
-    )
-    parser.add_argument(
-        "--stable_trigger_json",
-        default="",
-        help=(
-            "Optional Layer-1 stable trigger JSON (institution, datasets, outputs, "
-            "notifications). Merged over launcher flat args; maps to archived names "
-            "via built-in + release parameter_aliases.json."
-        ),
-    )
+    add_inference_trigger_args(parser)
     parser.add_argument(
         "--no-wait",
         action="store_true",
@@ -170,67 +96,30 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _optional_arg(value: str) -> str | None:
-    s = (value or "").strip()
-    return s if s else None
-
-
-def _parse_extra_parameter_overrides(raw: str) -> dict[str, str]:
-    """Parse ``inference_parameters_json`` (archived parameter names only)."""
-    text = (raw or "").strip()
-    if not text:
-        return {}
-    extra = json.loads(text)
-    if not isinstance(extra, dict):
-        msg = "--inference_parameters_json must be a JSON object"
-        raise ValueError(msg)
-    return {str(k): str(v) for k, v in extra.items() if v is not None}
-
-
-def _build_launcher_parameter_overrides(args: argparse.Namespace) -> dict[str, str]:
-    overrides: dict[str, str] = {
-        "databricks_institution_name": args.databricks_institution_name.strip(),
-        "model_name": args.model_name.strip(),
-        "DB_workspace": args.DB_workspace.strip(),
-    }
-    for key in (
-        "cohort_file_name",
-        "course_file_name",
-        "gcp_bucket_name",
-        "datakind_notification_email",
-        "DK_CC_EMAIL",
-        "ds_run_as",
-        "service_account_executer",
-        "datakind_group_to_manage_workflow",
-        "viewer_user",
-    ):
-        val = _optional_arg(getattr(args, key))
-        if val is not None:
-            overrides[key] = val
-    out_id = _optional_arg(getattr(args, "inference_output_run_id", ""))
-    if out_id is not None:
-        overrides["db_run_id"] = out_id
-    return overrides
-
-
-def _build_stable_trigger(args: argparse.Namespace) -> dict[str, object]:
-    base = build_stable_trigger_payload(
-        institution=args.databricks_institution_name.strip(),
-        model_name=args.model_name.strip(),
-        workspace=args.DB_workspace.strip(),
-        cohort_dataset=args.cohort_file_name.strip(),
-        course_dataset=args.course_file_name.strip(),
-        output_bucket=args.gcp_bucket_name.strip(),
-        notification_to=args.datakind_notification_email.strip(),
-        notification_cc=args.DK_CC_EMAIL.strip(),
-        inference_output_run_id=args.inference_output_run_id.strip(),
-        ds_run_as=args.ds_run_as.strip(),
-        service_account_executer=args.service_account_executer.strip(),
+def _fail(
+    *,
+    catalog: str,
+    inst: str,
+    model: str,
+    model_run_id: str | None,
+    pipeline_version: str | None,
+    launcher_run_id: str | None,
+    message: str,
+) -> int:
+    LOGGER.error("%s", message)
+    record_versioned_inference_launcher_event(
+        catalog=catalog,
+        event="failed",
+        databricks_institution_name=inst,
+        model_name=model,
+        model_run_id=model_run_id,
+        pipeline_version=pipeline_version,
+        launcher_run_id=launcher_run_id,
+        error_message=message,
+        payload={"task": "trigger_versioned_inference"},
+        logger=LOGGER,
     )
-    overlay = parse_stable_trigger_json(getattr(args, "stable_trigger_json", ""))
-    if overlay:
-        return deep_merge_stable_dict(base, overlay)
-    return base
+    return 1
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -249,20 +138,31 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
+    launcher_run_id = get_databricks_run_id()
     try:
-        param_overrides = _build_launcher_parameter_overrides(args)
-        extra_param_overrides = _parse_extra_parameter_overrides(
-            args.inference_parameters_json
-        )
-        stable_trigger = _build_stable_trigger(args)
+        inputs = build_launcher_trigger_inputs(args, default_git_url=DEFAULT_GIT_URL)
     except (json.JSONDecodeError, TypeError, ValueError) as exc:
-        LOGGER.error("Invalid inference parameter overrides: %s", exc)
-        return 1
+        return _fail(
+            catalog=db_ws,
+            inst=inst,
+            model=model,
+            model_run_id=None,
+            pipeline_version=None,
+            launcher_run_id=launcher_run_id,
+            message=f"Invalid inference parameter overrides: {exc}",
+        )
 
     spark = get_spark_session()
     if spark is None:
-        LOGGER.error("SparkSession is required (run on Databricks).")
-        return 1
+        return _fail(
+            catalog=db_ws,
+            inst=inst,
+            model=model,
+            model_run_id=None,
+            pipeline_version=None,
+            launcher_run_id=launcher_run_id,
+            message="SparkSession is required (run on Databricks).",
+        )
 
     resolved = resolve_model_run_and_pipeline_version(
         spark=spark,
@@ -272,37 +172,77 @@ def main(argv: list[str] | None = None) -> int:
         logger=LOGGER,
     )
     if resolved is None:
-        return 1
+        return _fail(
+            catalog=db_ws,
+            inst=inst,
+            model=model,
+            model_run_id=None,
+            pipeline_version=None,
+            launcher_run_id=launcher_run_id,
+            message="Could not resolve model_run_id / pipeline_version",
+        )
     model_run_id, pipeline_version = resolved
     LOGGER.info(
-        "Triggering inference for model_run_id=%s pipeline_version=%s",
+        "Triggering inference for model_run_id=%s pipeline_version=%s (git %s)",
         model_run_id,
         pipeline_version,
+        git_ref_kind(pipeline_version),
     )
 
-    release_dir = resolve_release_dir(args.release_base_path, pipeline_version)
+    release_dir = resolve_release_dir(inputs.release_base_path, pipeline_version)
     if not release_dir.is_dir():
-        LOGGER.error("Release bundle not found: %s (run materialize_runtime_bundle)", release_dir)
-        return 1
+        return _fail(
+            catalog=db_ws,
+            inst=inst,
+            model=model,
+            model_run_id=model_run_id,
+            pipeline_version=pipeline_version,
+            launcher_run_id=launcher_run_id,
+            message=(
+                f"Release bundle not found: {release_dir} "
+                "(run materialize_runtime_bundle first)"
+            ),
+        )
 
     try:
         run_id = submit_versioned_inference_from_bundle(
             release_dir,
             pipeline_version=pipeline_version,
-            parameter_overrides=param_overrides,
-            extra_parameter_overrides=extra_param_overrides,
-            stable_trigger=stable_trigger,
-            git_url=(args.git_url or DEFAULT_GIT_URL).strip(),
+            parameter_overrides=inputs.param_overrides,
+            extra_parameter_overrides=inputs.extra_param_overrides,
+            stable_trigger=inputs.stable_trigger,
+            git_url=inputs.git_url,
             dry_run=args.dry_run,
             wait_for_completion=not args.no_wait,
             poll_interval_seconds=args.poll_interval_seconds,
             logger=LOGGER,
         )
     except (OSError, ValueError, RuntimeError) as exc:
-        LOGGER.error("Failed to submit or complete versioned inference: %s", exc)
-        return 1
+        return _fail(
+            catalog=db_ws,
+            inst=inst,
+            model=model,
+            model_run_id=model_run_id,
+            pipeline_version=pipeline_version,
+            launcher_run_id=launcher_run_id,
+            message=f"Failed to submit or complete versioned inference: {exc}",
+        )
 
     if not args.dry_run:
+        record_versioned_inference_launcher_event(
+            catalog=db_ws,
+            event="completed" if not args.no_wait else "started",
+            databricks_institution_name=inst,
+            model_name=model,
+            model_run_id=model_run_id,
+            pipeline_version=pipeline_version,
+            launcher_run_id=launcher_run_id,
+            child_inference_run_id=run_id,
+            cohort_dataset_name=inputs.param_overrides.get("cohort_file_name"),
+            course_dataset_name=inputs.param_overrides.get("course_file_name"),
+            payload={"task": "trigger_versioned_inference", "no_wait": args.no_wait},
+            logger=LOGGER,
+        )
         if args.no_wait:
             LOGGER.info(
                 "Versioned inference submitted (no-wait; training model_run_id=%s, "

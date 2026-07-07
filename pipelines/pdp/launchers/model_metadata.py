@@ -161,4 +161,7 @@ def resolve_model_run_and_pipeline_version(
 
 
 def resolve_release_dir(release_base_path: str, pipeline_version: str) -> Path:
-    return Path(release_base_path).expanduser().resolve() / pipeline_version
+    from pipelines.pdp.launchers.pipeline_version_ref import sanitize_release_dir_name
+
+    segment = sanitize_release_dir_name(pipeline_version)
+    return Path(release_base_path).expanduser().resolve() / segment

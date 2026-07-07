@@ -31,17 +31,17 @@ def _write_yaml_snapshot_bundle(release_dir: Path) -> None:
 
 
 def test_resolve_release_dir() -> None:
-    p = vil.resolve_release_dir("/vol/releases", "abc123sha")
+    p = mm.resolve_release_dir("/vol/releases", "abc123sha")
     assert p.name == "abc123sha"
     assert str(p).endswith("abc123sha")
 
 
 def test_escape_sql_string_literal() -> None:
-    assert vil.escape_sql_string_literal("a'b") == "a''b"
+    assert mm.escape_sql_string_literal("a'b") == "a''b"
 
 
 def test_sql_select_latest_pipeline_model() -> None:
-    q = vil.sql_select_latest_pipeline_model(
+    q = mm.sql_select_latest_pipeline_model(
         "dev_sst_02", "miles_cc", "retention_into_year_2_associates"
     )
     assert "`dev_sst_02`.default.pipeline_models" in q
@@ -50,7 +50,7 @@ def test_sql_select_latest_pipeline_model() -> None:
 
 
 def test_silver_training_config_path() -> None:
-    p = vil.silver_training_config_path("dev_sst_02", "miles_cc", "abc123")
+    p = mm.silver_training_config_path("dev_sst_02", "miles_cc", "abc123")
     assert "silver_volume" in p.parts
     assert "abc123" in p.parts
     assert p.name == "config.toml"
@@ -58,18 +58,18 @@ def test_silver_training_config_path() -> None:
 
 
 def test_pipeline_version_from_payload_json_str() -> None:
-    assert vil.pipeline_version_from_payload_json_str(None) is None
-    assert vil.pipeline_version_from_payload_json_str("") is None
+    assert mm.pipeline_version_from_payload_json_str(None) is None
+    assert mm.pipeline_version_from_payload_json_str("") is None
     raw = json.dumps({"pipeline_version": "6b22fb5904c83da9d769fc4cc4d7d6d8d919520b"})
     assert (
-        vil.pipeline_version_from_payload_json_str(raw)
+        mm.pipeline_version_from_payload_json_str(raw)
         == "6b22fb5904c83da9d769fc4cc4d7d6d8d919520b"
     )
 
 
 def test_pipeline_version_from_config_toml() -> None:
     text = 'pipeline_version = "sha_from_toml"\ninstitution_id = "x"\n'
-    assert vil.pipeline_version_from_config_toml(text) == "sha_from_toml"
+    assert mm.pipeline_version_from_config_toml(text) == "sha_from_toml"
 
 
 def test_resolve_pipeline_version_from_payload_when_config_missing(
@@ -104,7 +104,7 @@ def test_resolve_pipeline_version_from_payload_when_config_missing(
     spark = _Spark(
         [{"model_run_id": "9e5494d8774c4f62917d4c569aa0ce95", "payload_json": payload}]
     )
-    out = vil.resolve_model_run_and_pipeline_version(
+    out = mm.resolve_model_run_and_pipeline_version(
         spark=spark,
         db_workspace="dev_sst_02",
         databricks_institution_name="san_jose_state_uni_pdp",
@@ -145,7 +145,7 @@ def test_resolve_pipeline_version_prefers_config_over_payload_json(
 
     payload = json.dumps({"pipeline_version": "sha_from_payload_only"})
     spark = _Spark([{"model_run_id": "mr1", "payload_json": payload}])
-    out = vil.resolve_model_run_and_pipeline_version(
+    out = mm.resolve_model_run_and_pipeline_version(
         spark=spark,
         db_workspace="dev_sst_02",
         databricks_institution_name="miles_cc",
@@ -182,7 +182,7 @@ def test_resolve_model_run_fallback_config_toml(
             return _DF(self.rows)
 
     spark = _Spark([{"model_run_id": "mr1", "payload_json": "{}"}])
-    out = vil.resolve_model_run_and_pipeline_version(
+    out = mm.resolve_model_run_and_pipeline_version(
         spark=spark,
         db_workspace="dev_sst_02",
         databricks_institution_name="miles_cc",
@@ -201,7 +201,7 @@ def test_resolve_model_run_no_rows() -> None:
             return _DF()
 
     assert (
-        vil.resolve_model_run_and_pipeline_version(
+        mm.resolve_model_run_and_pipeline_version(
             spark=_Spark(),
             db_workspace="dev_sst_02",
             databricks_institution_name="miles_cc",

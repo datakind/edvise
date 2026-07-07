@@ -1,15 +1,28 @@
+# PDP versioned inference launcher — triggered by edvise-api (see inference_trigger_contract.py).
+#
+# API-overridden job parameters mirror edvise_github_sourced_pdp_inference_pipeline plus:
+#   release_base_path, stable_trigger_json, inference_parameters_json, inference_output_run_id
+#
+# Models trained in dev store pipeline_version as Git SHA; staging models store a release tag.
 resources:
   jobs:
-    dev_jonathan_edvise_versioned_inference_launcher_mvp:
-      name: "[dev jonathan] edvise_versioned_inference_launcher_mvp"
+    edvise_versioned_inference_launcher:
+      name: edvise_versioned_inference_launcher
+      description: >
+        Version-safe PDP inference entry point. Resolves the model's pipeline_version
+        (Git SHA in dev, release tag in staging), materializes the archived DAB bundle,
+        validates parameters, and submits the full inference DAG at that version.
+        Trigger via edvise-api using inference_trigger_contract.py — do not run
+        edvise_github_sourced_pdp_inference_pipeline directly for production inference.
+      webhook_notifications:
+        on_failure:
+          - id: ${var.inference_slack_webhook_id}
       max_concurrent_runs: 5
-      run_as:
-        service_principal_name: 6c8d8d76-1399-4065-aeb5-9474d32773cf
       tasks:
         - task_key: materialize_runtime_bundle
           description: >
-            Resolve pipeline_version; fetch inference DAB YAML from GitHub at that SHA
-            into databricks_bundle_snapshot/ on the release volume.
+            Resolve pipeline_version from model metadata; fetch inference DAB YAML from
+            GitHub at that SHA or tag into databricks_bundle_snapshot/ on the release volume.
           spark_python_task:
             python_file: pipelines/pdp/launchers/materialize_runtime_bundle.py
             source: GIT
@@ -24,11 +37,11 @@ resources:
               - "{{job.parameters.release_base_path}}"
               - --github_repo
               - "{{job.parameters.github_repo}}"
-          job_cluster_key: edvise-versioned-inference-launcher-mvp-cluster
+          job_cluster_key: edvise-versioned-inference-launcher-cluster
         - task_key: versioned_inference_launcher_validate
           description: >
-            Verify release bundle on volume (archived inference YAML vs cluster compatibility).
-            Does not pip install or run entrypoint; bundle is YAML snapshot only.
+            Validate archived bundle (DBR/Python), resolve parameters from archived YAML,
+            and fail fast before child inference submit.
           depends_on:
             - task_key: materialize_runtime_bundle
           spark_python_task:
@@ -43,11 +56,37 @@ resources:
               - "{{job.parameters.DB_workspace}}"
               - --release_base_path
               - "{{job.parameters.release_base_path}}"
-          job_cluster_key: edvise-versioned-inference-launcher-mvp-cluster
+              - --git_url
+              - "{{job.parameters.git_url}}"
+              - --cohort_file_name
+              - "{{job.parameters.cohort_file_name}}"
+              - --course_file_name
+              - "{{job.parameters.course_file_name}}"
+              - --gcp_bucket_name
+              - "{{job.parameters.gcp_bucket_name}}"
+              - --datakind_notification_email
+              - "{{job.parameters.datakind_notification_email}}"
+              - --DK_CC_EMAIL
+              - "{{job.parameters.DK_CC_EMAIL}}"
+              - --ds_run_as
+              - "{{job.parameters.ds_run_as}}"
+              - --service_account_executer
+              - "{{job.parameters.service_account_executer}}"
+              - --datakind_group_to_manage_workflow
+              - "{{job.parameters.datakind_group_to_manage_workflow}}"
+              - --viewer_user
+              - "{{job.parameters.viewer_user}}"
+              - --inference_output_run_id
+              - "{{job.parameters.inference_output_run_id}}"
+              - --inference_parameters_json
+              - "{{job.parameters.inference_parameters_json}}"
+              - --stable_trigger_json
+              - "{{job.parameters.stable_trigger_json}}"
+          job_cluster_key: edvise-versioned-inference-launcher-cluster
         - task_key: trigger_versioned_inference
           description: >
-            Submit full PDP inference pipeline (multi-task) from archived bundle YAML
-            at pipeline_version git SHA, wait for child run completion, and fail if
+            Submit full PDP inference pipeline (multi-task) from archived bundle YAML at
+            the model's pipeline_version, wait for child run completion, and fail if
             inference fails. Per-step logs are on the submitted inference run.
           depends_on:
             - task_key: versioned_inference_launcher_validate
@@ -89,9 +128,9 @@ resources:
               - "{{job.parameters.inference_parameters_json}}"
               - --stable_trigger_json
               - "{{job.parameters.stable_trigger_json}}"
-          job_cluster_key: edvise-versioned-inference-launcher-mvp-cluster
+          job_cluster_key: edvise-versioned-inference-launcher-cluster
       job_clusters:
-        - job_cluster_key: edvise-versioned-inference-launcher-mvp-cluster
+        - job_cluster_key: edvise-versioned-inference-launcher-cluster
           new_cluster:
             cluster_name: ""
             spark_version: 15.4.x-cpu-ml-scala2.12
@@ -110,21 +149,17 @@ resources:
             data_security_mode: SINGLE_USER
             runtime_engine: STANDARD
             num_workers: 0
-      git_source:
-        git_url: https://github.com/datakind/edvise
-        git_provider: gitHub
-        git_commit: 28ac702361058b5c3c6d549a2da75bd2fd2116f8
       queue:
         enabled: true
       parameters:
         - name: databricks_institution_name
-          default: "miles_cc"
+          default: ${var.databricks_institution_name}
         - name: model_name
-          default: "retention_into_year_2_associates"
+          default: ${var.model_name}
         - name: DB_workspace
-          default: "dev_sst_02"
+          default: ${var.DB_workspace}
         - name: release_base_path
-          default: "/Volumes/dev_sst_02/default/edvise_releases"
+          default: ${var.release_base_path}
         - name: github_repo
           default: "datakind/edvise"
         - name: git_url
@@ -136,15 +171,15 @@ resources:
         - name: gcp_bucket_name
           default: ""
         - name: datakind_notification_email
-          default: ""
+          default: ${var.datakind_notification_email}
         - name: DK_CC_EMAIL
-          default: ""
+          default: ${var.DK_CC_EMAIL}
         - name: ds_run_as
-          default: ""
+          default: ${var.ds_run_as}
         - name: service_account_executer
-          default: ""
+          default: ${var.service_account_executer}
         - name: datakind_group_to_manage_workflow
-          default: ""
+          default: ${var.datakind_group_to_manage_workflow}
         - name: viewer_user
           default: ""
         - name: inference_output_run_id
@@ -153,3 +188,10 @@ resources:
           default: ""
         - name: stable_trigger_json
           default: ""
+      permissions:
+        - group_name: ${var.datakind_group_to_manage_workflow}
+          level: CAN_MANAGE
+        - service_principal_name: ${var.ds_run_as}
+          level: CAN_MANAGE
+        - user_name: ${var.service_account_executer}
+          level: CAN_MANAGE

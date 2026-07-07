@@ -25,6 +25,7 @@ from pipelines.pdp.launchers.bundle_from_dab import (
     load_inference_job_definition,
 )
 from pipelines.pdp.launchers.inference_parameters import resolve_versioned_job_parameters
+from pipelines.pdp.launchers.pipeline_version_ref import build_git_source, git_ref_kind
 
 LOGGER = logging.getLogger(__name__)
 
@@ -592,11 +593,7 @@ def build_submit_run_body(
 
     body: dict[str, Any] = {
         "run_name": run_name,
-        "git_source": {
-            "git_url": git_url.rstrip("/"),
-            "git_provider": "gitHub",
-            "git_commit": pipeline_version,
-        },
+        "git_source": build_git_source(git_url, pipeline_version),
         "tasks": submit_tasks,
     }
     if parameters:
@@ -732,8 +729,9 @@ def submit_versioned_inference_from_bundle(
             "(pass datakind_group_to_manage_workflow / viewer_user on the launcher job)."
         )
     logger.info(
-        "Submitting inference job %r at git commit %s (%s tasks)",
+        "Submitting inference job %r at git %s %s (%s tasks)",
         job.get("name", inference_job_key),
+        git_ref_kind(pipeline_version),
         pipeline_version,
         len(body.get("tasks") or []),
     )

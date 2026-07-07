@@ -1,21 +1,15 @@
 #!/usr/bin/env python3
 """
-MVP launcher: validate a **versioned runtime bundle** before Git-based inference submit.
+Validate a versioned runtime bundle and resolve inference parameters before child submit.
 
-Release layout (``<release_base>/<pipeline_version>/``, dev: SHA-named folder):
-
-- ``databricks_bundle_snapshot/resources/github_pdp_inference.yml`` — archived DAB
-  inference job; **parsed at run time** for steps, DBR, libraries.
-
-This task only checks that the bundle exists and that the cluster/runtime matches the
-archived job definition. Inference runs from Git at ``pipeline_version`` via
-``trigger_versioned_inference``; no wheel, ``release.json``, ``pyproject.toml``, or
-``release_requirements.txt`` are used.
+Checks DBR/Python compatibility and runs full parameter contract resolution using the
+same inputs as ``trigger_versioned_inference``. Fails closed — no fallback to HEAD inference.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import re
@@ -26,7 +20,6 @@ from typing import Any, Mapping
 
 
 def _setup_import_path() -> None:
-    """Databricks may exec this file without ``__file__``; use stack trace to find launchers/."""
     try:
         launcher = Path(__file__).resolve().parent
     except NameError:
@@ -58,34 +51,39 @@ _setup_import_path()
 
 from pipelines.pdp.launchers.bundle_from_dab import (  # noqa: E402
     build_effective_release,
+    inference_yml_path,
+    load_inference_job_definition,
+)
+from pipelines.pdp.launchers.inference_parameters import (  # noqa: E402
+    resolve_versioned_job_parameters,
+)
+from pipelines.pdp.launchers.launcher_cli import (  # noqa: E402
+    add_inference_trigger_args,
+    build_launcher_trigger_inputs,
+)
+from pipelines.pdp.launchers.launcher_run_metadata import (  # noqa: E402
+    get_databricks_run_id,
+    record_versioned_inference_launcher_event,
 )
 from pipelines.pdp.launchers.model_metadata import (  # noqa: E402
-    escape_sql_string_literal,
     get_spark_session,
-    pipeline_version_from_config_toml,
-    pipeline_version_from_payload_json_str,
     resolve_model_run_and_pipeline_version,
     resolve_release_dir,
-    silver_training_config_path,
-    sql_select_latest_pipeline_model,
 )
+from pipelines.pdp.launchers.inference_job_submit import DEFAULT_GIT_URL  # noqa: E402
+from pipelines.pdp.launchers.pipeline_version_ref import git_ref_kind  # noqa: E402
 
 LOGGER = logging.getLogger("versioned_inference_launcher")
 
-DEFAULT_RELEASE_BASE = "/Volumes/dev_sst_02/default/edvise_releases"
-
 BUNDLE_ARCHIVED_DAB_HINT = (
-    "This Edvise runtime bundle is not compatible with the current cluster/runtime. "
-    "Run inference using the archived Databricks bundle for this release "
-    "(see databricks_bundle_snapshot/ in the bundle; MVP does not auto-trigger jobs)."
+    "Versioned inference cannot run on this cluster/runtime. "
+    "Use the archived Databricks bundle for this pipeline_version."
 )
-
 
 _DBR_MAJOR_MINOR = re.compile(r"^(\d+)\.(\d+)")
 
 
 def dbr_major_minor(version: str) -> tuple[int, int] | None:
-    """Parse DBR ``major.minor`` from ``15.4`` or ``15.4.x-cpu-ml-scala2.12``."""
     m = _DBR_MAJOR_MINOR.match(version.strip().lower())
     if not m:
         return None
@@ -93,12 +91,6 @@ def dbr_major_minor(version: str) -> tuple[int, int] | None:
 
 
 def databricks_runtime_compatible(required: str, current: str) -> bool:
-    """
-    Return whether cluster DBR matches the bundle requirement.
-
-    ``DATABRICKS_RUNTIME_VERSION`` is often shortened (e.g. ``15.4``) while job YAML
-    uses the full image key (``15.4.x-cpu-ml-scala2.12``).
-    """
     req = required.strip().lower()
     cur = current.strip().lower()
     if req == cur:
@@ -111,7 +103,6 @@ def databricks_runtime_compatible(required: str, current: str) -> bool:
 
 
 def parse_python_xy(spec: str) -> tuple[int, int] | None:
-    """Parse a ``major.minor`` Python requirement (e.g. ``3.11``)."""
     s = spec.strip()
     parts = s.replace(" ", "").split(".")
     if len(parts) < 2:
@@ -123,7 +114,6 @@ def parse_python_xy(spec: str) -> tuple[int, int] | None:
 
 
 def current_databricks_runtime_version() -> str | None:
-    """Databricks cluster image tag, when available."""
     v = os.environ.get("DATABRICKS_RUNTIME_VERSION")
     return v.strip() if isinstance(v, str) and v.strip() else None
 
@@ -142,16 +132,12 @@ def check_runtime_bundle_compatibility(
     spark: Any,
     logger: logging.Logger = LOGGER,
 ) -> tuple[bool, str]:
-    """
-    Validate driver Python / DBR against ``effective["required_runtime"]`` (from DAB YAML).
-    """
     mode = effective.get("execution_mode")
     if isinstance(mode, str) and mode.strip().lower() == "dab":
         return (
             False,
             "This bundle declares execution_mode=dab; use archived DAB job for this "
-            "release (wheel launcher path not used). "
-            + BUNDLE_ARCHIVED_DAB_HINT,
+            "release. " + BUNDLE_ARCHIVED_DAB_HINT,
         )
 
     rr = effective.get("required_runtime")
@@ -175,7 +161,7 @@ def check_runtime_bundle_compatibility(
         if not cur:
             logger.warning(
                 "Bundle requires databricks_runtime=%r but DATABRICKS_RUNTIME_VERSION "
-                "is unset; skipping DBR check (local or non-Databricks).",
+                "is unset; skipping DBR check.",
                 req_dbr,
             )
         elif not databricks_runtime_compatible(req_dbr, cur):
@@ -184,12 +170,7 @@ def check_runtime_bundle_compatibility(
                 f"Bundle requires DBR {req_dbr!r}; current cluster is {cur!r}. "
                 + BUNDLE_ARCHIVED_DAB_HINT,
             )
-        else:
-            logger.info(
-                "DBR compatibility OK (bundle=%r, cluster=%r)",
-                req_dbr,
-                cur,
-            )
+        logger.info("DBR compatibility OK (bundle=%r, cluster=%r)", req_dbr, cur)
 
     req_spark = rr.get("spark")
     if isinstance(req_spark, str) and req_spark.strip():
@@ -207,37 +188,37 @@ def check_runtime_bundle_compatibility(
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Resolve model metadata and validate archived inference YAML from the release "
-            "bundle against the current cluster (Git-based inference submit; no pip/wheel)."
+            "Validate archived inference bundle, cluster compatibility, and parameter contract."
         ),
     )
-    parser.add_argument(
-        "--databricks_institution_name",
-        default="",
-        help=(
-            "Institution slug matching pipeline_models.institution_id (same as PDP "
-            "job parameter databricks_institution_name, e.g. miles_cc)."
-        ),
-    )
-    parser.add_argument(
-        "--model_name",
-        default="",
-        help="Registered model name matching pipeline_models.model_name.",
-    )
-    parser.add_argument(
-        "--DB_workspace",
-        default="",
-        help=(
-            "Unity Catalog catalog / workspace id (e.g. dev_sst_02). Used for "
-            "``<DB_workspace>.default.pipeline_models`` and silver_volume paths."
-        ),
-    )
-    parser.add_argument(
-        "--release_base_path",
-        default=DEFAULT_RELEASE_BASE,
-        help=f"Base path for versioned releases (default: {DEFAULT_RELEASE_BASE!r}).",
-    )
+    add_inference_trigger_args(parser)
     return parser.parse_args(argv)
+
+
+def _fail(
+    *,
+    catalog: str,
+    inst: str,
+    model: str,
+    model_run_id: str | None,
+    pipeline_version: str | None,
+    launcher_run_id: str | None,
+    message: str,
+) -> int:
+    LOGGER.error("%s", message)
+    record_versioned_inference_launcher_event(
+        catalog=catalog,
+        event="failed",
+        databricks_institution_name=inst,
+        model_name=model,
+        model_run_id=model_run_id,
+        pipeline_version=pipeline_version,
+        launcher_run_id=launcher_run_id,
+        error_message=message,
+        payload={"task": "versioned_inference_launcher_validate"},
+        logger=LOGGER,
+    )
+    return 1
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -247,70 +228,143 @@ def main(argv: list[str] | None = None) -> int:
         stream=sys.stderr,
     )
     args = parse_args(argv)
-
-    inst = (args.databricks_institution_name or "").strip()
-    model = (args.model_name or "").strip()
-    db_ws = (args.DB_workspace or "").strip()
-
+    inst = args.databricks_institution_name.strip()
+    model = args.model_name.strip()
+    db_ws = args.DB_workspace.strip()
     if not inst or not model or not db_ws:
         LOGGER.error(
             "Require --databricks_institution_name, --model_name, and --DB_workspace."
         )
         return 1
 
+    launcher_run_id = get_databricks_run_id()
+    try:
+        inputs = build_launcher_trigger_inputs(args, default_git_url=DEFAULT_GIT_URL)
+    except (json.JSONDecodeError, TypeError, ValueError) as exc:
+        return _fail(
+            catalog=db_ws,
+            inst=inst,
+            model=model,
+            model_run_id=None,
+            pipeline_version=None,
+            launcher_run_id=launcher_run_id,
+            message=f"Invalid inference parameter overrides: {exc}",
+        )
+
     spark = get_spark_session()
     if spark is None:
-        LOGGER.error(
-            "SparkSession is required to read pipeline_models (run this task on Databricks)."
+        return _fail(
+            catalog=db_ws,
+            inst=inst,
+            model=model,
+            model_run_id=None,
+            pipeline_version=None,
+            launcher_run_id=launcher_run_id,
+            message="SparkSession is required (run on Databricks).",
         )
-        return 1
 
     resolved = resolve_model_run_and_pipeline_version(
         spark=spark,
         db_workspace=db_ws,
         databricks_institution_name=inst,
         model_name=model,
+        logger=LOGGER,
     )
     if resolved is None:
-        return 1
-    _model_run_id, pipeline_version = resolved
+        return _fail(
+            catalog=db_ws,
+            inst=inst,
+            model=model,
+            model_run_id=None,
+            pipeline_version=None,
+            launcher_run_id=launcher_run_id,
+            message="Could not resolve model_run_id / pipeline_version",
+        )
+    model_run_id, pipeline_version = resolved
 
-    release_dir = resolve_release_dir(args.release_base_path, pipeline_version)
-    LOGGER.info("Release bundle directory: %s", release_dir)
+    release_dir = resolve_release_dir(inputs.release_base_path, pipeline_version)
+    LOGGER.info(
+        "Release bundle directory: %s (pipeline_version=%s, git %s)",
+        release_dir,
+        pipeline_version,
+        git_ref_kind(pipeline_version),
+    )
     if not release_dir.is_dir():
-        LOGGER.error("Release bundle directory not found: %s", release_dir)
-        return 1
+        return _fail(
+            catalog=db_ws,
+            inst=inst,
+            model=model,
+            model_run_id=model_run_id,
+            pipeline_version=pipeline_version,
+            launcher_run_id=launcher_run_id,
+            message=f"Release bundle directory not found: {release_dir}",
+        )
 
     try:
         effective = build_effective_release(release_dir, pipeline_version)
     except (OSError, TypeError, ValueError, FileNotFoundError) as exc:
-        LOGGER.error("Could not load release bundle: %s", exc)
-        return 1
+        return _fail(
+            catalog=db_ws,
+            inst=inst,
+            model=model,
+            model_run_id=model_run_id,
+            pipeline_version=pipeline_version,
+            launcher_run_id=launcher_run_id,
+            message=f"Could not load release bundle: {exc}",
+        )
 
     ok_compat, compat_msg = check_runtime_bundle_compatibility(effective, spark=spark)
     if not ok_compat:
-        LOGGER.error("%s", compat_msg)
-        return 1
+        return _fail(
+            catalog=db_ws,
+            inst=inst,
+            model=model,
+            model_run_id=model_run_id,
+            pipeline_version=pipeline_version,
+            launcher_run_id=launcher_run_id,
+            message=compat_msg,
+        )
     LOGGER.info("Runtime bundle compatibility check passed.")
 
-    contract = effective.get("parameter_contract")
-    if isinstance(contract, list) and contract:
-        required = [
-            entry["parameter_name"]
-            for entry in contract
-            if isinstance(entry, dict) and entry.get("required")
-        ]
-        LOGGER.info(
-            "Archived parameter contract: %s declared, %s required by tasks",
-            len(contract),
-            required,
+    try:
+        job = load_inference_job_definition(inference_yml_path(release_dir))
+        resolve_versioned_job_parameters(
+            job,
+            release_dir,
+            launcher_overrides=inputs.param_overrides,
+            extra_overrides=inputs.extra_param_overrides,
+            stable_trigger=inputs.stable_trigger,
+            logger=LOGGER,
+        )
+    except (OSError, TypeError, ValueError) as exc:
+        return _fail(
+            catalog=db_ws,
+            inst=inst,
+            model=model,
+            model_run_id=model_run_id,
+            pipeline_version=pipeline_version,
+            launcher_run_id=launcher_run_id,
+            message=f"Parameter contract validation failed: {exc}",
         )
 
     LOGGER.info(
-        "Bundle OK at %s (steps=%s, pipeline_version=%s)",
+        "Bundle and parameter contract OK at %s (steps=%s, pipeline_version=%s)",
         release_dir,
         effective.get("expected_steps"),
         pipeline_version,
+    )
+    record_versioned_inference_launcher_event(
+        catalog=db_ws,
+        event="started",
+        databricks_institution_name=inst,
+        model_name=model,
+        model_run_id=model_run_id,
+        pipeline_version=pipeline_version,
+        launcher_run_id=launcher_run_id,
+        cohort_dataset_name=inputs.param_overrides.get("cohort_file_name"),
+        course_dataset_name=inputs.param_overrides.get("course_file_name"),
+        payload={"task": "versioned_inference_launcher_validate", "validated": True},
+        logger=LOGGER,
     )
     return 0
 
