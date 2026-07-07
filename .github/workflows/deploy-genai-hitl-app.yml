@@ -1,7 +1,7 @@
 # Databricks App: GenAI HITL reviewer (Streamlit, UC hitl_reviews).
 # OAuth: DATABRICKS_GENAI_MAPPING_DEV_CLIENT_*. Host: DATABRICKS_DEV_HOST (workspace URL, same as PDP dev).
 # SQL warehouse: DATABRICKS_DEV_SQL_WAREHOUSE_ID.
-# Push to hotfix/deployment-genai-hitlapp → dev only (temporary, for testing slim wheel deploy).
+# Push to hotfix/deployment-genai-hitlapp → dev only (temporary, no edvise wheel).
 # Push tag v* → dev + staging. Restore tags-only trigger before merging hotfix to main/develop.
 
 name: deploy-genai-hitl-app
@@ -29,30 +29,16 @@ jobs:
         with:
           python-version: "3.11.11"
 
-      - name: Install uv and Databricks CLI
+      - name: Install Databricks CLI
         run: |
           python -m pip install --upgrade pip
-          pip install uv
           curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
           databricks -v
         shell: bash
 
-      - name: Install project (uv) — so bundle artifact build can use repo pyproject
-        run: |
-          uv venv
-          uv pip install .
-        working-directory: ${{ github.workspace }}
-
-      - name: Build edvise wheel and pin HITL app requirements.txt
-        run: |
-          set -eux
-          cd "${{ github.workspace }}"
-          uv build
-          HITL="src/edvise/genai/mapping/streamlit-genai-hitl-app"
-          mkdir -p "$HITL/wheels"
-          rm -f "$HITL/wheels"/edvise-*.whl
-          cp dist/edvise-*.whl "$HITL/wheels/"
-          (cd "$HITL" && python3 generate_requirements.py)
+      - name: Generate HITL app requirements.txt
+        run: python3 generate_requirements.py
+        working-directory: src/edvise/genai/mapping/streamlit-genai-hitl-app
 
       - name: Deploy and start app (databricks.yml → target dev)
         working-directory: src/edvise/genai/mapping/streamlit-genai-hitl-app
@@ -86,30 +72,16 @@ jobs:
         with:
           python-version: "3.11.11"
 
-      - name: Install uv and Databricks CLI
+      - name: Install Databricks CLI
         run: |
           python -m pip install --upgrade pip
-          pip install uv
           curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sh
           databricks -v
         shell: bash
 
-      - name: Install project (uv) — so bundle artifact build can use repo pyproject
-        run: |
-          uv venv
-          uv pip install .
-        working-directory: ${{ github.workspace }}
-
-      - name: Build edvise wheel and pin HITL app requirements.txt
-        run: |
-          set -eux
-          cd "${{ github.workspace }}"
-          uv build
-          HITL="src/edvise/genai/mapping/streamlit-genai-hitl-app"
-          mkdir -p "$HITL/wheels"
-          rm -f "$HITL/wheels"/edvise-*.whl
-          cp dist/edvise-*.whl "$HITL/wheels/"
-          (cd "$HITL" && python3 generate_requirements.py)
+      - name: Generate HITL app requirements.txt
+        run: python3 generate_requirements.py
+        working-directory: src/edvise/genai/mapping/streamlit-genai-hitl-app
 
       - name: Deploy and start app (databricks.yml → target prod)
         working-directory: src/edvise/genai/mapping/streamlit-genai-hitl-app

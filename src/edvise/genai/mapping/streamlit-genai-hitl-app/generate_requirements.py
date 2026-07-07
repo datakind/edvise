@@ -3,11 +3,8 @@
 from __future__ import annotations
 
 import argparse
-import os
 from pathlib import Path
-import tempfile
 import tomllib
-import zipfile
 
 DEPENDENCY_GROUP = "streamlit-genai-hitl-app"
 
@@ -32,51 +29,6 @@ def load_dependency_group(pyproject_path: Path, group_name: str) -> list[str]:
     return [str(dependency) for dependency in dependencies]
 
 
-def strip_wheel_requires_dist(wheel_path: Path) -> None:
-    """
-    Remove ``Requires-Dist`` entries from wheel METADATA in place.
-
-    Databricks Apps install from ``requirements.txt``; without this, pip pulls
-    the full ``edvise`` library dependency set (h2o, weasyprint, mlflow, …)
-    even though the HITL app only needs a small runtime subset declared below.
-    """
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmp = Path(tmpdir)
-        with zipfile.ZipFile(wheel_path) as zin:
-            zin.extractall(tmp)
-
-        dist_info = next(tmp.glob("*.dist-info"))
-        metadata_path = dist_info / "METADATA"
-        metadata_lines = metadata_path.read_text().splitlines()
-        metadata_path.write_text(
-            "\n".join(
-                line for line in metadata_lines if not line.startswith("Requires-Dist:")
-            )
-            + "\n"
-        )
-
-        wheel_path.unlink()
-        with zipfile.ZipFile(wheel_path, "w", zipfile.ZIP_DEFLATED) as zout:
-            for file_path in tmp.rglob("*"):
-                if file_path.is_file():
-                    zout.write(file_path, file_path.relative_to(tmp).as_posix())
-
-
-def _edvise_requirement_line(*, app_dir: Path, repo_root: Path) -> str:
-    """
-    Prefer a wheel under ``./wheels/`` (CI / Databricks bundle); else editable install
-    of the parent repo for local ``streamlit run``.
-    """
-    wheels = sorted(app_dir.glob("wheels/edvise-*.whl"))
-    if wheels:
-        strip_wheel_requires_dist(wheels[0])
-        rel = wheels[0].relative_to(app_dir).as_posix()
-        return f"edvise @ file:./{rel}"
-
-    rel_repo = Path(os.path.relpath(repo_root.resolve(), app_dir.resolve())).as_posix()
-    return f"-e {rel_repo}"
-
-
 def write_requirements(output_path: Path, lines: list[str]) -> None:
     output_path.write_text("\n".join(lines) + "\n")
 
@@ -99,8 +51,7 @@ def main() -> None:
     output_path = args.output.resolve() if args.output else app_dir / "requirements.txt"
 
     dependencies = load_dependency_group(pyproject_path, DEPENDENCY_GROUP)
-    edvise_line = _edvise_requirement_line(app_dir=app_dir, repo_root=repo_root)
-    write_requirements(output_path, [*dependencies, edvise_line])
+    write_requirements(output_path, dependencies)
 
     print(output_path)
     print(output_path.read_text(), end="")

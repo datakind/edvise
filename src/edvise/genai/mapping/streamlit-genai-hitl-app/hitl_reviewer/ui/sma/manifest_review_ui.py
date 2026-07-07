@@ -14,7 +14,7 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
-from edvise.utils.institution_naming import format_institution_display_name
+from hitl_reviewer.utils.institution_naming import format_institution_display_name
 from hitl_reviewer.persistence.silver_hitl_paths import silver_volume_path_session_tag
 from hitl_reviewer.ui._shared import (
     init_sel_key,

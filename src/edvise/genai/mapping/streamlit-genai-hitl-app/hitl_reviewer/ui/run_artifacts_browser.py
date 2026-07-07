@@ -13,7 +13,7 @@ from typing import Any
 
 import streamlit as st
 
-from edvise.genai.mapping.shared.volume_paths import silver_genai_mapping_root
+from hitl_reviewer.platform.volume_path_utils import silver_genai_mapping_root
 from hitl_reviewer.platform.unity_volume_files import read_unity_file_text
 
 _PREVIEW_CHAR_CAP = 120_000
