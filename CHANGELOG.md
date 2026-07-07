@@ -1,3 +1,6 @@
+## 1.4.3 (2026-07-07)
+- feat: add numeric KS drift detection logging to shared H2O inference pipeline (#197)
+
 ## 1.4.2 (2026-07-01)
 - fix(genai): ensure execution cleaning applies frozen dtypes before dedupe (#196)
 
