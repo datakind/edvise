@@ -177,13 +177,19 @@ artifacts like ``.0`` (suffix season match breaks); **opaque** codes without a c
 
 ### Step 3 — Build `season_map`
 
-From unique values, identify all distinct season tokens. List them in **chronological order within a calendar year** (not academic year order).
+From unique values, identify all distinct season tokens. `season_map` is **ALWAYS** ordered by
+**calendar-year chronology**: `SPRING → SUMMER → FALL → WINTER`. This ordering never changes — it
+is independent of the raw token's spelling, its numeric value, and `year_semantics`.
 
 Rules:
 
 - Canonical label must be one of: `FALL`, `SPRING`, `SUMMER`, `WINTER`
 - Multiple raw tokens may share the same canonical label (e.g. `S1` and `S2` → `SUMMER`) but must appear as **separate entries** to preserve distinct chronological positions
 - Position in the list determines `season_rank` (1-indexed) used for `_term_order`
+- **Order by the canonical season's place in the calendar year, NOT by the raw token.** Sort by
+  `SPRING(1) < SUMMER(2) < FALL(3) < WINTER(4)`, ignoring the raw value. Do **not** order by numeric
+  code (`10`→FALL must come *after* `20`→SPRING even though 10 < 20), alphabetically, by academic-year
+  start (Fall does **not** go first), or by how the source file lists them.
 - For **Season_YYYY** formats, raw tokens are the spelled words as they appear: `"Fall"`, `"Spring"`
 - For opaque numeric or date formats where season cannot be observed, set `season_map: []`
 
@@ -365,13 +371,19 @@ artifacts like ``.0`` (suffix season match breaks); **opaque** codes without a c
 
 ### Step 3 — Build `season_map`
 
-From unique values, identify all distinct season tokens. List them in **chronological order within a calendar year** (not academic year order).
+From unique values, identify all distinct season tokens. `season_map` is **ALWAYS** ordered by
+**calendar-year chronology**: `SPRING → SUMMER → FALL → WINTER`. This ordering never changes — it
+is independent of the raw token's spelling, its numeric value, and `year_semantics`.
 
 Rules:
 
 - Canonical label must be one of: `FALL`, `SPRING`, `SUMMER`, `WINTER`
 - Multiple raw tokens may share the same canonical label (e.g. `S1` and `S2` → `SUMMER`) but must appear as **separate entries** to preserve distinct chronological positions
 - Position in the list determines `season_rank` (1-indexed) used for `_term_order`
+- **Order by the canonical season's place in the calendar year, NOT by the raw token.** Sort by
+  `SPRING(1) < SUMMER(2) < FALL(3) < WINTER(4)`, ignoring the raw value. Do **not** order by numeric
+  code (`10`→FALL must come *after* `20`→SPRING even though 10 < 20), alphabetically, by academic-year
+  start (Fall does **not** go first), or by how the source file lists them.
 - For **Season_YYYY** formats, raw tokens are the spelled words as they appear: `"Fall"`, `"Spring"`
 - For opaque numeric or date formats where season cannot be observed, set `season_map: []`
 
