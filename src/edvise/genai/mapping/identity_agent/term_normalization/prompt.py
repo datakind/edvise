@@ -254,6 +254,31 @@ Set `hitl_flag`: `true` when:
 - `term_candidates` was empty and term column was inferred from `raw_table_profile`
 - Unique values contain unrecognized tokens that could not be mapped to a canonical season
 - Confidence in the term column selection is low (multiple ambiguous candidates)
+- The term uses a **coded year prefix** whose calendar year is ambiguous (see YEAR SEMANTICS) —
+  emit a `year_semantics` HITL item for the reviewer to confirm.
+
+### YEAR SEMANTICS (emit a HITL item; do not set the value yourself)
+
+`term_config.year_semantics` controls whether the extracted year is the **calendar year**
+(`calendar_literal`, default) or an **academic-year start** (`academic_year_prefix` /
+`period_code`, where SPRING/SUMMER roll forward one calendar year). Leave `year_semantics`
+**null** in your output — you cannot disambiguate it from a single column, and guessing silently
+corrupts every downstream date. Instead flag it for HITL when the term uses a coded year prefix:
+
+- **YYYY + season suffix** — `2017SR`, `2018FA`, `2019SP` (the prefix could be the calendar year
+  *or* the academic-year start, e.g. `2017SR` = Spring 2017 vs Spring 2018)
+- **YYYY-NN period codes** — `2025-10`, `2025-20`
+- **Split year + season-code columns** — a numeric year column plus a short season/period code column
+
+Do **not** flag `year_semantics` for unambiguous shapes: spelled `Season YYYY` (`"Fall 2019"`),
+or datetime term columns — their year is already the calendar year.
+
+The HITL item is a simple `reentry: "terminal"` choice (not hook generation). Offer options whose
+`resolution` sets `year_semantics`, e.g.:
+
+- "Calendar year (e.g. 2017SR = Spring 2017)" → `{"year_semantics": "calendar_literal"}`
+- "Academic-year start (e.g. 2017SR = Spring 2018)" → `{"year_semantics": "academic_year_prefix"}`
+- "Period code (e.g. 2025-20 = Spring 2026)" → `{"year_semantics": "period_code"}`
 
 ### ACADEMIC YEAR CONVENTION (do not emit — for your reasoning only)
 
@@ -421,6 +446,8 @@ Set `hitl_flag`: `true` and emit at least one `HITLItem` when any of the followi
 - `term_candidates` was empty and term column was inferred from `raw_table_profile`
 - Unique values contain unrecognized tokens that could not be mapped to a canonical season
 - Confidence in the term column selection is low (multiple ambiguous candidates)
+- The term uses a **coded year prefix** whose calendar year is ambiguous (see YEAR SEMANTICS) —
+  emit a `reentry: "terminal"` `year_semantics` HITL item for the reviewer to confirm.
 
 When `hitl_flag` is `true`, emit one `HITLItem` per distinct ambiguity in `hitl_items`.
 When `hitl_flag` is `false`, emit `hitl_items: []`.
@@ -483,6 +510,32 @@ Good `hitl_question` examples:
   samples. Please confirm the extraction rule before hook generation proceeds."
 - "`term_enrolled_date` parses as dates (e.g. '1-Sep-19'). Confirm Jan–Apr→Spring, May–Jul→Summer,
   Aug–Dec→Fall before hook generation proceeds."
+- "`semester` uses `2017SR`-style codes. The 4-digit prefix could be the calendar year (Spring 2017)
+  or the academic-year start (Spring 2018). Confirm which `year_semantics` applies."
+
+### YEAR SEMANTICS (emit a HITL item; do not set the value yourself)
+
+`term_config.year_semantics` controls whether the extracted year is the **calendar year**
+(`calendar_literal`, default) or an **academic-year start** (`academic_year_prefix` /
+`period_code`, where SPRING/SUMMER roll forward one calendar year). Leave `year_semantics`
+**null** in your output — you cannot disambiguate it from a single column, and guessing silently
+corrupts every downstream date. Instead flag it for HITL when the term uses a coded year prefix:
+
+- **YYYY + season suffix** — `2017SR`, `2018FA`, `2019SP`
+- **YYYY-NN period codes** — `2025-10`, `2025-20`
+- **Split year + season-code columns** — a numeric year column plus a short season/period code column
+
+Do **not** flag `year_semantics` for spelled `Season YYYY` (`"Fall 2019"`) or datetime term columns —
+their year is already the calendar year.
+
+Emit a `reentry: "terminal"` HITLItem whose options set `year_semantics` (not hook generation):
+
+- "Calendar year (e.g. 2017SR = Spring 2017)" → `{"year_semantics": "calendar_literal"}`
+- "Academic-year start (e.g. 2017SR = Spring 2018)" → `{"year_semantics": "academic_year_prefix"}`
+- "Period code (e.g. 2025-20 = Spring 2026)" → `{"year_semantics": "period_code"}`
+
+This item is independent of hook generation: a `hook_required` term column can also carry a
+`year_semantics` item when its year prefix is ambiguous.
 
 ### ACADEMIC YEAR CONVENTION (do not emit — for your reasoning only)
 

@@ -1076,6 +1076,10 @@ def _apply_term_resolution(
         term_cfg["season_col"] = None
         print(f"  → [{tbl}] term_col overridden: {resolution.term_col_override}")
 
+    if resolution.year_semantics is not None:
+        term_cfg["year_semantics"] = resolution.year_semantics
+        print(f"  → [{tbl}] year_semantics set: {resolution.year_semantics}")
+
     if resolution.hook_spec is not None:
         _apply_term_hook_spec_dict(
             term_cfg,
