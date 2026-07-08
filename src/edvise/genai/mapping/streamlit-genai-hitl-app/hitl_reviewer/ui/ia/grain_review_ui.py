@@ -20,7 +20,7 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
-from edvise.utils.institution_naming import format_institution_display_name
+from hitl_reviewer.utils.institution_naming import format_institution_display_name
 from hitl_reviewer.ui._shared import (
     HITL_FLASH_HINT_AFTER_UC,
     init_sel_key,

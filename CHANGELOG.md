@@ -1,3 +1,12 @@
+## 1.4.4 (2026-07-07)
+- fix: removing edvise dependency from genai HITL app due to deployment issue on databricks (#198)
+
+## 1.4.3 (2026-07-07)
+- feat: add numeric KS drift detection logging to shared H2O inference pipeline (#197)
+
+## 1.4.2 (2026-07-01)
+- fix(genai): ensure execution cleaning applies frozen dtypes before dedupe (#196)
+
 ## 1.4.1 (2026-07-01)
 - fix(genai): ensure transform hook is not generated on unmapped fields & term hook is utilized only on one source column  (#193)
 - fix: dropping academic term and cohort term during feature cleanup (#194)
