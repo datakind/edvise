@@ -149,6 +149,45 @@ def test_season_map_append_validates_entries():
         _apply_term_resolution(cfg, _term_item(), bad)
 
 
+def test_season_map_replace_rejects_non_chronological_order():
+    cfg = {
+        "datasets": {
+            "t1": {
+                "term_config": {
+                    "term_col": "semester",
+                    "season_map": [],
+                    "term_extraction": "hook_required",
+                }
+            }
+        }
+    }
+    bad = TermResolution(
+        season_map_replace=[
+            {"raw": "10", "canonical": "FALL"},
+            {"raw": "20", "canonical": "SPRING"},
+        ]
+    )
+    with pytest.raises(ValueError, match="calendar-chronological"):
+        _apply_term_resolution(cfg, _term_item(), bad)
+
+
+def test_season_map_append_rejects_non_chronological_merge():
+    cfg = {
+        "datasets": {
+            "t1": {
+                "term_config": {
+                    "term_col": "semester",
+                    "season_map": [{"raw": "10", "canonical": "FALL"}],
+                    "term_extraction": "hook_required",
+                }
+            }
+        }
+    }
+    bad = TermResolution(season_map_append=[{"raw": "20", "canonical": "SPRING"}])
+    with pytest.raises(ValueError, match="calendar-chronological"):
+        _apply_term_resolution(cfg, _term_item(), bad)
+
+
 def test_apply_grain_hook_spec_dict_sets_policy_required():
     grain_cfg = {
         "dedup_policy": {

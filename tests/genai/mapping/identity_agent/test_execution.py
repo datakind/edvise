@@ -822,8 +822,8 @@ def test_apply_term_order_split_year_datetime_coerced_from_strings():
         year_col="year_code",
         season_col="term_code",
         season_map=[
-            {"raw": "10", "canonical": "FALL"},
             {"raw": "20", "canonical": "SPRING"},
+            {"raw": "10", "canonical": "FALL"},
         ],
         term_extraction="standard",
     )

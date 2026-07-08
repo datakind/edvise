@@ -96,6 +96,7 @@ from edvise.genai.mapping.identity_agent.term_normalization.schemas import (
     InstitutionTermContract,
     SeasonMapEntry,
     TermContract,
+    season_map_chronology_error,
 )
 from edvise.genai.mapping.identity_agent.term_normalization.validation import (
     assert_term_hook_groups_compatible,
@@ -1060,14 +1061,22 @@ def _apply_term_resolution(
         for raw_entry in resolution.season_map_replace:
             entry = SeasonMapEntry.model_validate(raw_entry)
             new_map.append(entry.model_dump(mode="json"))
+        chrono_err = season_map_chronology_error(new_map)
+        if chrono_err:
+            raise ValueError(f"[{tbl}] {chrono_err}")
         term_cfg["season_map"] = new_map
         print(f"  → [{tbl}] season_map replaced ({len(new_map)} entries)")
 
     if resolution.season_map_append:
         existing = term_cfg.setdefault("season_map", [])
+        merged_map = list(existing)
         for raw_entry in resolution.season_map_append:
             entry = SeasonMapEntry.model_validate(raw_entry)
-            existing.append(entry.model_dump(mode="json"))
+            merged_map.append(entry.model_dump(mode="json"))
+        chrono_err = season_map_chronology_error(merged_map)
+        if chrono_err:
+            raise ValueError(f"[{tbl}] {chrono_err}")
+        term_cfg["season_map"] = merged_map
         print(f"  → [{tbl}] season_map extended: {resolution.season_map_append}")
 
     if resolution.term_col_override:

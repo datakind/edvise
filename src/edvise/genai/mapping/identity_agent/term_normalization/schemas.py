@@ -21,6 +21,47 @@ from edvise.genai.mapping.shared.hitl import PIPELINE_HITL_CONFIDENCE_THRESHOLD
 
 CANONICAL_SEASONS = {"FALL", "SPRING", "SUMMER", "WINTER"}
 
+# Calendar-year rank for season_map ordering validation (SPRING → SUMMER → FALL → WINTER).
+CALENDAR_CHRONOLOGY_RANK: dict[str, int] = {
+    "SPRING": 1,
+    "SUMMER": 2,
+    "FALL": 3,
+    "WINTER": 4,
+}
+
+
+def season_map_chronology_error(
+    season_map: list[SeasonMapEntry] | list[dict[str, str]],
+) -> str | None:
+    """
+    Return an error message when ``season_map`` canonicals are not calendar-chronological.
+
+    Duplicate canonicals are allowed (e.g. two SUMMER entries); only the canonical season's
+    calendar position must be non-decreasing left-to-right. Empty maps are valid (hooks/HITL
+    may populate later).
+    """
+    if not season_map:
+        return None
+
+    ranked: list[tuple[int, int, str]] = []
+    for i, entry in enumerate(season_map):
+        canonical = (
+            entry.canonical if isinstance(entry, SeasonMapEntry) else entry["canonical"]
+        ).upper()
+        rank = CALENDAR_CHRONOLOGY_RANK[canonical]
+        ranked.append((i + 1, rank, canonical))
+
+    for j in range(1, len(ranked)):
+        prev_pos, prev_rank, prev_canon = ranked[j - 1]
+        pos, rank, canon = ranked[j]
+        if rank < prev_rank:
+            return (
+                "season_map must be calendar-chronological "
+                "(SPRING → SUMMER → FALL → WINTER): "
+                f"{prev_canon} (position {prev_pos}) precedes {canon} (position {pos})"
+            )
+    return None
+
 
 class SeasonMapEntry(BaseModel):
     """One entry in the ordered season_map list."""
@@ -169,6 +210,13 @@ class TermOrderConfig(BaseModel):
                 )
         return self
 
+    @model_validator(mode="after")
+    def _season_map_calendar_chronological(self) -> TermOrderConfig:
+        err = season_map_chronology_error(self.season_map)
+        if err:
+            raise ValueError(err)
+        return self
+
 
 class TermContract(BaseModel):
     """
@@ -271,6 +319,7 @@ def get_term_contract_schema_context(
 
 
 __all__ = [
+    "CALENDAR_CHRONOLOGY_RANK",
     "CANONICAL_SEASONS",
     "HookFunctionSpec",
     "HookSpec",
@@ -279,4 +328,5 @@ __all__ = [
     "TermContract",
     "TermOrderConfig",
     "get_term_contract_schema_context",
+    "season_map_chronology_error",
 ]

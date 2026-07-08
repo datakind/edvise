@@ -32,6 +32,7 @@ from edvise.genai.mapping.identity_agent.term_normalization.schemas import (
     InstitutionTermContract,
     TermContract,
     TermOrderConfig,
+    season_map_chronology_error,
 )
 from edvise.genai.mapping.identity_agent.term_normalization.validation import (
     assert_term_hook_groups_compatible,
@@ -99,8 +100,8 @@ def _shared_hitl_item() -> HITLItem:
     resolution = TermResolution(
         hook_spec=_hook_spec(),
         season_map_replace=[
-            {"raw": "10", "canonical": "FALL"},
             {"raw": "20", "canonical": "SPRING"},
+            {"raw": "10", "canonical": "FALL"},
         ],
     )
     return HITLItem(
@@ -338,3 +339,76 @@ def test_build_parse_rejects_st_thomas_bad_course_with_profile():
     )
     with pytest.raises(ValidationError):
         parse_fn(json.dumps(payload))
+
+
+def _minimal_term_config(*, season_map: list[dict[str, str]]) -> TermOrderConfig:
+    return TermOrderConfig(
+        term_col="semester",
+        season_map=season_map,
+        term_extraction="standard",
+    )
+
+
+def test_season_map_chronology_allows_duplicate_summer():
+    cfg = _minimal_term_config(
+        season_map=[
+            {"raw": "SR", "canonical": "SPRING"},
+            {"raw": "UL", "canonical": "SUMMER"},
+            {"raw": "UR", "canonical": "SUMMER"},
+            {"raw": "FR", "canonical": "FALL"},
+        ]
+    )
+    assert cfg.season_map[2].canonical == "SUMMER"
+
+
+def test_season_map_chronology_rejects_fall_before_spring():
+    with pytest.raises(ValidationError, match="calendar-chronological"):
+        _minimal_term_config(
+            season_map=[
+                {"raw": "10", "canonical": "FALL"},
+                {"raw": "20", "canonical": "SPRING"},
+            ]
+        )
+
+
+def test_season_map_chronology_error_detects_bad_order():
+    err = season_map_chronology_error(
+        [
+            {"raw": "10", "canonical": "FALL"},
+            {"raw": "20", "canonical": "SPRING"},
+        ]
+    )
+    assert err is not None
+    assert "FALL (position 1) precedes SPRING (position 2)" in err
+
+
+def test_collect_term_semantic_validation_errors_passes_valid_season_map():
+    inst = InstitutionTermContract(
+        institution_id=INST,
+        datasets={
+            "course": TermContract(
+                institution_id=INST,
+                table="course",
+                term_config=_minimal_term_config(
+                    season_map=[
+                        {"raw": "20", "canonical": "SPRING"},
+                        {"raw": "10", "canonical": "FALL"},
+                    ]
+                ),
+                confidence=0.75,
+                hitl_flag=False,
+                reasoning="ok",
+            )
+        },
+    )
+    assert collect_term_semantic_validation_errors(inst) == []
+
+
+def test_season_map_chronology_allows_empty_map():
+    cfg = TermOrderConfig(
+        term_col="semester",
+        season_map=[],
+        term_extraction="hook_required",
+        hook_spec=_hook_spec(),
+    )
+    assert cfg.season_map == []
