@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from typing import Literal
 
 from pydantic import (
@@ -20,6 +21,47 @@ from edvise.genai.mapping.identity_agent.utilities import concat_model_sources
 from edvise.genai.mapping.shared.hitl import PIPELINE_HITL_CONFIDENCE_THRESHOLD
 
 CANONICAL_SEASONS = {"FALL", "SPRING", "SUMMER", "WINTER"}
+
+# Calendar-year rank for season_map ordering validation (SPRING → SUMMER → FALL → WINTER).
+CALENDAR_CHRONOLOGY_RANK: dict[str, int] = {
+    "SPRING": 1,
+    "SUMMER": 2,
+    "FALL": 3,
+    "WINTER": 4,
+}
+
+
+def season_map_chronology_error(
+    season_map: Sequence[SeasonMapEntry | Mapping[str, str]],
+) -> str | None:
+    """
+    Return an error message when ``season_map`` canonicals are not calendar-chronological.
+
+    Duplicate canonicals are allowed (e.g. two SUMMER entries); only the canonical season's
+    calendar position must be non-decreasing left-to-right. Empty maps are valid (hooks/HITL
+    may populate later).
+    """
+    if not season_map:
+        return None
+
+    ranked: list[tuple[int, int, str]] = []
+    for i, entry in enumerate(season_map):
+        canonical = (
+            entry.canonical if isinstance(entry, SeasonMapEntry) else entry["canonical"]
+        ).upper()
+        rank = CALENDAR_CHRONOLOGY_RANK[canonical]
+        ranked.append((i + 1, rank, canonical))
+
+    for j in range(1, len(ranked)):
+        prev_pos, prev_rank, prev_canon = ranked[j - 1]
+        pos, rank, canon = ranked[j]
+        if rank < prev_rank:
+            return (
+                "season_map must be calendar-chronological "
+                "(SPRING → SUMMER → FALL → WINTER): "
+                f"{prev_canon} (position {prev_pos}) precedes {canon} (position {pos})"
+            )
+    return None
 
 
 class SeasonMapEntry(BaseModel):
@@ -100,6 +142,27 @@ class TermOrderConfig(BaseModel):
         ),
     )
     term_extraction: Literal["standard", "hook_required"]
+    year_semantics: (
+        Literal[
+            "calendar_literal",
+            "academic_year_prefix",
+        ]
+        | None
+    ) = Field(
+        default=None,
+        description=(
+            "How the extracted year relates to the calendar year of the term. This is about "
+            "year MEANING, not season encoding: how the season is spelled (e.g. '2024SP', "
+            "'Fall 2019', numeric period codes like '2025-20') is handled entirely by "
+            "season_map / hooks and is irrelevant here. "
+            "null / 'calendar_literal' (default): the extracted year IS the calendar year "
+            "(e.g. '2024SP' = Spring 2024, 'Fall 2019' = Fall 2019). "
+            "'academic_year_prefix': the extracted year is the academic-year start; FALL/WINTER "
+            "keep the year, SPRING/SUMMER roll forward one calendar year "
+            "(e.g. '2017SR' = Spring 2018, or a period code '2025-20' = Spring 2026). "
+            "Applies to both combined term_col and split year_col/season_col configs."
+        ),
+    )
     hook_spec: HookSpec | None = Field(
         default=None,
         description=(
@@ -146,6 +209,13 @@ class TermOrderConfig(BaseModel):
                 raise ValueError(
                     "hook_spec must be null when year_col and season_col are provided."
                 )
+        return self
+
+    @model_validator(mode="after")
+    def _season_map_calendar_chronological(self) -> TermOrderConfig:
+        err = season_map_chronology_error(self.season_map)
+        if err:
+            raise ValueError(err)
         return self
 
 
@@ -250,6 +320,7 @@ def get_term_contract_schema_context(
 
 
 __all__ = [
+    "CALENDAR_CHRONOLOGY_RANK",
     "CANONICAL_SEASONS",
     "HookFunctionSpec",
     "HookSpec",
@@ -258,4 +329,5 @@ __all__ = [
     "TermContract",
     "TermOrderConfig",
     "get_term_contract_schema_context",
+    "season_map_chronology_error",
 ]

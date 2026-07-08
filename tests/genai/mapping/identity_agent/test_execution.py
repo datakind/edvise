@@ -683,6 +683,136 @@ def test_apply_term_order_split_year_season_columns():
     assert "_term_order" in out.columns
 
 
+def test_year_semantics_default_is_calendar_literal():
+    """No year_semantics (or 'calendar_literal') keeps the extracted year as calendar year."""
+    df = pd.DataFrame({"term": ["2024SP", "2023FA"], "k": [1, 2]})
+    cfg = TermOrderConfig(
+        term_col="term",
+        season_map=[
+            {"raw": "SP", "canonical": "SPRING"},
+            {"raw": "FA", "canonical": "FALL"},
+        ],
+        term_extraction="standard",
+    )
+    out = apply_term_order_from_config(df, cfg)
+    assert list(out["_year"]) == [2024, 2023]
+    assert (
+        out.loc[out["term"] == "2024SP", "_edvise_term_academic_year"].iloc[0]
+        == "2023-24"
+    )
+
+
+def test_year_semantics_academic_year_prefix_combined_col():
+    """YYYY+suffix codes: prefix is academic-year start; SPRING rolls forward one calendar year."""
+    df = pd.DataFrame({"semester": ["2016FR", "2017SR", "2018UR"], "k": [1, 2, 3]})
+    cfg = TermOrderConfig(
+        term_col="semester",
+        season_map=[
+            {"raw": "SR", "canonical": "SPRING"},
+            {"raw": "UR", "canonical": "SUMMER"},
+            {"raw": "FR", "canonical": "FALL"},
+        ],
+        term_extraction="standard",
+        year_semantics="academic_year_prefix",
+    )
+    out = apply_term_order_from_config(df, cfg).set_index("k")
+    # FALL keeps prefix year; SPRING/SUMMER roll forward one calendar year.
+    assert out.loc[1, "_year"] == 2016  # 2016FR -> Fall 2016
+    assert out.loc[2, "_year"] == 2018  # 2017SR -> Spring 2018
+    assert out.loc[3, "_year"] == 2019  # 2018UR -> Summer 2019
+    # term_order stays chronological: Fall 2016 < Spring 2018 < Summer 2019
+    assert (
+        out.loc[1, "_term_order"]
+        < out.loc[2, "_term_order"]
+        < out.loc[3, "_term_order"]
+    )
+
+
+def test_year_semantics_period_code_combined_col(tmp_path):
+    """YYYY-NN period codes (hook-extracted): 10=Fall (2025), 20=Spring (2026).
+
+    Period-code season encoding is orthogonal to year semantics: the season tokens (10/20) are
+    resolved by season_map, and ``academic_year_prefix`` applies the calendar-year roll-forward.
+    Combined ``YYYY-NN`` cannot use standard substring matching (the leading ``20`` of the year
+    collides with period code ``20``), so extraction is hook-based; ``year_semantics`` then applies
+    the calendar-year roll-forward on top of the extracted season token.
+    """
+    hook_dir = tmp_path / "identity_hooks" / "example"
+    hook_dir.mkdir(parents=True)
+    (hook_dir / "term_hooks.py").write_text(
+        """
+def year_extractor_period(term):
+    return int(str(term).split("-")[0])
+
+def season_extractor_period(term):
+    return str(term).split("-")[1]
+"""
+    )
+    cfg = TermOrderConfig(
+        term_col="semester",
+        # season_map is calendar-chronological: SPRING (rank 1) precedes FALL (rank 2).
+        season_map=[
+            {"raw": "20", "canonical": "SPRING"},
+            {"raw": "10", "canonical": "FALL"},
+        ],
+        term_extraction="hook_required",
+        year_semantics="academic_year_prefix",
+        hook_spec=HookSpec(
+            file="identity_hooks/example/term_hooks.py",
+            functions=[
+                HookFunctionSpec(name="year_extractor_period", description="year"),
+                HookFunctionSpec(name="season_extractor_period", description="season"),
+            ],
+        ),
+    )
+    # 2023-20 (Spring 2024) and 2024-10 (Fall 2024) share calendar year 2024, so their
+    # relative order is decided purely by season_rank — Spring must sort before Fall.
+    df = pd.DataFrame(
+        {"semester": ["2025-10", "2025-20", "2024-10", "2023-20"], "k": [1, 2, 3, 4]}
+    )
+    out = apply_term_order_from_config(df, cfg, hook_modules_root=tmp_path).set_index(
+        "k"
+    )
+    assert out.loc[1, "_year"] == 2025  # 2025-10 -> Fall 2025
+    assert out.loc[2, "_year"] == 2026  # 2025-20 -> Spring 2026
+    assert out.loc[3, "_year"] == 2024  # 2024-10 -> Fall 2024
+    assert out.loc[4, "_year"] == 2024  # 2023-20 -> Spring 2024
+    assert out.loc[1, "_edvise_term_academic_year"] == "2025-26"
+    assert out.loc[2, "_edvise_term_academic_year"] == "2025-26"
+    # Same calendar year 2024: Spring 2024 must precede Fall 2024 in term ordering.
+    assert out.loc[4, "_term_order"] < out.loc[3, "_term_order"]
+
+
+def test_year_semantics_period_code_split_columns():
+    """Split year + period-code columns: period codes are just season encoding; the roll-forward
+    comes from academic_year_prefix semantics."""
+    df = pd.DataFrame(
+        {
+            "yr": [2025, 2025, 2024, 2023],
+            "term": ["10", "20", "10", "20"],
+            "k": [1, 2, 3, 4],
+        }
+    )
+    cfg = TermOrderConfig(
+        year_col="yr",
+        season_col="term",
+        # Calendar-chronological order: SPRING (rank 1) precedes FALL (rank 2).
+        season_map=[
+            {"raw": "20", "canonical": "SPRING"},
+            {"raw": "10", "canonical": "FALL"},
+        ],
+        term_extraction="standard",
+        year_semantics="academic_year_prefix",
+    )
+    out = apply_term_order_from_config(df, cfg).set_index("k")
+    assert out.loc[1, "_year"] == 2025  # 2025/10 -> Fall 2025
+    assert out.loc[2, "_year"] == 2026  # 2025/20 -> Spring 2026
+    assert out.loc[3, "_year"] == 2024  # 2024/10 -> Fall 2024
+    assert out.loc[4, "_year"] == 2024  # 2023/20 -> Spring 2024
+    # Same calendar year 2024: Spring 2024 must precede Fall 2024.
+    assert out.loc[4, "_term_order"] < out.loc[3, "_term_order"]
+
+
 def test_apply_term_order_split_year_datetime_coerced_from_strings():
     """year_col inferred as datetime64 (legacy schemas) still yields calendar _year."""
     df = pd.DataFrame(
@@ -696,8 +826,8 @@ def test_apply_term_order_split_year_datetime_coerced_from_strings():
         year_col="year_code",
         season_col="term_code",
         season_map=[
-            {"raw": "10", "canonical": "FALL"},
             {"raw": "20", "canonical": "SPRING"},
+            {"raw": "10", "canonical": "FALL"},
         ],
         term_extraction="standard",
     )
