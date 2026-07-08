@@ -1,3 +1,6 @@
+## 1.4.5 (2026-07-08)
+- fix(genai): adding in year_semantics into Term Config (#199)
+
 ## 1.4.4 (2026-07-07)
 - fix: removing edvise dependency from genai HITL app due to deployment issue on databricks (#198)
 
