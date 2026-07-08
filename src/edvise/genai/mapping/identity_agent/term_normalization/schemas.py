@@ -100,11 +100,14 @@ class TermOrderConfig(BaseModel):
         ),
     )
     term_extraction: Literal["standard", "hook_required"]
-    year_semantics: Literal[
-        "calendar_literal",
-        "academic_year_prefix",
-        "period_code",
-    ] | None = Field(
+    year_semantics: (
+        Literal[
+            "calendar_literal",
+            "academic_year_prefix",
+            "period_code",
+        ]
+        | None
+    ) = Field(
         default=None,
         description=(
             "How the extracted year relates to the calendar year of the term. "

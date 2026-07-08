@@ -351,11 +351,14 @@ class TermResolution(BaseModel):
             "Column name for combined term encoding. Clears year_col and season_col when set."
         ),
     )
-    year_semantics: Literal[
-        "calendar_literal",
-        "academic_year_prefix",
-        "period_code",
-    ] | None = Field(
+    year_semantics: (
+        Literal[
+            "calendar_literal",
+            "academic_year_prefix",
+            "period_code",
+        ]
+        | None
+    ) = Field(
         default=None,
         description=(
             "Reviewer's decision for how the extracted year relates to the calendar year. "

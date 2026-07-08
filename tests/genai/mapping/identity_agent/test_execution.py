@@ -696,7 +696,10 @@ def test_year_semantics_default_is_calendar_literal():
     )
     out = apply_term_order_from_config(df, cfg)
     assert list(out["_year"]) == [2024, 2023]
-    assert out.loc[out["term"] == "2024SP", "_edvise_term_academic_year"].iloc[0] == "2023-24"
+    assert (
+        out.loc[out["term"] == "2024SP", "_edvise_term_academic_year"].iloc[0]
+        == "2023-24"
+    )
 
 
 def test_year_semantics_academic_year_prefix_combined_col():
@@ -718,7 +721,11 @@ def test_year_semantics_academic_year_prefix_combined_col():
     assert out.loc[2, "_year"] == 2018  # 2017SR -> Spring 2018
     assert out.loc[3, "_year"] == 2019  # 2018UR -> Summer 2019
     # term_order stays chronological: Fall 2016 < Spring 2018 < Summer 2019
-    assert out.loc[1, "_term_order"] < out.loc[2, "_term_order"] < out.loc[3, "_term_order"]
+    assert (
+        out.loc[1, "_term_order"]
+        < out.loc[2, "_term_order"]
+        < out.loc[3, "_term_order"]
+    )
 
 
 def test_year_semantics_period_code_combined_col(tmp_path):
@@ -756,7 +763,9 @@ def season_extractor_period(term):
         ),
     )
     df = pd.DataFrame({"semester": ["2025-10", "2025-20"], "k": [1, 2]})
-    out = apply_term_order_from_config(df, cfg, hook_modules_root=tmp_path).set_index("k")
+    out = apply_term_order_from_config(df, cfg, hook_modules_root=tmp_path).set_index(
+        "k"
+    )
     assert out.loc[1, "_year"] == 2025  # 2025-10 -> Fall 2025
     assert out.loc[2, "_year"] == 2026  # 2025-20 -> Spring 2026
     assert out.loc[1, "_edvise_term_academic_year"] == "2025-26"
