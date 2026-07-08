@@ -731,6 +731,8 @@ def test_year_semantics_academic_year_prefix_combined_col():
 def test_year_semantics_period_code_combined_col(tmp_path):
     """YYYY-NN period codes (hook-extracted): 10=Fall (2025), 20=Spring (2026).
 
+    Period-code season encoding is orthogonal to year semantics: the season tokens (10/20) are
+    resolved by season_map, and ``academic_year_prefix`` applies the calendar-year roll-forward.
     Combined ``YYYY-NN`` cannot use standard substring matching (the leading ``20`` of the year
     collides with period code ``20``), so extraction is hook-based; ``year_semantics`` then applies
     the calendar-year roll-forward on top of the extracted season token.
@@ -753,7 +755,7 @@ def season_extractor_period(term):
             {"raw": "20", "canonical": "SPRING"},
         ],
         term_extraction="hook_required",
-        year_semantics="period_code",
+        year_semantics="academic_year_prefix",
         hook_spec=HookSpec(
             file="identity_hooks/example/term_hooks.py",
             functions=[
@@ -773,7 +775,8 @@ def season_extractor_period(term):
 
 
 def test_year_semantics_period_code_split_columns():
-    """Split year + period-code columns share the same period_code semantics."""
+    """Split year + period-code columns: period codes are just season encoding; the roll-forward
+    comes from academic_year_prefix semantics."""
     df = pd.DataFrame({"yr": [2025, 2025], "term": ["10", "20"], "k": [1, 2]})
     cfg = TermOrderConfig(
         year_col="yr",
@@ -783,7 +786,7 @@ def test_year_semantics_period_code_split_columns():
             {"raw": "20", "canonical": "SPRING"},
         ],
         term_extraction="standard",
-        year_semantics="period_code",
+        year_semantics="academic_year_prefix",
     )
     out = apply_term_order_from_config(df, cfg).set_index("k")
     assert out.loc[1, "_year"] == 2025  # Fall 2025

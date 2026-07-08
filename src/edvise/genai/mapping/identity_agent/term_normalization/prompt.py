@@ -260,8 +260,10 @@ Set `hitl_flag`: `true` when:
 ### YEAR SEMANTICS (emit a HITL item; do not set the value yourself)
 
 `term_config.year_semantics` controls whether the extracted year is the **calendar year**
-(`calendar_literal`, default) or an **academic-year start** (`academic_year_prefix` /
-`period_code`, where SPRING/SUMMER roll forward one calendar year). Leave `year_semantics`
+(`calendar_literal`, default) or an **academic-year start** (`academic_year_prefix`, where
+SPRING/SUMMER roll forward one calendar year). This is about what the **year means**, NOT how the
+season is encoded — numeric period codes, letter suffixes, and spelled seasons are all handled by
+`season_map` / hooks and do not affect this choice. Leave `year_semantics`
 **null** in your output — you cannot disambiguate it from a single column, and guessing silently
 corrupts every downstream date. Instead flag it for HITL when the term uses a coded year prefix:
 
@@ -273,12 +275,13 @@ corrupts every downstream date. Instead flag it for HITL when the term uses a co
 Do **not** flag `year_semantics` for unambiguous shapes: spelled `Season YYYY` (`"Fall 2019"`),
 or datetime term columns — their year is already the calendar year.
 
-The HITL item is a simple `reentry: "terminal"` choice (not hook generation). Offer options whose
-`resolution` sets `year_semantics`, e.g.:
+The HITL item is a simple `reentry: "terminal"` choice (not hook generation). Offer exactly two
+options whose `resolution` sets `year_semantics`:
 
-- "Calendar year (e.g. 2017SR = Spring 2017)" → `{"year_semantics": "calendar_literal"}`
-- "Academic-year start (e.g. 2017SR = Spring 2018)" → `{"year_semantics": "academic_year_prefix"}`
-- "Period code (e.g. 2025-20 = Spring 2026)" → `{"year_semantics": "period_code"}`
+- "Calendar year (e.g. 2017SR = Spring 2017, or 2025-20 = Spring 2025)" →
+  `{"year_semantics": "calendar_literal"}`
+- "Academic-year start (e.g. 2017SR = Spring 2018, or 2025-20 = Spring 2026)" →
+  `{"year_semantics": "academic_year_prefix"}`
 
 ### ACADEMIC YEAR CONVENTION (do not emit — for your reasoning only)
 
@@ -516,8 +519,10 @@ Good `hitl_question` examples:
 ### YEAR SEMANTICS (emit a HITL item; do not set the value yourself)
 
 `term_config.year_semantics` controls whether the extracted year is the **calendar year**
-(`calendar_literal`, default) or an **academic-year start** (`academic_year_prefix` /
-`period_code`, where SPRING/SUMMER roll forward one calendar year). Leave `year_semantics`
+(`calendar_literal`, default) or an **academic-year start** (`academic_year_prefix`, where
+SPRING/SUMMER roll forward one calendar year). This is about what the **year means**, NOT how the
+season is encoded — numeric period codes, letter suffixes, and spelled seasons are all handled by
+`season_map` / hooks and do not affect this choice. Leave `year_semantics`
 **null** in your output — you cannot disambiguate it from a single column, and guessing silently
 corrupts every downstream date. Instead flag it for HITL when the term uses a coded year prefix:
 
@@ -528,11 +533,12 @@ corrupts every downstream date. Instead flag it for HITL when the term uses a co
 Do **not** flag `year_semantics` for spelled `Season YYYY` (`"Fall 2019"`) or datetime term columns —
 their year is already the calendar year.
 
-Emit a `reentry: "terminal"` HITLItem whose options set `year_semantics` (not hook generation):
+Emit a `reentry: "terminal"` HITLItem whose two options set `year_semantics` (not hook generation):
 
-- "Calendar year (e.g. 2017SR = Spring 2017)" → `{"year_semantics": "calendar_literal"}`
-- "Academic-year start (e.g. 2017SR = Spring 2018)" → `{"year_semantics": "academic_year_prefix"}`
-- "Period code (e.g. 2025-20 = Spring 2026)" → `{"year_semantics": "period_code"}`
+- "Calendar year (e.g. 2017SR = Spring 2017, or 2025-20 = Spring 2025)" →
+  `{"year_semantics": "calendar_literal"}`
+- "Academic-year start (e.g. 2017SR = Spring 2018, or 2025-20 = Spring 2026)" →
+  `{"year_semantics": "academic_year_prefix"}`
 
 This item is independent of hook generation: a `hook_required` term column can also carry a
 `year_semantics` item when its year prefix is ambiguous.

@@ -355,18 +355,17 @@ class TermResolution(BaseModel):
         Literal[
             "calendar_literal",
             "academic_year_prefix",
-            "period_code",
         ]
         | None
     ) = Field(
         default=None,
         description=(
-            "Reviewer's decision for how the extracted year relates to the calendar year. "
+            "Reviewer's decision for how the extracted year relates to the calendar year "
+            "(year MEANING, independent of how the season is encoded). "
             "'calendar_literal': extracted year is the calendar year (e.g. '2024SP' = Spring 2024). "
-            "'academic_year_prefix': extracted year is the academic-year start (e.g. '2017SR' = "
-            "Spring 2018); SPRING/SUMMER roll forward one calendar year. "
-            "'period_code': same roll-forward rule for numeric period codes (e.g. '2025-20' = "
-            "Spring 2026). Written to term_config.year_semantics when set."
+            "'academic_year_prefix': extracted year is the academic-year start; SPRING/SUMMER roll "
+            "forward one calendar year (e.g. '2017SR' = Spring 2018, or a period code "
+            "'2025-20' = Spring 2026). Written to term_config.year_semantics when set."
         ),
     )
     hook_spec: HookSpec | None = Field(

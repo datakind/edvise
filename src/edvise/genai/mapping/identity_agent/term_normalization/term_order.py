@@ -168,9 +168,10 @@ def _calendar_year_from_semantics(
     Adjust an extracted term year to a calendar year based on ``year_semantics``.
 
     ``None`` / ``"calendar_literal"`` leaves the year unchanged (extracted year is already
-    the calendar year). For ``"academic_year_prefix"`` and ``"period_code"``, the extracted
-    year is the academic-year start: FALL/WINTER keep it, while SPRING/SUMMER roll forward one
-    calendar year. Rows with an unmapped season are left unchanged.
+    the calendar year). For ``"academic_year_prefix"`` the extracted year is the academic-year
+    start: FALL/WINTER keep it, while SPRING/SUMMER roll forward one calendar year. This rule is
+    independent of how the season is encoded (letter suffix, numeric period code, spelled) — that
+    is resolved upstream by ``season_map`` / hooks. Rows with an unmapped season are left unchanged.
 
     Downstream (``add_edvise_term_labels``) always treats ``_year`` as the calendar year, so
     this conversion keeps academic-year labels and term ordering consistent across encodings.
@@ -240,9 +241,9 @@ def add_edvise_term_order(
         - ``year_col`` and ``season_col``: separate columns (mutually exclusive with ``term_col``).
 
         Also ``season_map``, ``term_extraction`` (``standard`` | ``hook_required``), and optional
-        ``year_semantics`` (``calendar_literal`` default | ``academic_year_prefix`` | ``period_code``)
-        controlling whether the extracted year is treated as the calendar year or an academic-year
-        start (SPRING/SUMMER roll forward one calendar year).
+        ``year_semantics`` (``calendar_literal`` default | ``academic_year_prefix``) controlling
+        whether the extracted year is treated as the calendar year or an academic-year start
+        (SPRING/SUMMER roll forward one calendar year).
     year_extractor : callable | None
         Required when term_config["term_extraction"] == "hook_required" (combined ``term_col`` only).
     season_extractor : callable | None
