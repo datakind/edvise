@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from typing import Literal
 
 from pydantic import (
@@ -31,7 +32,7 @@ CALENDAR_CHRONOLOGY_RANK: dict[str, int] = {
 
 
 def season_map_chronology_error(
-    season_map: list[SeasonMapEntry] | list[dict[str, str]],
+    season_map: Sequence[SeasonMapEntry | Mapping[str, str]],
 ) -> str | None:
     """
     Return an error message when ``season_map`` canonicals are not calendar-chronological.

@@ -787,7 +787,11 @@ def test_year_semantics_period_code_split_columns():
     """Split year + period-code columns: period codes are just season encoding; the roll-forward
     comes from academic_year_prefix semantics."""
     df = pd.DataFrame(
-        {"yr": [2025, 2025, 2024, 2023], "term": ["10", "20", "10", "20"], "k": [1, 2, 3, 4]}
+        {
+            "yr": [2025, 2025, 2024, 2023],
+            "term": ["10", "20", "10", "20"],
+            "k": [1, 2, 3, 4],
+        }
     )
     cfg = TermOrderConfig(
         year_col="yr",
