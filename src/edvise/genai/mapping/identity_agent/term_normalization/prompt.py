@@ -283,6 +283,10 @@ options whose `resolution` sets `year_semantics`:
 - "Academic-year start (e.g. 2017SR = Spring 2018, or 2025-20 = Spring 2026)" →
   `{"year_semantics": "academic_year_prefix"}`
 
+`year_semantics` is independent of `season_map` ordering. Order `season_map` **calendar-chronologically**
+regardless of semantics — SPRING before SUMMER before FALL. Do **not** rank by the numeric period
+code or by academic-year start: `20`→SPRING must precede `10`→FALL in the list even though 10 < 20.
+
 ### ACADEMIC YEAR CONVENTION (do not emit — for your reasoning only)
 
 `_edvise_term_academic_year` is derived deterministically by `add_edvise_term_labels`:
@@ -539,6 +543,10 @@ Emit a `reentry: "terminal"` HITLItem whose two options set `year_semantics` (no
   `{"year_semantics": "calendar_literal"}`
 - "Academic-year start (e.g. 2017SR = Spring 2018, or 2025-20 = Spring 2026)" →
   `{"year_semantics": "academic_year_prefix"}`
+
+`year_semantics` is independent of `season_map` ordering. Order `season_map` **calendar-chronologically**
+regardless of semantics — SPRING before SUMMER before FALL. Do **not** rank by the numeric period
+code or by academic-year start: `20`→SPRING must precede `10`→FALL in the list even though 10 < 20.
 
 This item is independent of hook generation: a `hook_required` term column can also carry a
 `year_semantics` item when its year prefix is ambiguous.

@@ -750,9 +750,10 @@ def season_extractor_period(term):
     )
     cfg = TermOrderConfig(
         term_col="semester",
+        # season_map is calendar-chronological: SPRING (rank 1) precedes FALL (rank 2).
         season_map=[
-            {"raw": "10", "canonical": "FALL"},
             {"raw": "20", "canonical": "SPRING"},
+            {"raw": "10", "canonical": "FALL"},
         ],
         term_extraction="hook_required",
         year_semantics="academic_year_prefix",
@@ -764,33 +765,48 @@ def season_extractor_period(term):
             ],
         ),
     )
-    df = pd.DataFrame({"semester": ["2025-10", "2025-20"], "k": [1, 2]})
+    # 2023-20 (Spring 2024) and 2024-10 (Fall 2024) share calendar year 2024, so their
+    # relative order is decided purely by season_rank — Spring must sort before Fall.
+    df = pd.DataFrame(
+        {"semester": ["2025-10", "2025-20", "2024-10", "2023-20"], "k": [1, 2, 3, 4]}
+    )
     out = apply_term_order_from_config(df, cfg, hook_modules_root=tmp_path).set_index(
         "k"
     )
     assert out.loc[1, "_year"] == 2025  # 2025-10 -> Fall 2025
     assert out.loc[2, "_year"] == 2026  # 2025-20 -> Spring 2026
+    assert out.loc[3, "_year"] == 2024  # 2024-10 -> Fall 2024
+    assert out.loc[4, "_year"] == 2024  # 2023-20 -> Spring 2024
     assert out.loc[1, "_edvise_term_academic_year"] == "2025-26"
     assert out.loc[2, "_edvise_term_academic_year"] == "2025-26"
+    # Same calendar year 2024: Spring 2024 must precede Fall 2024 in term ordering.
+    assert out.loc[4, "_term_order"] < out.loc[3, "_term_order"]
 
 
 def test_year_semantics_period_code_split_columns():
     """Split year + period-code columns: period codes are just season encoding; the roll-forward
     comes from academic_year_prefix semantics."""
-    df = pd.DataFrame({"yr": [2025, 2025], "term": ["10", "20"], "k": [1, 2]})
+    df = pd.DataFrame(
+        {"yr": [2025, 2025, 2024, 2023], "term": ["10", "20", "10", "20"], "k": [1, 2, 3, 4]}
+    )
     cfg = TermOrderConfig(
         year_col="yr",
         season_col="term",
+        # Calendar-chronological order: SPRING (rank 1) precedes FALL (rank 2).
         season_map=[
-            {"raw": "10", "canonical": "FALL"},
             {"raw": "20", "canonical": "SPRING"},
+            {"raw": "10", "canonical": "FALL"},
         ],
         term_extraction="standard",
         year_semantics="academic_year_prefix",
     )
     out = apply_term_order_from_config(df, cfg).set_index("k")
-    assert out.loc[1, "_year"] == 2025  # Fall 2025
-    assert out.loc[2, "_year"] == 2026  # Spring 2026
+    assert out.loc[1, "_year"] == 2025  # 2025/10 -> Fall 2025
+    assert out.loc[2, "_year"] == 2026  # 2025/20 -> Spring 2026
+    assert out.loc[3, "_year"] == 2024  # 2024/10 -> Fall 2024
+    assert out.loc[4, "_year"] == 2024  # 2023/20 -> Spring 2024
+    # Same calendar year 2024: Spring 2024 must precede Fall 2024.
+    assert out.loc[4, "_term_order"] < out.loc[3, "_term_order"]
 
 
 def test_apply_term_order_split_year_datetime_coerced_from_strings():
