@@ -158,11 +158,38 @@ def _add_term_grain(df: pd.DataFrame, cols: EdviseTermColumnSet) -> pd.DataFrame
     return out
 
 
+def _calendar_year_from_semantics(
+    year: pd.Series,
+    season_norm: pd.Series,
+    raw_to_canonical: dict[str, str],
+    year_semantics: str | None,
+) -> pd.Series:
+    """
+    Adjust an extracted term year to a calendar year based on ``year_semantics``.
+
+    ``None`` / ``"calendar_literal"`` leaves the year unchanged (extracted year is already
+    the calendar year). For ``"academic_year_prefix"`` and ``"period_code"``, the extracted
+    year is the academic-year start: FALL/WINTER keep it, while SPRING/SUMMER roll forward one
+    calendar year. Rows with an unmapped season are left unchanged.
+
+    Downstream (``add_edvise_term_labels``) always treats ``_year`` as the calendar year, so
+    this conversion keeps academic-year labels and term ordering consistent across encodings.
+    """
+    if year_semantics in (None, "calendar_literal"):
+        return year
+    canonical = season_norm.astype("string").str.lower().map(raw_to_canonical)
+    rolls_forward = canonical.notna() & ~canonical.isin(_ACADEMIC_YEAR_START_SEASONS)
+    return year.where(~rolls_forward, other=year + 1)
+
+
 def _finalize_season_year_order(
     out: pd.DataFrame,
     season_norm: pd.Series,
     raw_to_rank: dict[str, int],
     cols: EdviseTermColumnSet,
+    *,
+    raw_to_canonical: dict[str, str] | None = None,
+    year_semantics: str | None = None,
 ) -> pd.DataFrame:
     out = out.copy()
     out[cols.season] = season_norm.astype("string")
@@ -179,6 +206,10 @@ def _finalize_season_year_order(
         mask = season_norm.isin(valid)
         out = out[mask]
         season_norm = season_norm[mask]
+
+    out[cols.year] = _calendar_year_from_semantics(
+        out[cols.year], season_norm, raw_to_canonical or {}, year_semantics
+    )
 
     season_rank = season_norm.map(raw_to_rank).astype("Int64")
     out[cols.term_order] = (out[cols.year] * 100 + season_rank).astype("Int64")
@@ -208,7 +239,10 @@ def add_edvise_term_order(
         - ``term_col``: single column encoding both year and season; or
         - ``year_col`` and ``season_col``: separate columns (mutually exclusive with ``term_col``).
 
-        Also ``season_map``, ``term_extraction`` (``standard`` | ``hook_required``).
+        Also ``season_map``, ``term_extraction`` (``standard`` | ``hook_required``), and optional
+        ``year_semantics`` (``calendar_literal`` default | ``academic_year_prefix`` | ``period_code``)
+        controlling whether the extracted year is treated as the calendar year or an academic-year
+        start (SPRING/SUMMER roll forward one calendar year).
     year_extractor : callable | None
         Required when term_config["term_extraction"] == "hook_required" (combined ``term_col`` only).
     season_extractor : callable | None
@@ -260,6 +294,10 @@ def add_edvise_term_order(
         )
 
     raw_to_rank, norm_keys = _season_map_lookups(season_map)
+    raw_to_canonical = {
+        item["raw"].lower(): item["canonical"].upper() for item in season_map
+    }
+    year_semantics = term_config.get("year_semantics")
     out = df.copy()
 
     exclude_tokens = [
@@ -295,7 +333,14 @@ def add_edvise_term_order(
             return _resolve_season_token(_norm_token(str(val).strip()), norm_keys)
 
         season_norm = s_season.map(_cell_to_season_norm)
-        ordered = _finalize_season_year_order(out, season_norm, raw_to_rank, cols)
+        ordered = _finalize_season_year_order(
+            out,
+            season_norm,
+            raw_to_rank,
+            cols,
+            raw_to_canonical=raw_to_canonical,
+            year_semantics=year_semantics,
+        )
         ordered = _add_term_grain(ordered, cols)
         return add_edvise_term_labels(ordered, term_config, columns=cols)
 
@@ -324,7 +369,14 @@ def add_edvise_term_order(
 
         season_norm = s.apply(_extract_season)
 
-    ordered = _finalize_season_year_order(out, season_norm, raw_to_rank, cols)
+    ordered = _finalize_season_year_order(
+        out,
+        season_norm,
+        raw_to_rank,
+        cols,
+        raw_to_canonical=raw_to_canonical,
+        year_semantics=year_semantics,
+    )
     ordered = _add_term_grain(ordered, cols)
     return add_edvise_term_labels(ordered, term_config, columns=cols)
 

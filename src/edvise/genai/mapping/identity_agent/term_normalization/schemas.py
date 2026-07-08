@@ -100,6 +100,24 @@ class TermOrderConfig(BaseModel):
         ),
     )
     term_extraction: Literal["standard", "hook_required"]
+    year_semantics: Literal[
+        "calendar_literal",
+        "academic_year_prefix",
+        "period_code",
+    ] | None = Field(
+        default=None,
+        description=(
+            "How the extracted year relates to the calendar year of the term. "
+            "null / 'calendar_literal' (default): the extracted year IS the calendar year "
+            "(e.g. '2024SP' = Spring 2024, 'Fall 2019' = Fall 2019). "
+            "'academic_year_prefix': the year is the academic-year start "
+            "(e.g. '2017SR' = Spring 2018); FALL/WINTER keep the year, SPRING/SUMMER roll "
+            "forward one calendar year. "
+            "'period_code': same calendar-year rule for numeric period codes "
+            "(e.g. '2025-10' = Fall 2025, '2025-20' = Spring 2026). "
+            "Applies to both combined term_col and split year_col/season_col configs."
+        ),
+    )
     hook_spec: HookSpec | None = Field(
         default=None,
         description=(
