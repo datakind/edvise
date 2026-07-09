@@ -91,6 +91,30 @@ jobs:
         run: |
           uv sync
 
+      - name: Classify release bump
+        id: classify
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          git fetch origin --tags --prune
+          read -r BUMP RUN <<< "$(uv run python -c "
+          from edvise.utils.automate_releases import (
+              classify_release_bump,
+              get_last_version_tag,
+              should_run_release_integration,
+          )
+
+          version = '${VERSION}'
+          previous_tag = get_last_version_tag()
+          previous_version = previous_tag.lstrip('v') if previous_tag else None
+          bump = classify_release_bump(version, previous_version)
+          run = should_run_release_integration(version, previous_version)
+          print(bump, str(run).lower())
+          ")"
+          echo "bump_type=$BUMP" >> "$GITHUB_OUTPUT"
+          echo "run_integration=$RUN" >> "$GITHUB_OUTPUT"
+
       - name: Commit and push changes
         run: |
           git add CHANGELOG.md pyproject.toml uv.lock
@@ -102,7 +126,12 @@ jobs:
           echo "## Release branch created: release/${VERSION}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "✓ Version metadata updated" >> $GITHUB_STEP_SUMMARY
-          echo "✓ Release branch pushed (integration tests will run automatically)" >> $GITHUB_STEP_SUMMARY
+          echo "✓ Release branch pushed (\`${{ steps.classify.outputs.bump_type }}\` release)" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.classify.outputs.run_integration }}" = "true" ]; then
+            echo "✓ Integration tests will run automatically" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✓ Patch release — integration CI will be skipped" >> $GITHUB_STEP_SUMMARY
+          fi
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Next step:** Once integration tests pass, use the 'Finish Release' workflow to create PRs."
+          echo "**Next step:** Once release CI completes, Finish Release will open PRs automatically." >> $GITHUB_STEP_SUMMARY
 
