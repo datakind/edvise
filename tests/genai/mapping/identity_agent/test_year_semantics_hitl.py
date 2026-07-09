@@ -63,7 +63,10 @@ def test_datetime_hook_does_not_need_year_semantics():
         "hook_spec": {
             "file": "identity_hooks/u/term_hooks.py",
             "functions": [
-                {"name": "year_extractor_student", "draft": "pd.to_datetime(term).year"},
+                {
+                    "name": "year_extractor_student",
+                    "draft": "pd.to_datetime(term).year",
+                },
                 {
                     "name": "season_extractor_student",
                     "draft": "pd.to_datetime(term).strftime('%B').lower()",

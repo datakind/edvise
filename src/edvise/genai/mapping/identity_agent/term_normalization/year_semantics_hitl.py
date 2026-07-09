@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-_CALENDAR_MONTH_RAWS = {f"{m:02d}" for m in range(1, 13)} | {str(m) for m in range(1, 13)}
+_CALENDAR_MONTH_RAWS = {f"{m:02d}" for m in range(1, 13)} | {
+    str(m) for m in range(1, 13)
+}
 _SPELLED_SEASON_RAWS = {"fall", "spring", "summer", "winter"}
 
 
