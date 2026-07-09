@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 from edvise.genai.mapping.identity_agent.profiling.constants import (
+    DEVELOPMENTAL_MEASURE_COLUMN_PATTERNS,
     INDEX_COLUMN_PATTERNS,
     STUDENT_ANCHOR_NAME_PATTERN,
     TERM_COLUMN_PATTERNS,
@@ -14,6 +15,22 @@ from .prompt import COLUMN_ROLES_CONFIDENCE_THRESHOLD
 from .schemas import ColumnRole, ColumnRoleAssignment, ColumnRolesResult
 
 logger = logging.getLogger(__name__)
+
+_OMITTED_COLUMN_CONFIDENCE = 0.5
+
+
+def _guess_role_for_omitted_column(column: str) -> tuple[ColumnRole, str]:
+    """Best-effort semantic role when the LLM omitted a column entirely."""
+    name = str(column)
+    if INDEX_COLUMN_PATTERNS.match(name):
+        return ColumnRole.INDEX, "index column pattern"
+    if STUDENT_ANCHOR_NAME_PATTERN.search(name):
+        return ColumnRole.LEARNER_ID, "student-anchor name pattern"
+    if TERM_COLUMN_PATTERNS.search(name):
+        return ColumnRole.TERM, "term name pattern"
+    if DEVELOPMENTAL_MEASURE_COLUMN_PATTERNS.search(name):
+        return ColumnRole.MEASURE, "developmental/placement measure pattern"
+    return ColumnRole.OTHER, "no name-pattern match for omitted column"
 
 
 def _assignment_map(result: ColumnRolesResult) -> dict[str, ColumnRoleAssignment]:
@@ -97,7 +114,30 @@ def apply_column_role_fallbacks(
                 col, ColumnRole.INDEX, reason="index column pattern", confidence=0.95
             )
 
-    ordered = [assignments[c] for c in columns if c in assignments]
+    for col in columns:
+        if col in assignments:
+            continue
+        role, reason = _guess_role_for_omitted_column(col)
+        assignments[col] = ColumnRoleAssignment(
+            column=col,
+            role=role,
+            confidence=_OMITTED_COLUMN_CONFIDENCE,
+            rationale=f"fallback: omitted from LLM response ({reason})",
+        )
+        fallback_applied.append(col)
+        low_confidence.add(col)
+        warnings.append(
+            f"column_roles_fallback: {col} -> {role.value} "
+            f"(omitted from LLM response; {reason})"
+        )
+        logger.info(
+            "ColumnRoles fallback: %s -> %s (omitted from LLM response; %s)",
+            col,
+            role.value,
+            reason,
+        )
+
+    ordered = [assignments[c] for c in columns]
     return ColumnRolesResult(
         institution_id=result.institution_id,
         dataset=result.dataset,
