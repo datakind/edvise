@@ -276,10 +276,14 @@ corrupts every downstream date. Instead flag it for HITL when the term uses a co
 - **YYYY + season suffix** — `2017SR`, `2018FA`, `2019SP` (the prefix could be the calendar year
   *or* the academic-year start, e.g. `2017SR` = Spring 2017 vs Spring 2018)
 - **YYYY-NN period codes** — `2025-10`, `2025-20`
+- **YYYYPP compact period codes** — `202520`, `202430` (same ambiguity as `YYYY-NN`; year from
+  digits 1–4, period from digits 5–6 — confirming *how* to slice is hook HITL, confirming *what
+  the year means* is this item)
 - **Split year + season-code columns** — a numeric year column plus a short season/period code column
 
 Do **not** flag `year_semantics` for unambiguous shapes: spelled `Season YYYY` (`"Fall 2019"`),
-or datetime term columns — their year is already the calendar year.
+datetime term columns (``pd.to_datetime(term).year`` is already the calendar year), or **YYYYMM**
+month-fragment codes (`201308` — prefix is the calendar year of that month).
 
 The HITL item is a simple `reentry: "terminal"` choice (not hook generation). Offer exactly two
 options whose `resolution` sets `year_semantics`:
@@ -488,6 +492,12 @@ Each HITLItem must have:
   `SUMMER`, `08`–`12` → `FALL`. State in `hitl_context` that the mapping is a draft for
   reviewer confirmation. The drafted `season_extractor` must return the **same raw strings** as the `raw`
   keys (e.g. `str(term)[4:6]` after normalizing `term` to a string without a trailing `.0`).
+  **Do not** emit a `year_semantics` item for YYYYMM — the prefix is the calendar year of that month.
+- For **YYYYPP / YYYY-NN period-code terms** (e.g. `202520`, `2025-20` — year from digits 1–4, period
+  code from digits 5–6 or after the hyphen): emit **two** top-level HITL items — (1) this hook-confirmation
+  item for extractors + `season_map_replace`, and (2) a separate **`reentry: "terminal"`** `year_semantics`
+  item (see YEAR SEMANTICS). Do **not** fold calendar vs academic-year-start into the hook question; confirming
+  ``int(str(term)[:4])`` only settles *where* the year is extracted, not *what it means*.
 - `hitl_context`: the raw values or samples that triggered the flag. Give the reviewer
   the evidence they need without requiring them to look at the data.
 - `options`: 2–5 options. Last option must always be `option_id: "custom"` with
@@ -531,6 +541,8 @@ Good `hitl_question` examples:
   Aug–Dec→Fall before hook generation proceeds."
 - "`semester` uses `2017SR`-style codes. The 4-digit prefix could be the calendar year (Spring 2017)
   or the academic-year start (Spring 2018). Confirm which `year_semantics` applies."
+- "`academic_period` uses `202520`-style YYYYPP codes. Confirm period-code season mapping in one item;
+  confirm calendar vs academic-year-start for the 4-digit prefix in a **separate** terminal item."
 
 ### YEAR SEMANTICS (emit a HITL item; do not set the value yourself)
 
@@ -544,10 +556,11 @@ corrupts every downstream date. Instead flag it for HITL when the term uses a co
 
 - **YYYY + season suffix** — `2017SR`, `2018FA`, `2019SP`
 - **YYYY-NN period codes** — `2025-10`, `2025-20`
+- **YYYYPP compact period codes** — `202520`, `202430` (hyphenless `YYYY-NN`; same ambiguity)
 - **Split year + season-code columns** — a numeric year column plus a short season/period code column
 
-Do **not** flag `year_semantics` for spelled `Season YYYY` (`"Fall 2019"`) or datetime term columns —
-their year is already the calendar year.
+Do **not** flag `year_semantics` for spelled `Season YYYY` (`"Fall 2019"`), datetime term columns
+(their year is already the calendar year), or **YYYYMM** month-fragment codes (`201308`).
 
 Emit a `reentry: "terminal"` HITLItem whose two options set `year_semantics` (not hook generation):
 

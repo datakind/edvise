@@ -101,6 +101,9 @@ from edvise.genai.mapping.identity_agent.term_normalization.schemas import (
 from edvise.genai.mapping.identity_agent.term_normalization.validation import (
     assert_term_hook_groups_compatible,
 )
+from edvise.genai.mapping.identity_agent.term_normalization.year_semantics_hitl import (
+    term_config_needs_year_semantics_review,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -579,6 +582,34 @@ def validate_term_hook_hitl_covers_hook_required(
         )
     except ValueError as e:
         raise HITLValidationError(str(e)) from e
+
+
+def validate_term_year_semantics_resolved(
+    *,
+    term_contract_by_dataset: dict[str, TermContract],
+) -> None:
+    """
+    Ensure coded-year-prefix term configs have a resolved ``year_semantics`` value.
+
+    Call after :func:`resolve_items` on the term HITL envelope. Datetime hook columns
+    and ``YYYYMM`` month-fragment encodings are exempt (calendar year is unambiguous).
+    """
+    missing: list[str] = []
+    for dataset, tc in sorted(term_contract_by_dataset.items()):
+        if tc.term_config is None:
+            continue
+        cfg = tc.term_config.model_dump(mode="json")
+        if term_config_needs_year_semantics_review(cfg):
+            missing.append(dataset)
+    if missing:
+        miss = ", ".join(missing)
+        raise HITLValidationError(
+            "term_config for dataset(s) "
+            f"{{{miss}}} uses a coded year prefix (YYYY+suffix, YYYY-NN / YYYYPP period "
+            "codes, or split year + period-code columns) but year_semantics is unset. "
+            "Emit a separate terminal HITL item (reentry='terminal') with "
+            "calendar_literal vs academic_year_prefix — independent of hook generation."
+        )
 
 
 # ---------------------------------------------------------------------------
