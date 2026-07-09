@@ -36,45 +36,6 @@ jobs:
           echo "branch=$BR" >> $GITHUB_OUTPUT
           echo "version=$VER" >> $GITHUB_OUTPUT
 
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - uses: actions/setup-python@v5
-        with: { python-version: "3.11.11" }
-
-      - name: Install uv
-        run: |
-          python3 -m pip install --upgrade pip
-          pip install uv
-
-      - name: Install project dependencies (uv)
-        run: |
-          uv venv
-          uv pip install .
-
-      - name: Classify release bump
-        id: classify
-        run: |
-          set -euo pipefail
-          VER="${{ steps.meta.outputs.version }}"
-          read -r BUMP RUN <<< "$(uv run python -c "
-          from edvise.utils.automate_releases import (
-              classify_release_bump,
-              get_last_version_tag,
-              should_run_release_integration,
-          )
-
-          version = '${VER}'
-          previous_tag = get_last_version_tag()
-          previous_version = previous_tag.lstrip('v') if previous_tag else None
-          bump = classify_release_bump(version, previous_version)
-          run = should_run_release_integration(version, previous_version)
-          print(bump, str(run).lower())
-          ")"
-          echo "bump_type=$BUMP" >> "$GITHUB_OUTPUT"
-          echo "run_integration=$RUN" >> "$GITHUB_OUTPUT"
-
       - name: Create PR release -> main (if missing)
         env:
           GH_TOKEN: ${{ github.token }}
@@ -82,7 +43,6 @@ jobs:
           set -euo pipefail
           BR="${{ steps.meta.outputs.branch }}"
           VER="${{ steps.meta.outputs.version }}"
-          BUMP="${{ steps.classify.outputs.bump_type }}"
 
           existing=$(gh pr list --head "$BR" --base main --state open --json number --jq '.[0].number')
           if [ -n "${existing:-}" ]; then
@@ -90,17 +50,11 @@ jobs:
             exit 0
           fi
 
-          if [ "$BUMP" = "patch" ]; then
-            CI_LINE='- [x] Patch release (integration CI skipped)'
-          else
-            CI_LINE='- [x] Release integration CI passed'
-          fi
-
           url=$(gh pr create \
             --base main \
             --head "$BR" \
             --title "chore: release $VER" \
-            --body $'## Release '"$VER"$'\n\nThis PR merges `'"$BR"$'` into `main`.\n\n'"$CI_LINE"$'\n- [ ] Merge to create tag `v'"$VER"$'` and open back-merge PR `main -> develop`')
+            --body $'## Release '"$VER"$'\n\nThis PR merges `'"$BR"$'` into `main`.\n\n- [x] Release branch CI passed\n- [ ] Merge to create tag `v'"$VER"$'` and open back-merge PR `main -> develop`')
 
           echo "## Opened release PR" >> $GITHUB_STEP_SUMMARY
           echo "$url" >> $GITHUB_STEP_SUMMARY

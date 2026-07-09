@@ -697,7 +697,7 @@ class TestPRCreation:
                 (
                     f"## Release {version}\n\n"
                     f"This PR merges `{branch}` into `main`.\n\n"
-                    "- [x] Release integration CI passed\n"
+                    "- [x] Release branch CI passed\n"
                     f"- [ ] Merge to create tag `v{version}` and open back-merge PR `main -> develop`"
                 ),
             ],
