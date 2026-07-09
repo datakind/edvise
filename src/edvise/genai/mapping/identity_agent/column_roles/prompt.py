@@ -10,8 +10,8 @@ from edvise.genai.mapping.identity_agent.profiling.schemas import RawTableProfil
 from edvise.genai.mapping.shared.hitl import PIPELINE_HITL_CONFIDENCE_THRESHOLD
 from edvise.genai.mapping.shared.utilities import strip_json_fences
 
-from .file_kinds import FileKind, file_kind_prompt_section
-from .schemas import ColumnRoleAssignment, ColumnRolesResult
+from .file_kinds import file_kind_prompt_section
+from .schemas import ColumnRolesLLMResponse, ColumnRolesResult
 
 logger = logging.getLogger(__name__)
 
@@ -103,39 +103,16 @@ def parse_column_roles_response(
     text = raw.decode("utf-8") if isinstance(raw, bytes) else raw
     data = cast(dict[str, Any], json.loads(strip_json_fences(text)))
 
-    file_kind_raw = data.get("file_kind")
-    if not isinstance(file_kind_raw, str) or not file_kind_raw.strip():
-        raise ValueError("file_kind must be a non-empty string")
-    file_kind = FileKind(file_kind_raw.strip().lower())
+    # Structural + completeness validation lives in the Pydantic model so that an
+    # incomplete ``assignments`` list (e.g. the LLM omitting a column) raises a
+    # ``ValidationError`` and is retried with a correction hint by
+    # ``call_with_retry`` instead of hard-failing on the first response.
+    response = ColumnRolesLLMResponse.model_validate(
+        data, context={"expected_columns": list(expected_columns)}
+    )
 
-    file_kind_confidence = data.get("file_kind_confidence")
-    if not isinstance(file_kind_confidence, (int, float)):
-        raise ValueError("file_kind_confidence must be a number")
-    file_kind_rationale = str(data.get("file_kind_rationale") or "")
-
-    assignments_raw = data.get("assignments")
-    if not isinstance(assignments_raw, list):
-        raise ValueError("assignments must be a list")
-
-    assignments = [ColumnRoleAssignment.model_validate(x) for x in assignments_raw]
-    assigned_names = {a.column for a in assignments}
-    expected = list(expected_columns)
-    missing = [c for c in expected if c not in assigned_names]
-    if missing:
-        raise ValueError(f"Missing role assignments for columns: {missing}")
-
-    extra = assigned_names - set(expected)
-    if extra:
-        raise ValueError(f"Unexpected columns in assignments: {sorted(extra)}")
-
-    low_raw = data.get("low_confidence_columns", [])
-    if low_raw is None:
-        low_raw = []
-    if not isinstance(low_raw, list):
-        raise ValueError("low_confidence_columns must be a list or null")
-    low_confidence = [str(c) for c in low_raw]
-
-    for a in assignments:
+    low_confidence = list(response.low_confidence_columns)
+    for a in response.assignments:
         if (
             a.confidence < COLUMN_ROLES_CONFIDENCE_THRESHOLD
             and a.column not in low_confidence
@@ -145,9 +122,9 @@ def parse_column_roles_response(
     return ColumnRolesResult(
         institution_id=institution_id,
         dataset=dataset,
-        file_kind=file_kind,
-        file_kind_confidence=float(file_kind_confidence),
-        file_kind_rationale=file_kind_rationale,
-        assignments=assignments,
+        file_kind=response.file_kind,
+        file_kind_confidence=response.file_kind_confidence,
+        file_kind_rationale=response.file_kind_rationale,
+        assignments=response.assignments,
         low_confidence_columns=sorted(set(low_confidence)),
     )

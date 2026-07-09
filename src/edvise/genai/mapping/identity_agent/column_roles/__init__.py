@@ -10,7 +10,12 @@ from .runner import (
     run_column_roles_for_dataset,
     run_column_roles_for_institution,
 )
-from .schemas import ColumnRole, ColumnRoleAssignment, ColumnRolesResult
+from .schemas import (
+    ColumnRole,
+    ColumnRoleAssignment,
+    ColumnRolesLLMResponse,
+    ColumnRolesResult,
+)
 from .file_kinds import FILE_KIND_EXPECTED_CONTENTS, FileKind, file_kind_prompt_section
 
 __all__ = [
@@ -19,6 +24,7 @@ __all__ = [
     "FILE_KIND_EXPECTED_CONTENTS",
     "ColumnRole",
     "ColumnRoleAssignment",
+    "ColumnRolesLLMResponse",
     "ColumnRolesResult",
     "FileKind",
     "build_column_roles_user_message",
