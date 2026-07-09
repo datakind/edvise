@@ -17,6 +17,7 @@ from .schemas import ColumnRole, ColumnRoleAssignment, ColumnRolesResult
 logger = logging.getLogger(__name__)
 
 _OMITTED_COLUMN_CONFIDENCE = 0.5
+_HIGH_LLM_OTHER_FRACTION = 0.25
 
 
 def _guess_role_for_omitted_column(column: str) -> tuple[ColumnRole, str]:
@@ -31,6 +32,30 @@ def _guess_role_for_omitted_column(column: str) -> tuple[ColumnRole, str]:
     if DEVELOPMENTAL_MEASURE_COLUMN_PATTERNS.search(name):
         return ColumnRole.MEASURE, "developmental/placement measure pattern"
     return ColumnRole.OTHER, "no name-pattern match for omitted column"
+
+
+def _warn_if_high_llm_other_rate(
+    assignments: dict[str, ColumnRoleAssignment],
+    columns: list[str],
+    warnings: list[str],
+) -> None:
+    """Surface when the LLM labeled many columns ``other`` (lazy classification)."""
+    if not columns:
+        return
+    llm_other = sorted(
+        a.column
+        for a in assignments.values()
+        if a.role == ColumnRole.OTHER and not a.rationale.startswith("fallback:")
+    )
+    frac = len(llm_other) / len(columns)
+    if frac <= _HIGH_LLM_OTHER_FRACTION:
+        return
+    msg = (
+        f"column_roles: {frac:.0%} of columns ({len(llm_other)}/{len(columns)}) "
+        f"labeled other by LLM: {llm_other}"
+    )
+    warnings.append(msg)
+    logger.warning(msg)
 
 
 def _assignment_map(result: ColumnRolesResult) -> dict[str, ColumnRoleAssignment]:
@@ -136,6 +161,8 @@ def apply_column_role_fallbacks(
             role.value,
             reason,
         )
+
+    _warn_if_high_llm_other_rate(assignments, columns, warnings)
 
     ordered = [assignments[c] for c in columns]
     return ColumnRolesResult(

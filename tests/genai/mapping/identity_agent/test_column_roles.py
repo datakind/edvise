@@ -263,6 +263,31 @@ def test_missing_column_fallback_after_retry_exhausted():
     assert "dev_engl" in result.fallback_applied
 
 
+def test_fallback_warns_when_llm_labels_many_columns_other():
+    assignments = [
+        ColumnRoleAssignment(
+            column="pidm",
+            role=ColumnRole.LEARNER_ID,
+            confidence=0.95,
+            rationale="person id",
+        ),
+    ]
+    for i in range(3):
+        assignments.append(
+            ColumnRoleAssignment(
+                column=f"col_{i}",
+                role=ColumnRole.OTHER,
+                confidence=0.85,
+                rationale="unsure",
+            )
+        )
+    result = _roles(assignments=assignments)
+    patched = apply_column_role_fallbacks(
+        result, columns=["pidm", "col_0", "col_1", "col_2"]
+    )
+    assert any("labeled other by LLM" in w for w in patched.profiler_warnings)
+
+
 def test_fallback_assigns_learner_id_from_name_pattern():
     result = _roles(
         assignments=[
