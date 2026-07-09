@@ -215,6 +215,44 @@ class TestPRFetching:
         assert result == ["PR #123", "PR #124"]
 
 
+class TestReleaseBumpClassification:
+    """Test semver bump classification for release integration gating."""
+
+    @pytest.mark.parametrize(
+        ("current", "previous", "expected"),
+        [
+            ("1.4.6", "1.4.5", "patch"),
+            ("1.5.0", "1.4.5", "minor"),
+            ("2.0.0", "1.4.5", "major"),
+            ("0.2.0", None, "initial"),
+        ],
+    )
+    def test_classify_release_bump(self, current, previous, expected):
+        assert automate_releases.classify_release_bump(current, previous) == expected
+
+    @pytest.mark.parametrize(
+        ("current", "previous", "expected"),
+        [
+            ("1.4.6", "1.4.5", False),
+            ("1.5.0", "1.4.5", True),
+            ("2.0.0", "1.4.5", True),
+            ("0.2.0", None, True),
+        ],
+    )
+    def test_should_run_release_integration(self, current, previous, expected):
+        assert (
+            automate_releases.should_run_release_integration(current, previous)
+            is expected
+        )
+
+    def test_parse_semver_strips_v_prefix(self):
+        assert automate_releases.parse_semver("v1.2.3") == (1, 2, 3)
+
+    def test_classify_release_bump_rejects_non_forward_bump(self):
+        with pytest.raises(ValueError, match="not a forward semver bump"):
+            automate_releases.classify_release_bump("1.4.5", "1.4.6")
+
+
 # ============================================================================
 # Version Update Tests (update_version.py)
 # ============================================================================
@@ -582,7 +620,7 @@ class TestVersionValidation:
 
 
 class TestPRCreation:
-    """Consolidated PR creation tests."""
+    """Test PR creation commands used by finish-release."""
 
     @patch("subprocess.run")
     def test_check_existing_pr(self, mock_run):
@@ -637,7 +675,7 @@ class TestPRCreation:
     def test_create_release_pr(self, mock_run):
         """Test creating release PR."""
         mock_run.return_value = MagicMock(
-            stdout='{"url": "https://github.com/owner/repo/pull/123"}',
+            stdout="https://github.com/owner/repo/pull/123\n",
             returncode=0,
         )
 
@@ -659,13 +697,9 @@ class TestPRCreation:
                 (
                     f"## Release {version}\n\n"
                     f"This PR merges `{branch}` into `main`.\n\n"
-                    "- [x] Release integration CI passed\n"
+                    "- [x] Release branch CI passed\n"
                     f"- [ ] Merge to create tag `v{version}` and open back-merge PR `main -> develop`"
                 ),
-                "--json",
-                "url",
-                "--jq",
-                ".url",
             ],
             capture_output=True,
             text=True,
@@ -679,7 +713,7 @@ class TestPRCreation:
     def test_create_backmerge_pr(self, mock_run):
         """Test creating back-merge PR."""
         mock_run.return_value = MagicMock(
-            stdout='{"url": "https://github.com/owner/repo/pull/124"}',
+            stdout="https://github.com/owner/repo/pull/124\n",
             returncode=0,
         )
 
@@ -704,10 +738,6 @@ class TestPRCreation:
                     "- [x] Tag pushed (deploy should be running)\n"
                     "- [ ] Merge to keep develop in sync"
                 ),
-                "--json",
-                "url",
-                "--jq",
-                ".url",
             ],
             capture_output=True,
             text=True,
@@ -814,8 +844,17 @@ class TestBranchOperations:
 class TestWorkflowConditions:
     """Consolidated workflow condition tests."""
 
+    def test_integration_runs_for_minor_or_major(self):
+        """Minor/major releases should run integration CI."""
+        assert automate_releases.should_run_release_integration("1.5.0", "1.4.5")
+        assert automate_releases.should_run_release_integration("2.0.0", "1.4.5")
+
+    def test_integration_skipped_for_patch(self):
+        """Patch releases should skip integration CI."""
+        assert not automate_releases.should_run_release_integration("1.4.6", "1.4.5")
+
     def test_release_pr_condition(self):
-        """Test condition for opening release PR."""
+        """Test condition for opening release PR after CI."""
         event_name = "workflow_run"
         conclusion = "success"
         branch = "release/0.1.9"
@@ -829,7 +868,7 @@ class TestWorkflowConditions:
         assert should_trigger
 
     def test_tag_creation_condition(self):
-        """Test condition for tag creation."""
+        """Test condition for tag creation after release PR merge."""
         event_name = "pull_request"
         merged = True
         base_ref = "main"
@@ -845,7 +884,7 @@ class TestWorkflowConditions:
         assert should_trigger
 
     def test_branch_deletion_condition(self):
-        """Test condition for branch deletion."""
+        """Test condition for branch deletion after develop sync merge."""
         event_name = "pull_request"
         merged = True
         base_ref = "develop"
@@ -867,39 +906,18 @@ class TestIdempotency:
     """Consolidated idempotency tests."""
 
     @patch("subprocess.run")
-    def test_pr_creation_idempotency(self, mock_run):
-        """Test PR creation idempotency."""
+    def test_tag_exists_idempotency(self, mock_run):
+        """Test tag existence check for idempotent finish."""
+        mock_run.return_value = MagicMock(returncode=0)
 
-        def side_effect(*args, **kwargs):
-            if "gh pr list" in " ".join(args[0]):
-                return MagicMock(stdout="123\n", returncode=0)
-            return MagicMock(returncode=0)
-
-        mock_run.side_effect = side_effect
-
-        branch = "release/0.1.9"
+        tag = "v0.1.9"
         result = subprocess.run(
-            [
-                "gh",
-                "pr",
-                "list",
-                "--head",
-                branch,
-                "--base",
-                "main",
-                "--state",
-                "open",
-                "--json",
-                "number",
-                "--jq",
-                ".[0].number",
-            ],
+            ["git", "rev-parse", f"refs/tags/{tag}"],
             capture_output=True,
-            text=True,
             check=False,
         )
 
-        assert result.stdout.strip() == "123"
+        assert result.returncode == 0
 
     @patch("subprocess.run")
     def test_tag_creation_idempotency(self, mock_run):
@@ -963,8 +981,38 @@ class TestWorkflowYAMLSyntax:
         assert "tag-and-open-backmerge-pr" in workflow["jobs"]
         assert "delete-release-branch" in workflow["jobs"]
 
+    def test_release_integration_workflow_yaml(self):
+        """Test release-integration.yml gates integration on bump type."""
+        workflow_path = (
+            WORKSPACE_ROOT / ".github" / "workflows" / "release-integration.yml"
+        )
+
+        with open(workflow_path) as f:
+            workflow = yaml.safe_load(f)
+
+        assert workflow["name"] == "release-branch-ci-dev"
+
+        on_section = workflow.get(True) or workflow.get("on")
+        assert "push" in on_section
+        assert "workflow_dispatch" in on_section
+        assert "force_integration" in on_section["workflow_dispatch"]["inputs"]
+
+        jobs = workflow["jobs"]
+        assert "classify-release" in jobs
+        assert jobs["classify-release"]["outputs"]["run_integration"]
+        assert jobs["classify-release"]["outputs"]["bump_type"]
+        assert "finish-release" not in jobs
+
+        for job_name in ("pdp-integration", "es-integration"):
+            job = jobs[job_name]
+            needs = job["needs"]
+            if isinstance(needs, str):
+                needs = [needs]
+            assert needs == ["classify-release"]
+            assert "needs.classify-release.outputs.run_integration" in job["if"]
+
     def test_workflow_permissions(self):
-        """Test that workflows have required permissions."""
+        """Test that release workflows have required permissions."""
         workflows = [
             "start-release.yml",
             "finish-release.yml",
@@ -989,7 +1037,7 @@ class TestWorkflowYAMLSyntax:
                 assert workflow["permissions"]["pull-requests"] == "write"
 
     def test_workflow_job_structure(self):
-        """Test that workflow jobs have required structure."""
+        """Test that finish-release workflow jobs have required structure."""
         workflow_path = WORKSPACE_ROOT / ".github" / "workflows" / "finish-release.yml"
 
         with open(workflow_path) as f:
