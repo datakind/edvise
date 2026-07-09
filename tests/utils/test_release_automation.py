@@ -1005,7 +1005,10 @@ class TestWorkflowYAMLSyntax:
 
         for job_name in ("pdp-integration", "es-integration"):
             job = jobs[job_name]
-            assert job["needs"] == ["classify-release"]
+            needs = job["needs"]
+            if isinstance(needs, str):
+                needs = [needs]
+            assert needs == ["classify-release"]
             assert "needs.classify-release.outputs.run_integration" in job["if"]
 
     def test_workflow_permissions(self):
