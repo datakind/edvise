@@ -29,6 +29,7 @@ from edvise.genai.mapping.identity_agent.term_normalization.schemas import (
     InstitutionTermContract,
     TermContract,
     TermOrderConfig,
+    season_map_chronology_error,
 )
 
 _SEASON_WORDS = frozenset(
@@ -290,6 +291,9 @@ def collect_term_semantic_validation_errors(
         mismatch = _hook_extractor_drafts_mismatch_term_shape(cfg)
         if mismatch:
             errors.append(f"[{table}] {mismatch}")
+        chrono_err = season_map_chronology_error(cfg.season_map)
+        if chrono_err:
+            errors.append(f"[{table}] {chrono_err}")
         columns = _profile_columns_for_dataset(run_by_dataset, table)
         if columns is not None:
             split_err = _split_columns_required_from_profile(table, cfg, columns)
