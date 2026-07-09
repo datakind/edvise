@@ -97,7 +97,28 @@ def apply_column_role_fallbacks(
                 col, ColumnRole.INDEX, reason="index column pattern", confidence=0.95
             )
 
-    ordered = [assignments[c] for c in columns if c in assignments]
+    for col in columns:
+        if col in assignments:
+            continue
+        assignments[col] = ColumnRoleAssignment(
+            column=col,
+            role=ColumnRole.OTHER,
+            confidence=0.5,
+            rationale="fallback: omitted from LLM response",
+        )
+        fallback_applied.append(col)
+        low_confidence.add(col)
+        warnings.append(
+            f"column_roles_fallback: {col} -> {ColumnRole.OTHER.value} "
+            "(omitted from LLM response)"
+        )
+        logger.info(
+            "ColumnRoles fallback: %s -> %s (omitted from LLM response)",
+            col,
+            ColumnRole.OTHER.value,
+        )
+
+    ordered = [assignments[c] for c in columns]
     return ColumnRolesResult(
         institution_id=result.institution_id,
         dataset=result.dataset,
