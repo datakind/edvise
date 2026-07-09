@@ -9,7 +9,7 @@ import pandas as pd
 
 from edvise.configs.genai import SchoolMappingConfig
 from edvise.data_audit.custom_cleaning import CleaningConfig
-from edvise.utils.llm_utils import llm_complete_with_parse_retry
+from edvise.utils.llm_utils import LLMRetryExhausted, llm_complete_with_parse_retry
 
 from edvise.genai.mapping.identity_agent.dataset_io import load_school_dataset_dataframe
 from edvise.genai.mapping.identity_agent.profiling.constants import (
@@ -57,22 +57,39 @@ def run_column_roles_for_dataset(
     user = build_column_roles_user_message(institution_id, dataset, raw_table_profile)
     expected_columns = [c.name for c in raw_table_profile.columns]
 
-    def _parse(raw: str) -> ColumnRolesResult:
+    def _parse(
+        raw: str,
+        *,
+        validate_completeness: bool = True,
+    ) -> ColumnRolesResult:
         parsed = parse_column_roles_response(
             raw,
             institution_id=institution_id,
             dataset=dataset,
             expected_columns=expected_columns,
+            validate_completeness=validate_completeness,
         )
         return apply_column_role_fallbacks(parsed, columns=expected_columns)
 
-    result = llm_complete_with_parse_retry(
-        llm_complete,
-        COLUMN_ROLES_SYSTEM_PROMPT,
-        user,
-        _parse,
-        logger=logger,
-    )
+    def _parse_strict(raw: str) -> ColumnRolesResult:
+        return _parse(raw, validate_completeness=True)
+
+    try:
+        result = llm_complete_with_parse_retry(
+            llm_complete,
+            COLUMN_ROLES_SYSTEM_PROMPT,
+            user,
+            _parse_strict,
+            logger=logger,
+        )
+    except LLMRetryExhausted as exc:
+        logger.warning(
+            "[column_roles] dataset=%s LLM retries exhausted (%s); "
+            "applying best-guess fallback for omitted columns",
+            dataset,
+            exc.last_error,
+        )
+        result = _parse(exc.last_raw_response, validate_completeness=False)
     logger.info(
         "[column_roles] dataset=%s file_kind=%s learner_id=%s low_confidence=%s warnings=%d",
         dataset,
