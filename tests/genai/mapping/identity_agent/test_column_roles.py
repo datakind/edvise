@@ -2,7 +2,9 @@ import json
 
 import pandas as pd
 import pytest
+from pydantic import ValidationError
 
+from edvise.utils.llm_utils import llm_complete_with_parse_retry
 from edvise.genai.mapping.identity_agent.column_roles.file_kinds import FileKind
 from edvise.genai.mapping.identity_agent.column_roles.fallback import (
     apply_column_role_fallbacks,
@@ -87,6 +89,74 @@ def test_parse_column_roles_response_requires_file_kind():
             dataset="student",
             expected_columns=["pidm"],
         )
+
+
+def _column_roles_payload(columns: list[str]) -> dict:
+    return {
+        "file_kind": "student",
+        "file_kind_confidence": 0.9,
+        "file_kind_rationale": "demographics table",
+        "assignments": [
+            {
+                "column": c,
+                "role": "learner_id" if c == "pidm" else "measure",
+                "confidence": 0.9,
+                "rationale": "test",
+            }
+            for c in columns
+        ],
+        "low_confidence_columns": [],
+    }
+
+
+def test_parse_column_roles_response_missing_column_raises_validation_error():
+    """A missing column must raise ``ValidationError`` so the shared retry helper retries."""
+    payload = _column_roles_payload(["pidm"])
+    with pytest.raises(ValidationError, match="dev_engl"):
+        parse_column_roles_response(
+            json.dumps(payload),
+            institution_id="test_u",
+            dataset="student",
+            expected_columns=["pidm", "dev_engl"],
+        )
+
+
+def test_parse_column_roles_response_extra_column_raises_validation_error():
+    payload = _column_roles_payload(["pidm", "surprise"])
+    with pytest.raises(ValidationError, match="surprise"):
+        parse_column_roles_response(
+            json.dumps(payload),
+            institution_id="test_u",
+            dataset="student",
+            expected_columns=["pidm"],
+        )
+
+
+def test_missing_column_is_retried_and_recovers():
+    """Omitting a column on the first response triggers a retry that then succeeds."""
+    calls: list[str] = []
+    incomplete = json.dumps(_column_roles_payload(["pidm"]))
+    complete = json.dumps(_column_roles_payload(["pidm", "dev_engl"]))
+
+    def llm_complete(system: str, user: str) -> str:
+        calls.append(user)
+        return incomplete if len(calls) == 1 else complete
+
+    def parse(raw: str):
+        return parse_column_roles_response(
+            raw,
+            institution_id="test_u",
+            dataset="student",
+            expected_columns=["pidm", "dev_engl"],
+        )
+
+    result = llm_complete_with_parse_retry(
+        llm_complete, "sys", "user", parse, max_retries=3
+    )
+    assert len(calls) == 2
+    assert {a.column for a in result.assignments} == {"pidm", "dev_engl"}
+    # The correction hint must be appended to the user message on the retry.
+    assert "dev_engl" in calls[1]
 
 
 def test_fallback_assigns_learner_id_from_name_pattern():
