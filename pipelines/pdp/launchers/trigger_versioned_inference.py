@@ -54,6 +54,7 @@ from pipelines.pdp.launchers.inference_job_submit import (  # noqa: E402
 from pipelines.pdp.launchers.launcher_cli import (  # noqa: E402
     add_inference_trigger_args,
     build_launcher_trigger_inputs,
+    optional_model_run_id,
 )
 from pipelines.pdp.launchers.launcher_run_metadata import (  # noqa: E402
     get_databricks_run_id,
@@ -169,6 +170,7 @@ def main(argv: list[str] | None = None) -> int:
         db_workspace=db_ws,
         databricks_institution_name=inst,
         model_name=model,
+        model_run_id_override=optional_model_run_id(args),
         logger=LOGGER,
     )
     if resolved is None:

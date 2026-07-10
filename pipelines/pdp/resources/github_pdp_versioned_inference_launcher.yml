@@ -31,6 +31,8 @@ resources:
               - "{{job.parameters.databricks_institution_name}}"
               - --model_name
               - "{{job.parameters.model_name}}"
+              - --model_run_id
+              - "{{job.parameters.model_run_id}}"
               - --DB_workspace
               - "{{job.parameters.DB_workspace}}"
               - --release_base_path
@@ -52,6 +54,8 @@ resources:
               - "{{job.parameters.databricks_institution_name}}"
               - --model_name
               - "{{job.parameters.model_name}}"
+              - --model_run_id
+              - "{{job.parameters.model_run_id}}"
               - --DB_workspace
               - "{{job.parameters.DB_workspace}}"
               - --release_base_path
@@ -98,6 +102,8 @@ resources:
               - "{{job.parameters.databricks_institution_name}}"
               - --model_name
               - "{{job.parameters.model_name}}"
+              - --model_run_id
+              - "{{job.parameters.model_run_id}}"
               - --DB_workspace
               - "{{job.parameters.DB_workspace}}"
               - --release_base_path
@@ -156,6 +162,8 @@ resources:
           default: ${var.databricks_institution_name}
         - name: model_name
           default: ${var.model_name}
+        - name: model_run_id
+          default: ""
         - name: DB_workspace
           default: ${var.DB_workspace}
         - name: release_base_path

@@ -191,7 +191,13 @@ def test_resolve_model_run_fallback_config_toml(
     assert out == ("mr1", "from_config")
 
 
-def test_resolve_model_run_no_rows() -> None:
+def test_resolve_model_run_no_rows(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        mm,
+        "resolve_model_run_id_from_uc_registry",
+        lambda **_: None,
+    )
+
     class _DF:
         def collect(self):
             return []
@@ -209,6 +215,75 @@ def test_resolve_model_run_no_rows() -> None:
         )
         is None
     )
+
+
+def test_resolve_model_run_from_uc_silver_when_no_pipeline_models_row(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    cfg = tmp_path / "config.toml"
+    cfg.write_text(
+        'pipeline_version = "sha_from_silver_via_uc"\n',
+        encoding="utf-8",
+    )
+
+    def fake_silver_path(
+        db_workspace: str, databricks_institution_name: str, model_run_id: str
+    ) -> Path:
+        assert model_run_id == "uc-run-abc"
+        return cfg
+
+    monkeypatch.setattr(mm, "silver_training_config_path", fake_silver_path)
+    monkeypatch.setattr(
+        mm,
+        "resolve_model_run_id_from_uc_registry",
+        lambda **_: "uc-run-abc",
+    )
+
+    class _DF:
+        def collect(self):
+            return []
+
+    class _Spark:
+        def sql(self, _q):
+            return _DF()
+
+    out = mm.resolve_model_run_and_pipeline_version(
+        spark=_Spark(),
+        db_workspace="dev_sst_02",
+        databricks_institution_name="midway_uni",
+        model_name="graduation_in_4y_ft_4y_pt_checkpoint_2_core_terms",
+    )
+    assert out == ("uc-run-abc", "sha_from_silver_via_uc")
+
+
+def test_resolve_model_run_explicit_override_skips_lookups(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    cfg = tmp_path / "config.toml"
+    cfg.write_text('pipeline_version = "override_sha"\n', encoding="utf-8")
+
+    def fake_silver_path(
+        db_workspace: str, databricks_institution_name: str, model_run_id: str
+    ) -> Path:
+        return cfg
+
+    monkeypatch.setattr(mm, "silver_training_config_path", fake_silver_path)
+
+    def fail_sql(_q):
+        raise AssertionError("pipeline_models should not be queried")
+
+    class _Spark:
+        def sql(self, q):
+            return fail_sql(q)
+
+    out = mm.resolve_model_run_and_pipeline_version(
+        spark=_Spark(),
+        db_workspace="dev_sst_02",
+        databricks_institution_name="midway_uni",
+        model_name="any_model",
+        model_run_id_override="explicit-run-id",
+    )
+    assert out == ("explicit-run-id", "override_sha")
 
 
 def test_main_ok_yaml_snapshot_only(

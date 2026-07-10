@@ -39,10 +39,22 @@ def add_model_resolution_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--model_name", default="")
     parser.add_argument("--DB_workspace", default="")
     parser.add_argument(
+        "--model_run_id",
+        default="",
+        help=(
+            "Optional training model_run_id (MLflow run id). Skips pipeline_models / "
+            "UC lookup when set."
+        ),
+    )
+    parser.add_argument(
         "--release_base_path",
         default="",
         help="UC volume base for edvise_releases; defaults from DB_workspace.",
     )
+
+
+def optional_model_run_id(args: argparse.Namespace) -> str | None:
+    return _optional_arg(getattr(args, "model_run_id", ""))
 
 
 def add_inference_trigger_args(parser: argparse.ArgumentParser) -> None:

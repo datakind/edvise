@@ -50,7 +50,10 @@ from pipelines.pdp.launchers.bundle_materialize import (  # noqa: E402
     inference_yml_in_bundle,
     materialize_runtime_bundle_dir,
 )
-from pipelines.pdp.launchers.launcher_cli import add_model_resolution_args  # noqa: E402
+from pipelines.pdp.launchers.launcher_cli import (  # noqa: E402
+    add_model_resolution_args,
+    optional_model_run_id,
+)
 from pipelines.pdp.launchers.launcher_run_metadata import (  # noqa: E402
     get_databricks_run_id,
     record_versioned_inference_launcher_event,
@@ -122,6 +125,7 @@ def main(argv: list[str] | None = None) -> int:
         db_workspace=db_ws,
         databricks_institution_name=inst,
         model_name=model,
+        model_run_id_override=optional_model_run_id(args),
         logger=LOGGER,
     )
     if resolved is None:
