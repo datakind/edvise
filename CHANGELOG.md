@@ -1,3 +1,11 @@
+## 1.4.7 (2026-07-09)
+- fix(genai): ensure prompt asks for term year semantics HITL with hook generation (#205)
+
+## 1.4.6 (2026-07-09)
+- fix: ensuring we have LLM retry for Haiku model during column roles task (#200)
+- feat(release-automation): patch-gated release CI and fix finish-release PR creation (#201)
+- fix(genai): adding edge case & smarter fallback options for Haiku/column roles agent in prompt (#204)
+
 ## 1.4.5 (2026-07-08)
 - fix(genai): adding in year_semantics into Term Config (#199)
 

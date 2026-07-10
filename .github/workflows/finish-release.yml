@@ -36,10 +36,6 @@ jobs:
           echo "branch=$BR" >> $GITHUB_OUTPUT
           echo "version=$VER" >> $GITHUB_OUTPUT
 
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
       - name: Create PR release -> main (if missing)
         env:
           GH_TOKEN: ${{ github.token }}
@@ -58,8 +54,7 @@ jobs:
             --base main \
             --head "$BR" \
             --title "chore: release $VER" \
-            --body $'## Release '"$VER"$'\n\nThis PR merges `'"$BR"$'` into `main`.\n\n- [x] Release integration CI passed\n- [ ] Merge to create tag `v'"$VER"$'` and open back-merge PR `main -> develop`' \
-            --json url --jq .url)
+            --body $'## Release '"$VER"$'\n\nThis PR merges `'"$BR"$'` into `main`.\n\n- [x] Release branch CI passed\n- [ ] Merge to create tag `v'"$VER"$'` and open back-merge PR `main -> develop`')
 
           echo "## Opened release PR" >> $GITHUB_STEP_SUMMARY
           echo "$url" >> $GITHUB_STEP_SUMMARY
@@ -129,8 +124,7 @@ jobs:
             --base develop \
             --head main \
             --title "chore: sync develop with release $VER" \
-            --body $'## Sync develop after release '"$VER"$'\n\nThis PR merges `main` back into `develop` after tagging `v'"$VER"$'`.\n\n- [x] Release merged to main\n- [x] Tag pushed (deploy should be running)\n- [ ] Merge to keep develop in sync' \
-            --json url --jq .url)
+            --body $'## Sync develop after release '"$VER"$'\n\nThis PR merges `main` back into `develop` after tagging `v'"$VER"$'`.\n\n- [x] Release merged to main\n- [x] Tag pushed (deploy should be running)\n- [ ] Merge to keep develop in sync')
 
           echo "## Back-merge PR" >> $GITHUB_STEP_SUMMARY
           echo "$url" >> $GITHUB_STEP_SUMMARY

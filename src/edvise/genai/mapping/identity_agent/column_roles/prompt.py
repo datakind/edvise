@@ -37,15 +37,18 @@ Return a single JSON object (no markdown fences) with:
 - `program` — degree program, program_at_graduation, intended_program, college
 - `major` — major, concentration, field of study
 - `cohort` — cohort year, entry term, admit term, class year
-- `measure` — numeric or coded outcomes: GPA, credits, grades, counts, rates, amounts
+- `measure` — numeric or coded outcomes: GPA, credits, grades, counts, rates, amounts;
+  developmental/remedial placement flags (`dev_engl`, `dev_math`, `dev_read`, gateway flags)
 - `index` — synthetic row index (Unnamed: 0, row_number)
 - `metadata` — descriptive text not part of identifiers (names, titles, descriptions)
-- `other` — none of the above
+- `other` — none of the above (use sparingly; most columns map to a specific role)
 
 ## Rules
 1. Choose `file_kind` from column names, dtypes, and sample values — **not** from the logical
    dataset label in the user message (institutions misname files).
-2. Assign exactly one role per column from the input list.
+2. Include every input column in `assignments` — the array length must equal
+   `expected_assignment_count`. Never omit a column; make your best semantic guess and use
+   `confidence` (and `low_confidence_columns`) when uncertain.
 3. Use column names **and** sample values; institutions use different naming (pidm vs student_id).
 4. Float columns with grade/credit/GPA names are usually `measure`, not `learner_id`.
 5. High-cardinality opaque IDs matching person patterns → `learner_id` even if not named student_id.
@@ -81,11 +84,13 @@ def build_column_roles_user_message(
     dataset: str,
     raw_table_profile: RawTableProfile,
 ) -> str:
+    columns = _column_summaries_for_prompt(raw_table_profile)
     payload = {
         "institution_id": institution_id,
         "dataset": dataset,
         "row_count": raw_table_profile.row_count,
-        "columns": _column_summaries_for_prompt(raw_table_profile),
+        "expected_assignment_count": len(columns),
+        "columns": columns,
     }
     return (
         "Classify the file kind, then classify each column by semantic role.\n\n"
@@ -99,6 +104,7 @@ def parse_column_roles_response(
     institution_id: str,
     dataset: str,
     expected_columns: list[str],
+    validate_completeness: bool = True,
 ) -> ColumnRolesResult:
     text = raw.decode("utf-8") if isinstance(raw, bytes) else raw
     data = cast(dict[str, Any], json.loads(strip_json_fences(text)))
@@ -107,9 +113,10 @@ def parse_column_roles_response(
     # incomplete ``assignments`` list (e.g. the LLM omitting a column) raises a
     # ``ValidationError`` and is retried with a correction hint by
     # ``call_with_retry`` instead of hard-failing on the first response.
-    response = ColumnRolesLLMResponse.model_validate(
-        data, context={"expected_columns": list(expected_columns)}
-    )
+    context: dict[str, list[str]] | None = None
+    if validate_completeness:
+        context = {"expected_columns": list(expected_columns)}
+    response = ColumnRolesLLMResponse.model_validate(data, context=context)
 
     low_confidence = list(response.low_confidence_columns)
     for a in response.assignments:
