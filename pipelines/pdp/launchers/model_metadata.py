@@ -95,6 +95,27 @@ def get_spark_session() -> Any:
         return None
 
 
+def normalize_uc_model_short_name(
+    model_name: str,
+    *,
+    workspace: str = "",
+    institution: str = "",
+) -> str:
+    """Accept short or full UC name ``{catalog}.{institution}_gold.{short}``."""
+    mn = (model_name or "").strip()
+    if not mn:
+        return mn
+    ws = (workspace or "").strip()
+    inst = (institution or "").strip()
+    if ws and inst:
+        prefix = f"{ws}.{inst}_gold."
+        if mn.startswith(prefix):
+            return mn[len(prefix) :]
+    if mn.count(".") >= 2:
+        return mn.rsplit(".", 1)[-1]
+    return mn
+
+
 def resolve_model_run_id_from_uc_registry(
     *,
     db_workspace: str,
@@ -106,15 +127,27 @@ def resolve_model_run_id_from_uc_registry(
     Resolve ``model_run_id`` from Unity Catalog registered model (same as PDP ingestion).
 
     Used when ``pipeline_models`` has no row but the model is registered in UC gold.
+    Uses MLflow directly so launcher tasks do not require the ``edvise`` package.
     """
     try:
-        from edvise.utils.databricks import get_latest_uc_model_run_id
+        from mlflow.tracking import MlflowClient  # type: ignore[import-not-found]
 
-        run_id = get_latest_uc_model_run_id(
-            model_name=model_name,
+        short_name = normalize_uc_model_short_name(
+            model_name,
             workspace=db_workspace,
             institution=databricks_institution_name,
         )
+        full_model_name = (
+            f"{db_workspace}.{databricks_institution_name}_gold.{short_name}"
+        )
+        client = MlflowClient(registry_uri="databricks-uc")
+        versions = client.search_model_versions(f"name='{full_model_name}'")
+        if not versions:
+            raise ValueError(
+                f"No registered versions found for model: {full_model_name}"
+            )
+        latest_version = max(versions, key=lambda v: int(v.version))
+        run_id = str(latest_version.run_id)
     except Exception as exc:
         logger.warning(
             "Could not resolve model_run_id from UC registry for institution_id=%r "
@@ -131,7 +164,11 @@ def resolve_model_run_id_from_uc_registry(
         "Resolved model_run_id from UC model registry (%s.%s_gold.%s): %s",
         db_workspace,
         databricks_institution_name,
-        model_name,
+        normalize_uc_model_short_name(
+            model_name,
+            workspace=db_workspace,
+            institution=databricks_institution_name,
+        ),
         rid,
     )
     return rid

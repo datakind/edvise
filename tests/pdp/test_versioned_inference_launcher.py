@@ -191,6 +191,51 @@ def test_resolve_model_run_fallback_config_toml(
     assert out == ("mr1", "from_config")
 
 
+def test_normalize_uc_model_short_name() -> None:
+    assert (
+        mm.normalize_uc_model_short_name(
+            "dev_sst_02.midway_uni_gold.graduation_in_4y",
+            workspace="dev_sst_02",
+            institution="midway_uni",
+        )
+        == "graduation_in_4y"
+    )
+    assert mm.normalize_uc_model_short_name("short_only") == "short_only"
+
+
+def test_resolve_model_run_id_from_uc_registry(monkeypatch: pytest.MonkeyPatch) -> None:
+    import types
+
+    class _Version:
+        def __init__(self, version: str, run_id: str) -> None:
+            self.version = version
+            self.run_id = run_id
+
+    class _Client:
+        def search_model_versions(self, filter_string: str) -> list[_Version]:
+            assert filter_string == (
+                "name='dev_sst_02.midway_uni_gold.graduation_in_4y_ft_4y_pt_checkpoint_2_core_terms'"
+            )
+            return [
+                _Version("1", "run-old"),
+                _Version("3", "run-latest"),
+            ]
+
+    tracking = types.ModuleType("mlflow.tracking")
+    tracking.MlflowClient = lambda registry_uri="databricks-uc": _Client()
+    mlflow_mod = types.ModuleType("mlflow")
+    mlflow_mod.tracking = tracking
+    monkeypatch.setitem(sys.modules, "mlflow", mlflow_mod)
+    monkeypatch.setitem(sys.modules, "mlflow.tracking", tracking)
+
+    out = mm.resolve_model_run_id_from_uc_registry(
+        db_workspace="dev_sst_02",
+        databricks_institution_name="midway_uni",
+        model_name="graduation_in_4y_ft_4y_pt_checkpoint_2_core_terms",
+    )
+    assert out == "run-latest"
+
+
 def test_resolve_model_run_no_rows(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         mm,
