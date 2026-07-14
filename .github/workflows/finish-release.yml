@@ -26,6 +26,8 @@ jobs:
       startsWith(github.event.workflow_run.head_branch, 'release/')
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       - name: Extract version from branch
         id: meta
         run: |

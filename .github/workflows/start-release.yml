@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   create-release-branch:
@@ -96,6 +97,15 @@ jobs:
           git add CHANGELOG.md pyproject.toml uv.lock
           git commit -m "chore(release): prepare ${VERSION}"
           git push -u origin "release/${VERSION}"
+
+      - name: Trigger release branch CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # GITHUB_TOKEN pushes do not trigger other workflows; dispatch explicitly.
+          gh workflow run release-branch-ci-dev --ref "release/${VERSION}"
+          echo "✓ Triggered release-branch-ci-dev on release/${VERSION}" >> $GITHUB_STEP_SUMMARY
 
       - name: Summary
         run: |
