@@ -645,7 +645,7 @@ def apply_gate_2_manifest_overrides(
     """
     from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.override import (
         load_overrides_json,
-        override_manifest_mappings_at_path,
+        override_manifest_mappings,
     )
 
     if not paths.manifest_map.is_file():
@@ -657,7 +657,7 @@ def apply_gate_2_manifest_overrides(
         overrides_json_path, run_root=paths.run_root
     )
     overrides = load_overrides_json(resolved)
-    count = override_manifest_mappings_at_path(
+    count = override_manifest_mappings(
         paths.manifest_map,
         overrides,
         override_log_path=paths.mapping_override_log,

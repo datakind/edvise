@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
@@ -14,11 +13,8 @@ from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.artifacts import (
 from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.override import (
     ManifestMappingOverrideRequest,
     ManifestOverrideError,
-    load_correction_json,
     load_overrides_json,
     override_manifest_mapping,
-    override_manifest_mapping_at_path,
-    override_manifest_mapping_on_volume,
     override_manifest_mappings,
     unmapped_field_mapping_record,
 )
@@ -53,30 +49,6 @@ def test_unmapped_field_mapping_record() -> None:
     assert rec.row_selection is None
 
 
-def test_load_correction_json(tmp_path: Path) -> None:
-    p = tmp_path / "corr.json"
-    p.write_text(
-        json.dumps(
-            {
-                "target_field": "learner_id",
-                "source_column": "sid",
-                "source_table": "cohort",
-                "confidence": 0.5,
-                "row_selection": {"strategy": "any_row"},
-            }
-        )
-    )
-    rec = load_correction_json(p)
-    assert rec.source_column == "sid"
-
-
-def test_load_correction_json_invalid_raises(tmp_path: Path) -> None:
-    p = tmp_path / "bad.json"
-    p.write_text('"not-an-object"')
-    with pytest.raises(ManifestOverrideError, match="JSON object"):
-        load_correction_json(p)
-
-
 def test_override_manifest_mapping_local_wrapper(tmp_path: Path) -> None:
     fm = FieldMappingManifest(
         entity_type="cohort",
@@ -105,31 +77,6 @@ def test_override_manifest_mapping_local_wrapper(tmp_path: Path) -> None:
     log = read_pydantic_json(override_log_path, MappingOverrideLog)
     assert log.institution_id == "u9"
     assert len(log.events) == 1
-
-
-def test_override_manifest_mapping_at_path_routes_local(tmp_path: Path) -> None:
-    fm = FieldMappingManifest(
-        entity_type="cohort",
-        target_schema="RawEdviseStudentDataSchema",
-        mappings=[_fmr()],
-    )
-    manifest_path = write_sma_manifest_artifact(tmp_path, fm, basename="m.json")
-    override_log_path = tmp_path / "mapping_override_log.json"
-
-    override_manifest_mapping_at_path(
-        manifest_path,
-        "cohort",
-        "learner_id",
-        unmapped_field_mapping_record("learner_id"),
-        override_log_path=override_log_path,
-        overridden_by="ops",
-        original_db_run_id="db-1",
-        institution_id="u9",
-    )
-
-    out = read_pydantic_json(manifest_path, FieldMappingManifest)
-    assert out.mappings[0].source_column is None
-    assert out.mappings[0].source_table is None
 
 
 def test_override_manifest_mappings_batch_local(tmp_path: Path) -> None:
@@ -211,51 +158,8 @@ def test_load_overrides_json(tmp_path: Path) -> None:
     assert loaded[1].corrected.source_column is None
 
 
-def test_override_manifest_mapping_on_volume_round_trip(tmp_path: Path) -> None:
-    fm = FieldMappingManifest(
-        entity_type="cohort",
-        target_schema="RawEdviseStudentDataSchema",
-        mappings=[_fmr()],
-    )
-    manifest_path = write_sma_manifest_artifact(tmp_path, fm, basename="m.json")
-
-    manifest_uc = "/Volumes/cat/sch/vol/manifest_map.json"
-    override_uc = "/Volumes/cat/sch/vol/mapping_override_log.json"
-    store: dict[str, str] = {}
-
-    def _read(path: str) -> str:
-        if path not in store:
-            raise FileNotFoundError(path)
-        return store[path]
-
-    def _write(path: str, text: str) -> None:
-        store[path] = text
-
-    store[manifest_uc] = manifest_path.read_text(encoding="utf-8")
-
-    with (
-        patch(
-            "edvise.genai.mapping.schema_mapping_agent.manifest.hitl.override.read_unity_file_text",
-            side_effect=_read,
-        ),
-        patch(
-            "edvise.genai.mapping.schema_mapping_agent.manifest.hitl.override.write_unity_file_text",
-            side_effect=_write,
-        ),
-    ):
-        override_manifest_mapping_on_volume(
-            manifest_uc,
-            "cohort",
-            "learner_id",
-            _fmr(source_column="fixed"),
-            override_log_uc_path=override_uc,
-            overridden_by="ops",
-            original_db_run_id="db-1",
-            institution_id="u9",
-        )
-
-    updated = FieldMappingManifest.model_validate_json(store[manifest_uc])
-    assert updated.mappings[0].source_column == "fixed"
-    assert override_uc in store
-    log = MappingOverrideLog.model_validate_json(store[override_uc])
-    assert log.institution_id == "u9"
+def test_load_overrides_json_invalid_raises(tmp_path: Path) -> None:
+    p = tmp_path / "bad.json"
+    p.write_text('"not-an-object"')
+    with pytest.raises(ManifestOverrideError, match="JSON object or array"):
+        load_overrides_json(p)
