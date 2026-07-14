@@ -57,9 +57,7 @@ def test_resolve_overrides_json_path_absolute_and_relative(tmp_path: Path) -> No
     run_root.mkdir()
     rel = run_root / "overrides.json"
     rel.write_text("{}", encoding="utf-8")
-    assert (
-        resolve_overrides_json_path("overrides.json", run_root=run_root) == rel
-    )
+    assert resolve_overrides_json_path("overrides.json", run_root=run_root) == rel
 
 
 def test_resolve_overrides_json_path_missing_raises(tmp_path: Path) -> None:

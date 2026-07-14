@@ -340,9 +340,7 @@ def apply_manifest_mapping_override(
             f"override target {target_field!r}"
         )
 
-    merged = _merge_mapping_override(
-        original, corrected, reviewer_notes=reviewer_notes
-    )
+    merged = _merge_mapping_override(original, corrected, reviewer_notes=reviewer_notes)
     fm.mappings[idx] = merged
     _save_manifest_for_entity(manifest_path, env_wrapper, fm, entity_key)
 

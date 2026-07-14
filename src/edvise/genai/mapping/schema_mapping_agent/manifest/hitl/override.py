@@ -16,7 +16,9 @@ from typing import Any, Literal
 from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.resolver import (
     apply_manifest_mapping_override,
 )
-from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import FieldMappingRecord
+from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import (
+    FieldMappingRecord,
+)
 
 
 class ManifestOverrideError(Exception):

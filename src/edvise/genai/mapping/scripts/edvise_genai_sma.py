@@ -653,9 +653,7 @@ def apply_gate_2_manifest_overrides(
             f"Cannot apply overrides — manifest_map.json missing: {paths.manifest_map}. "
             "Override mode requires an existing post-2A onboard run."
         )
-    resolved = resolve_overrides_json_path(
-        overrides_json_path, run_root=paths.run_root
-    )
+    resolved = resolve_overrides_json_path(overrides_json_path, run_root=paths.run_root)
     overrides = load_overrides_json(resolved)
     count = override_manifest_mappings(
         paths.manifest_map,
