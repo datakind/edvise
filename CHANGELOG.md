@@ -1,3 +1,6 @@
+## 1.4.8 (2026-07-14)
+- fix: finish-release gh checkout + Start Release CI dispatch (#212)
+
 ## 1.4.7 (2026-07-09)
 - fix(genai): ensure prompt asks for term year semantics HITL with hook generation (#205)
 
