@@ -114,5 +114,5 @@ jobs:
           echo "✓ Version metadata updated" >> $GITHUB_STEP_SUMMARY
           echo "✓ Release branch pushed" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Next step:** Once release CI completes, Finish Release will open PRs automatically." >> $GITHUB_STEP_SUMMARY
+          echo "**Next step:** Once release CI completes, it will dispatch Finish Release to open the release PR." >> $GITHUB_STEP_SUMMARY
 
