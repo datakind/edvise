@@ -13,6 +13,13 @@ Usage (Databricks job parameters):
                         ``sma_grain_resolution_cohort.json`` / ``sma_grain_resolution_course.json`` when promoted)
                         (same ``--catalog`` as the reference institution's volumes).
     --inputs_toml_path  Same resolution as edvise_ia (relative under bronze ``genai_mapping/``).
+    --override_2a_manifest   false (default) | true — apply post-gate manifest overrides whenever
+                             this flag is set (independent of ``resume_from``). Skips Step 2A /
+                             sma_gate_1 HITL; ``start`` applies overrides then returns so the
+                             ``gate_2`` task can run Step 2b → promote. Requires
+                             ``--overrides_json_path``.
+    --overrides_json_path    Batch overrides JSON (absolute ``/Volumes/...`` or relative to the
+                             SMA run root). Required when ``--override_2a_manifest=true``.
 
 On Databricks, onboard mode best-effort updates ``{catalog}.genai_mapping`` pipeline state
 (see :mod:`edvise.genai.mapping.state.job_state`); table setup and Spark are required.
@@ -111,7 +118,7 @@ class SMAPaths:
     transformation_map: Path
     transform_hooks: Path  # optional, placeholder
     run_log: Path
-    repair_log: Path
+    mapping_override_log: Path
     pandera_validation_errors: Path
 
     # IA outputs this job reads from (same execute or onboard run segment)
@@ -180,7 +187,7 @@ def resolve_run_paths(
         transformation_map=run_root / "transformation_map.json",
         transform_hooks=run_root / "transform_hooks.py",
         run_log=run_root / "run_log.json",
-        repair_log=run_root / "repair_log.json",
+        mapping_override_log=run_root / "mapping_override_log.json",
         pandera_validation_errors=run_root / "pandera_validation_errors.json",
         # IA outputs — same run segment under ``runs/onboard/...`` or ``runs/execute/...``
         ia_enriched_schema_contract=ia_run_root / "enriched_schema_contract.json",
@@ -591,9 +598,86 @@ def run_onboard_start(
     )
 
 
+def _as_bool_flag(value: Any) -> bool:
+    """Parse Databricks job / CLI boolean-ish values (``true``/``false`` strings)."""
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() in ("1", "true", "yes", "y", "on")
+
+
+def resolve_overrides_json_path(
+    overrides_json_path: str,
+    *,
+    run_root: Path,
+) -> Path:
+    """
+    Resolve ``overrides_json_path`` to an existing file.
+
+    Absolute paths (including ``/Volumes/...``) are used as-is; relative paths are
+    resolved under the SMA ``run_root``.
+    """
+    raw = str(overrides_json_path or "").strip()
+    if not raw:
+        raise ValueError("overrides_json_path must be non-empty")
+    candidate = Path(raw)
+    if candidate.is_file():
+        return candidate
+    under_run = run_root / raw
+    if under_run.is_file():
+        return under_run
+    raise FileNotFoundError(
+        f"Overrides JSON not found at {candidate} or {under_run}. "
+        "Pass an absolute path or a path relative to the SMA run root."
+    )
+
+
+def apply_gate_2_manifest_overrides(
+    paths: SMAPaths,
+    overrides_json_path: str,
+    *,
+    institution_id: str,
+    overridden_by: str,
+    original_db_run_id: str,
+) -> int:
+    """
+    Apply batch mapping overrides to ``paths.manifest_map`` before Step 2b.
+
+    Returns the number of overrides applied.
+    """
+    from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.override import (
+        load_overrides_json,
+        override_manifest_mappings,
+    )
+
+    if not paths.manifest_map.is_file():
+        raise FileNotFoundError(
+            f"Cannot apply overrides — manifest_map.json missing: {paths.manifest_map}. "
+            "Override mode requires an existing post-2A onboard run."
+        )
+    resolved = resolve_overrides_json_path(overrides_json_path, run_root=paths.run_root)
+    overrides = load_overrides_json(resolved)
+    count = override_manifest_mappings(
+        paths.manifest_map,
+        overrides,
+        override_log_path=paths.mapping_override_log,
+        overridden_by=overridden_by,
+        original_db_run_id=original_db_run_id,
+        institution_id=institution_id,
+    )
+    LOGGER.info(
+        "[onboard/gate_2] Applied %d mapping override(s) from %s -> %s",
+        count,
+        resolved,
+        paths.manifest_map,
+    )
+    return count
+
+
 # ---------------------------------------------------------------------------
 # Onboard — resume_from="gate_2"
 # Resolve manifest HITL -> 2b LLM -> transformation review HITL (UC) -> hook preview -> hook_required -> execute
+# When ``override_2a_manifest=true``: skip HITL; apply overrides → 2b … → promote.
+# Overrides also apply on resume_from=start (which skips Step 2A so the manifest is not regenerated).
 # ---------------------------------------------------------------------------
 
 
@@ -608,6 +692,8 @@ def run_onboard_gate_2(
     onboard_run_id: str,
     pipeline_version: str,
     db_run_id: str | None = None,
+    override_2a_manifest: bool = False,
+    overrides_json_path: str | None = None,
 ) -> None:
     from pydantic import ValidationError
 
@@ -632,35 +718,51 @@ def run_onboard_gate_2(
     from edvise.data_audit.schemas.raw_edvise_student import RawEdviseStudentDataSchema
     from edvise.data_audit.schemas.raw_edvise_course import RawEdviseCourseDataSchema
 
-    LOGGER.info("[onboard/gate_2] Resolving HITL for %s", institution_id)
+    if override_2a_manifest:
+        LOGGER.info(
+            "[onboard/gate_2] override_2a_manifest=true — skipping sma_gate_1 HITL; "
+            "applying post-gate mapping overrides for %s",
+            institution_id,
+        )
+        apply_gate_2_manifest_overrides(
+            paths,
+            overrides_json_path or "",
+            institution_id=institution_id,
+            overridden_by="pipeline",
+            original_db_run_id=(db_run_id or onboard_run_id),
+        )
+    else:
+        LOGGER.info("[onboard/gate_2] Resolving HITL for %s", institution_id)
 
-    LOGGER.info("[onboard/gate_2] Waiting for Unity Catalog HITL approval (sma_gate_1)")
-    _pipeline_job_state.wait_for_sma_gate_1_hitl(
-        catalog,
-        onboard_run_id,
-        institution_id=institution_id,
-        poll_interval_seconds=DEFAULT_HITL_POLL_INTERVAL_SECONDS,
-        timeout_seconds=DEFAULT_HITL_POLL_TIMEOUT_SECONDS,
-    )
-
-    # Resolve HITL into mapping manifest
-    for hitl_path in (paths.cohort_hitl_manifest, paths.course_hitl_manifest):
-        resolve_sma_items(
-            hitl_path,
-            paths.manifest_map,
-            resolved_by="pipeline",
-            run_log_path=paths.run_log,
-            db_run_id=db_run_id,
+        LOGGER.info(
+            "[onboard/gate_2] Waiting for Unity Catalog HITL approval (sma_gate_1)"
+        )
+        _pipeline_job_state.wait_for_sma_gate_1_hitl(
+            catalog,
+            onboard_run_id,
+            institution_id=institution_id,
+            poll_interval_seconds=DEFAULT_HITL_POLL_INTERVAL_SECONDS,
+            timeout_seconds=DEFAULT_HITL_POLL_TIMEOUT_SECONDS,
         )
 
-    # Reload manifest after resolution
+        # Resolve HITL into mapping manifest
+        for hitl_path in (paths.cohort_hitl_manifest, paths.course_hitl_manifest):
+            resolve_sma_items(
+                hitl_path,
+                paths.manifest_map,
+                resolved_by="pipeline",
+                run_log_path=paths.run_log,
+                db_run_id=db_run_id,
+            )
+
+        # Gate check — raises HITLBlockingError if any items still pending
+        LOGGER.info("[onboard/gate_2] HITL gate check")
+        for hitl_path in (paths.cohort_hitl_manifest, paths.course_hitl_manifest):
+            check_sma_hitl_gate(hitl_path)
+
+    # Reload manifest after HITL resolve and/or overrides
     manifest_2a = json.loads(paths.manifest_map.read_text())
     envelope_2a = MappingManifestEnvelope.model_validate(manifest_2a)
-
-    # Gate check — raises HITLBlockingError if any items still pending
-    LOGGER.info("[onboard/gate_2] HITL gate check")
-    for hitl_path in (paths.cohort_hitl_manifest, paths.course_hitl_manifest):
-        check_sma_hitl_gate(hitl_path)
 
     # Load reference transformation map for 2b few-shot from reference school's promoted SMA folder
     _, ref_tm_path = resolve_reference_sma_active_paths(reference_id, catalog=catalog)
@@ -1159,6 +1261,8 @@ def run(
     db_run_id: str | None = None,
     pipeline_version: str | None = None,
     bronze_batch_dir: str | None = None,
+    override_2a_manifest: bool = False,
+    overrides_json_path: str | None = None,
 ) -> None:
     if mode == "onboard":
         if not (onboard_run_id or "").strip():
@@ -1194,11 +1298,13 @@ def run(
         append=False,
     )
     LOGGER.info(
-        "edvise_sma | institution=%s | run=%s | mode=%s | resume_from=%s | artifacts_onboard=%s | log=%s",
+        "edvise_sma | institution=%s | run=%s | mode=%s | resume_from=%s | "
+        "override_2a_manifest=%s | artifacts_onboard=%s | log=%s",
         institution_id,
         _log_run,
         mode,
         resume_from,
+        override_2a_manifest,
         artifacts_onboard_run_id or "",
         _segment_log,
     )
@@ -1310,6 +1416,12 @@ def run(
         if not reference_id:
             raise ValueError("--reference_id is required for onboard mode.")
 
+        overrides_path = (overrides_json_path or "").strip() or None
+        if override_2a_manifest and not overrides_path:
+            raise ValueError(
+                "--overrides_json_path is required when --override_2a_manifest=true"
+            )
+
         onboard_run_id_s = cast(str, onboard_run_id)
         _pipeline_job_state.on_sma_onboard_begin(
             catalog,
@@ -1323,16 +1435,32 @@ def run(
 
         try:
             if resume_from == "start":
-                run_onboard_start(
-                    institution_id=institution_id,
-                    reference_id=reference_id,
-                    catalog=catalog,
-                    paths=paths,
-                    client=client,
-                    spark_session=spark_session,
-                    onboard_run_id=onboard_run_id_s,
-                    pipeline_version=school_config.pipeline_version,
-                )
+                if override_2a_manifest:
+                    # Apply immediately (do not wait for gate_2). Skip Step 2A so we do
+                    # not regenerate and overwrite the manifest; gate_2 continues 2b.
+                    LOGGER.info(
+                        "[onboard/start] override_2a_manifest=true — applying mapping "
+                        "overrides and skipping Step 2A for %s",
+                        institution_id,
+                    )
+                    apply_gate_2_manifest_overrides(
+                        paths,
+                        overrides_path or "",
+                        institution_id=institution_id,
+                        overridden_by="pipeline",
+                        original_db_run_id=(db_run_id or onboard_run_id_s),
+                    )
+                else:
+                    run_onboard_start(
+                        institution_id=institution_id,
+                        reference_id=reference_id,
+                        catalog=catalog,
+                        paths=paths,
+                        client=client,
+                        spark_session=spark_session,
+                        onboard_run_id=onboard_run_id_s,
+                        pipeline_version=school_config.pipeline_version,
+                    )
             elif resume_from == "gate_2":
                 run_onboard_gate_2(
                     institution_id=institution_id,
@@ -1344,6 +1472,8 @@ def run(
                     onboard_run_id=onboard_run_id_s,
                     pipeline_version=school_config.pipeline_version,
                     db_run_id=db_run_id,
+                    override_2a_manifest=override_2a_manifest,
+                    overrides_json_path=overrides_path,
                 )
         except HITLTimeoutError:
             raise
@@ -1403,6 +1533,24 @@ if __name__ == "__main__":
             "hatch — prefer starting a new job for a new folder; repairs reuse the same db_run_id."
         ),
     )
+    parser.add_argument(
+        "--override_2a_manifest",
+        default="false",
+        help=(
+            "Onboard only: when true, apply post-gate mapping overrides whenever this task runs "
+            "(independent of resume_from). Skips Step 2A / sma_gate_1 HITL; start applies "
+            "overrides then returns so the gate_2 task can run Step 2b → promote. "
+            "Requires --overrides_json_path. Default: false."
+        ),
+    )
+    parser.add_argument(
+        "--overrides_json_path",
+        default="",
+        help=(
+            "Path to batch overrides JSON (absolute /Volumes/... or relative to the SMA run root). "
+            "Required when --override_2a_manifest=true."
+        ),
+    )
     args = parser.parse_args()
 
     try:
@@ -1458,6 +1606,8 @@ if __name__ == "__main__":
             db_run_id=_db_run_id,
             pipeline_version=(args.pipeline_version or "").strip() or None,
             bronze_batch_dir=(args.bronze_batch_dir or "").strip() or None,
+            override_2a_manifest=_as_bool_flag(args.override_2a_manifest),
+            overrides_json_path=(args.overrides_json_path or "").strip() or None,
         )
     except BaseException:
         if args.mode == "execute" and _execute_run_id:
