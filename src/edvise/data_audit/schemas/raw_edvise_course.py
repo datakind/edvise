@@ -65,7 +65,6 @@ ALLOWED_LETTER_GRADES = {
 }
 
 
-# partial so each column gets its own Field (shared Field only coerces the last column)
 CreditsField = ft.partial(pda.Field, nullable=False, ge=0.0)
 
 # Manifest + SMA execution: these target keys must map (ENTITY_GRAIN in
