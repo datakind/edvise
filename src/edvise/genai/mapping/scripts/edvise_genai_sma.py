@@ -13,10 +13,11 @@ Usage (Databricks job parameters):
                         ``sma_grain_resolution_cohort.json`` / ``sma_grain_resolution_course.json`` when promoted)
                         (same ``--catalog`` as the reference institution's volumes).
     --inputs_toml_path  Same resolution as edvise_ia (relative under bronze ``genai_mapping/``).
-    --override_2a_manifest   false (default) | true — skip 2A / sma_gate_1 HITL; apply post-gate
-                             manifest overrides then run gate_2 from Step 2b → promote.
-                             Requires ``resume_from=gate_2`` for the real work (``start`` no-ops)
-                             and ``--overrides_json_path``.
+    --override_2a_manifest   false (default) | true — apply post-gate manifest overrides whenever
+                             this flag is set (independent of ``resume_from``). Skips Step 2A /
+                             sma_gate_1 HITL; ``start`` applies overrides then returns so the
+                             ``gate_2`` task can run Step 2b → promote. Requires
+                             ``--overrides_json_path``.
     --overrides_json_path    Batch overrides JSON (absolute ``/Volumes/...`` or relative to the
                              SMA run root). Required when ``--override_2a_manifest=true``.
 
@@ -676,6 +677,7 @@ def apply_gate_2_manifest_overrides(
 # Onboard — resume_from="gate_2"
 # Resolve manifest HITL -> 2b LLM -> transformation review HITL (UC) -> hook preview -> hook_required -> execute
 # When ``override_2a_manifest=true``: skip HITL; apply overrides → 2b … → promote.
+# Overrides also apply on resume_from=start (which skips Step 2A so the manifest is not regenerated).
 # ---------------------------------------------------------------------------
 
 
@@ -1415,17 +1417,10 @@ def run(
             raise ValueError("--reference_id is required for onboard mode.")
 
         overrides_path = (overrides_json_path or "").strip() or None
-        if override_2a_manifest:
-            if not overrides_path:
-                raise ValueError(
-                    "--overrides_json_path is required when --override_2a_manifest=true"
-                )
-            if resume_from == "start":
-                LOGGER.info(
-                    "[onboard/start] override_2a_manifest=true — skipping Step 2A "
-                    "(manifest overrides apply at gate_2)."
-                )
-                return
+        if override_2a_manifest and not overrides_path:
+            raise ValueError(
+                "--overrides_json_path is required when --override_2a_manifest=true"
+            )
 
         onboard_run_id_s = cast(str, onboard_run_id)
         _pipeline_job_state.on_sma_onboard_begin(
@@ -1440,16 +1435,32 @@ def run(
 
         try:
             if resume_from == "start":
-                run_onboard_start(
-                    institution_id=institution_id,
-                    reference_id=reference_id,
-                    catalog=catalog,
-                    paths=paths,
-                    client=client,
-                    spark_session=spark_session,
-                    onboard_run_id=onboard_run_id_s,
-                    pipeline_version=school_config.pipeline_version,
-                )
+                if override_2a_manifest:
+                    # Apply immediately (do not wait for gate_2). Skip Step 2A so we do
+                    # not regenerate and overwrite the manifest; gate_2 continues 2b.
+                    LOGGER.info(
+                        "[onboard/start] override_2a_manifest=true — applying mapping "
+                        "overrides and skipping Step 2A for %s",
+                        institution_id,
+                    )
+                    apply_gate_2_manifest_overrides(
+                        paths,
+                        overrides_path or "",
+                        institution_id=institution_id,
+                        overridden_by="pipeline",
+                        original_db_run_id=(db_run_id or onboard_run_id_s),
+                    )
+                else:
+                    run_onboard_start(
+                        institution_id=institution_id,
+                        reference_id=reference_id,
+                        catalog=catalog,
+                        paths=paths,
+                        client=client,
+                        spark_session=spark_session,
+                        onboard_run_id=onboard_run_id_s,
+                        pipeline_version=school_config.pipeline_version,
+                    )
             elif resume_from == "gate_2":
                 run_onboard_gate_2(
                     institution_id=institution_id,
@@ -1526,9 +1537,10 @@ if __name__ == "__main__":
         "--override_2a_manifest",
         default="false",
         help=(
-            "Onboard only: when true, skip Step 2A / sma_gate_1 HITL and apply post-gate mapping "
-            "overrides before Step 2b. ``resume_from=start`` becomes a no-op; use "
-            "``resume_from=gate_2`` with ``--overrides_json_path``. Default: false."
+            "Onboard only: when true, apply post-gate mapping overrides whenever this task runs "
+            "(independent of resume_from). Skips Step 2A / sma_gate_1 HITL; start applies "
+            "overrides then returns so the gate_2 task can run Step 2b → promote. "
+            "Requires --overrides_json_path. Default: false."
         ),
     )
     parser.add_argument(
