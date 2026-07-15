@@ -1,9 +1,14 @@
 name: Finish Release
 
 on:
-  workflow_run:
-    workflows: ["release-branch-ci-dev"]
-    types: [completed]
+  # Dispatched by release-branch-ci-dev after successful CI.
+  # workflow_dispatch (unlike workflow_run) is allowed when the caller uses GITHUB_TOKEN.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., 1.4.8)'
+        required: true
+        type: string
 
   pull_request:
     types: [closed]
@@ -14,27 +19,26 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: finish-release-${{ github.event_name }}-${{ github.event.workflow_run.head_branch || github.event.pull_request.head.ref || github.run_id }}
+  group: finish-release-${{ github.event_name }}-${{ github.event.inputs.version || github.event.pull_request.head.ref || github.run_id }}
   cancel-in-progress: false
 
 jobs:
   open-release-pr:
     name: Open PR release -> main
-    if: >
-      github.event_name == 'workflow_run' &&
-      github.event.workflow_run.conclusion == 'success' &&
-      startsWith(github.event.workflow_run.head_branch, 'release/')
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Extract version from branch
+      - name: Extract version from input
         id: meta
+        env:
+          VERSION_INPUT: ${{ github.event.inputs.version }}
         run: |
           set -euo pipefail
-          BR="${{ github.event.workflow_run.head_branch }}"   # release/0.1.9
-          VER="${BR#release/}"                                # 0.1.9
-          [[ "$VER" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || (echo "Bad release branch: $BR" && exit 1)
+          VER="${VERSION_INPUT#v}"
+          [[ "$VER" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || (echo "Bad version: $VERSION_INPUT" && exit 1)
+          BR="release/${VER}"
           echo "branch=$BR" >> $GITHUB_OUTPUT
           echo "version=$VER" >> $GITHUB_OUTPUT
 
