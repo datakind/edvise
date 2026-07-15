@@ -1,3 +1,9 @@
+## 1.5.0 (2026-07-15)
+- fix(release-automation): dispatch Finish Release from release CI (#213)
+- feat(genai): add post-gate SMA manifest mapping overrides (#214)
+- fix(genai): SMA prompt improvements with program type vs major column discrimination (#215)
+- fix: coerce both ES course credit columns to Float64 (#217)
+
 ## 1.4.8 (2026-07-14)
 - fix: finish-release gh checkout + Start Release CI dispatch (#212)
 
