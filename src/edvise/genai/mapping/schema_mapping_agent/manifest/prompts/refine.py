@@ -405,6 +405,26 @@ When the manifest section is **cohort** (student / RawEdviseStudentDataSchema):
   apply **refined_by_llm** / **refined_and_proposed_for_hitl** or **proposed_for_hitl** as appropriate.
 - Never use **`major_at_completion`** mapping logic for **`declared_major_at_entry`** unless the
   source column is provably entry-time (unusual).
+- **Column kind:** `intended_program_type` is credential / program **type** (degree/credential codes
+  or short type labels). `declared_major_at_entry` is **field of study** (major / academic plan /
+  plan description). Mapping a plan/major description to `intended_program_type` when a clearer
+  degree/type column exists — or a pure degree code to `declared_major_at_entry` when a major/plan
+  column exists — is a **semantic error**. Prefer distinct source columns for the two targets.
+"""
+
+_COURSE_TARGET_SEMANTICS_FOR_REFINEMENT = """
+## Course target semantics (RawEdviseCourseDataSchema)
+
+When the manifest section is **course** (RawEdviseCourseDataSchema):
+
+- **`term_degree`** is the degree / credential **level or type** pursued **in this term**.
+  **`term_declared_major`** is the **field of study / academic plan** in this term.
+- Mapping a plan/major description to `term_degree` when a clearer degree/level/type column exists —
+  or a pure degree code to `term_declared_major` when a major/plan column exists — is a
+  **semantic error**. Prefer distinct source columns for the two targets.
+- Do not treat `term_degree` as cohort `intended_program_type` or exit `conferred_credential_type`,
+  and do not treat `term_declared_major` as cohort `declared_major_at_entry` or
+  `major_at_completion`.
 """
 
 _COHORT_SEMANTICS_PASS2 = """
@@ -415,6 +435,20 @@ favor **entry / admit / first-term** sources. If the flagged mapping used **curr
 major/program semantics, option 1 should normally be the entry-aligned alternative; describe any
 remaining proxy honestly. Options for **`major_at_completion`** must not be reused as substitutes
 for **`declared_major_at_entry`** unless the column meaning supports entry time.
+
+For **`intended_program_type`**, prefer degree/credential-type columns over academic-plan / major
+description columns when both exist. For **`declared_major_at_entry`**, prefer major/plan columns
+over pure degree-type codes when both exist.
+"""
+
+_COURSE_SEMANTICS_PASS2 = """
+## Course term_degree vs term_declared_major (Pass 2 options)
+
+For flags on **`term_degree`**, TERMINAL options should prefer degree/credential **level or type**
+columns over academic-plan / major description columns when both exist. For flags on
+**`term_declared_major`**, prefer major/plan / field-of-study columns over pure degree-type codes
+when both exist. Option 1 should normally be the column-kind-correct alternative when the flagged
+mapping swapped type vs major.
 """
 
 _PASS1_OUTPUT_FORMAT = """
@@ -485,6 +519,8 @@ generating options (that is Pass 2).
 
 {_COHORT_TARGET_SEMANTICS_FOR_REFINEMENT}
 
+{_COURSE_TARGET_SEMANTICS_FOR_REFINEMENT}
+
 ## Output format
 
 {output_format}
@@ -532,6 +568,8 @@ escape hatch on every item.
 {_FIELD_COLLAPSE_RULE}
 
 {_COHORT_SEMANTICS_PASS2}
+
+{_COURSE_SEMANTICS_PASS2}
 
 CRITICAL — current_field_mapping:
   current_field_mapping in each item must be copied unchanged from the corresponding Pass 1 hitl_flag.
