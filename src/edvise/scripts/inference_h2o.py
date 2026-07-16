@@ -419,7 +419,7 @@ class ModelInferenceTask:
 
         logging.info("Creating FE tables")
         inference_features_with_most_impact = top_n_features(
-            grouped_features=out.display_grouped_features,
+            grouped_features=out.grouped_features,
             unique_ids=out.unique_ids,
             grouped_shap_values=out.grouped_contribs_df,
             features_table_path=features_table_path,

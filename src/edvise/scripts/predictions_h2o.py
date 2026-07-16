@@ -63,7 +63,6 @@ class PredOutputs:
     support_score_distribution: pd.DataFrame
     feature_drift_report: pd.DataFrame
     grouped_features: pd.DataFrame
-    display_grouped_features: pd.DataFrame
     grouped_contribs_df: pd.DataFrame
     unique_ids: pd.Series
     pred_probs: pd.Series
@@ -385,7 +384,6 @@ def run_predictions(
         support_score_distribution=ssd,
         feature_drift_report=feature_drift_report,
         grouped_features=grouped_features,
-        display_grouped_features=display_grouped_features,
         grouped_contribs_df=grouped_contribs_df,
         unique_ids=unique_ids,
         pred_probs=pred_probs,
