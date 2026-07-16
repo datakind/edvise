@@ -103,6 +103,10 @@ class H2OModelCard(ModelCard[C]):
         Returns:
             A dictionary with plot names and their inline HTML representations.
         """
+        if not self.run_id:
+            raise ValueError(
+                f"Cannot download model plots for '{self.model_name}': run_id is not set."
+            )
         plots = self._get_plot_config()
         return {
             key: reporting_utils.utils.download_artifact(
