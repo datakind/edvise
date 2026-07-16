@@ -1,3 +1,8 @@
+## 1.5.1 (2026-07-16)
+- fix(release-automation): patch dispatch of Finish Release step in release integration action (#218)
+- fix: adding level 9 courses to features table (#219)
+- fix: cap incomplete feature threshold at 20 percent (#220)
+
 ## 1.5.0 (2026-07-15)
 - fix(release-automation): dispatch Finish Release from release CI (#213)
 - feat(genai): add post-gate SMA manifest mapping overrides (#214)
