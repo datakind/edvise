@@ -477,7 +477,9 @@ def build_roc_curve_table(
             {
                 "threshold": float(thresh),
                 "true_positive_rate": round(tp / p_count, decimals) if p_count else 0.0,
-                "false_positive_rate": round(fp / n_count, decimals) if n_count else 0.0,
+                "false_positive_rate": round(fp / n_count, decimals)
+                if n_count
+                else 0.0,
                 "true_positive": tp,
                 "false_positives": fp,
                 "true_negatives": tn,
