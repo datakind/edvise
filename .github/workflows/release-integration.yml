@@ -299,7 +299,8 @@ jobs:
         run: |
           set -euo pipefail
           BR="release/${VERSION}"
-          # Use this release branch as --ref so the Finish Release YAML present on the
-          # release branch is used (GITHUB_TOKEN may dispatch workflow_dispatch).
-          gh workflow run "Finish Release" --ref "$BR" -f version="$VERSION"
+          # -R is required: this job has no checkout, and gh otherwise fails with
+          # "fatal: not a git repository". --ref selects the Finish Release YAML on
+          # the release branch (GITHUB_TOKEN may dispatch workflow_dispatch).
+          gh workflow run "Finish Release" -R "${{ github.repository }}" --ref "$BR" -f version="$VERSION"
           echo "✓ Triggered Finish Release for $BR" >> "$GITHUB_STEP_SUMMARY"
