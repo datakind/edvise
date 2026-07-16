@@ -10,13 +10,17 @@ from statsmodels.stats.outliers_influence import variance_inflation_factor
 
 LOGGER = logging.getLogger(__name__)
 
+# Max fraction of nulls allowed when keeping a feature. Config may set a stricter
+# (lower) value; values above this cap are clamped for feature selection.
+MAX_INCOMPLETE_THRESHOLD = 0.2
+
 
 def select_features(
     df: pd.DataFrame,
     *,
     non_feature_cols: t.Optional[list[str]] = None,
     force_include_cols: t.Optional[list[str]] = None,
-    incomplete_threshold: float = 0.5,
+    incomplete_threshold: float = MAX_INCOMPLETE_THRESHOLD,
     low_variance_threshold: float = 0.0,
     collinear_threshold: t.Optional[float] = 10.0,
 ) -> pd.DataFrame:
@@ -30,6 +34,7 @@ def select_features(
             be run through the feature selection algorithm. For example, demographics, IDs, outcome variables, etc.
         force_include_cols: list of features to force include in the final dataset.
         incomplete_threshold: Threshold for determining incomplete features.
+            Values above ``MAX_INCOMPLETE_THRESHOLD`` (0.2) are capped.
         low_variance_threshold: Threshold for determining low-variance features.
         collinear_threshold: Threshold for determining collinear features;
             if null, skip this selection step.
@@ -41,6 +46,13 @@ def select_features(
     LOGGER.info("selecting features ...")
     non_feature_cols = non_feature_cols or []
     force_include_cols = force_include_cols or []
+    if incomplete_threshold > MAX_INCOMPLETE_THRESHOLD:
+        LOGGER.warning(
+            "incomplete_threshold=%s exceeds max %s; capping for feature selection",
+            incomplete_threshold,
+            MAX_INCOMPLETE_THRESHOLD,
+        )
+        incomplete_threshold = MAX_INCOMPLETE_THRESHOLD
     LOGGER.info(
         "force including %s columns: %s", len(force_include_cols), force_include_cols
     )
@@ -52,7 +64,6 @@ def select_features(
         # but instead can capture any patterns that may relate to the nulls.
         # If there are non-dummy categorical variables that get dropped here,
         # consider pre-processing into dummy variables for this reason.
-        # TODO: tune this threshold over time?
         .pipe(drop_incomplete_features, threshold=incomplete_threshold)
         # NOTE: only removing features with variance == 0.0 by default
         # since features with low but non-zero variance may still be predictive
