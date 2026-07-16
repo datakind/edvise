@@ -1,7 +1,7 @@
 import typing as t
 from abc import abstractmethod
 
-from edvise.modeling import h2o_ml
+from edvise.modeling import feature_selection, h2o_ml
 from edvise.reporting.model_card.base import ModelCard
 from edvise.reporting.utils.types import ModelCardConfig
 import edvise.reporting.utils as reporting_utils
@@ -82,12 +82,16 @@ class H2OModelCard(ModelCard[C]):
             )
 
         fs_cfg = self.cfg.modeling.feature_selection
+        incomplete_threshold = min(
+            fs_cfg.incomplete_threshold,
+            feature_selection.MAX_INCOMPLETE_THRESHOLD,
+        )
 
         return {
             "number_of_features": str(feature_count),
             "collinearity_threshold": str(fs_cfg.collinear_threshold),
             "low_variance_threshold": str(fs_cfg.low_variance_threshold),
-            "incomplete_threshold": as_percent(fs_cfg.incomplete_threshold),
+            "incomplete_threshold": as_percent(incomplete_threshold),
         }
 
     def get_model_plots(self) -> dict[str, str]:
