@@ -23,9 +23,7 @@ LOGGER = logging.getLogger(__name__)
 
 DEFAULT_ENTRYPOINT = "edvise.runtime.inference_driver"
 DEFAULT_INFERENCE_JOB_KEY = "edvise_github_sourced_pdp_inference_pipeline"
-DEFAULT_INFERENCE_YML = (
-    "databricks_bundle_snapshot/resources/github_pdp_inference.yml"
-)
+DEFAULT_INFERENCE_YML = "databricks_bundle_snapshot/resources/github_pdp_inference.yml"
 
 # DBR 15.4 ML images on Databricks use Python 3.11 (launcher compatibility hint).
 _DBR_PYTHON_HINTS: dict[str, str] = {
@@ -35,7 +33,9 @@ _DBR_PYTHON_HINTS: dict[str, str] = {
 }
 
 
-def inference_yml_path(release_dir: Path, relative: str = DEFAULT_INFERENCE_YML) -> Path:
+def inference_yml_path(
+    release_dir: Path, relative: str = DEFAULT_INFERENCE_YML
+) -> Path:
     return release_dir / relative
 
 
@@ -212,9 +212,7 @@ def build_effective_release(
     """Build effective release metadata from archived inference YAML only."""
     release_dir = release_dir.expanduser().resolve()
     yml_path = inference_yml_path(release_dir, inference_yml_relative)
-    parsed = parse_inference_job_from_yaml(
-        yml_path, job_key=inference_job_key
-    )
+    parsed = parse_inference_job_from_yaml(yml_path, job_key=inference_job_key)
 
     effective: dict[str, Any] = dict(parsed)
     effective["pipeline_version"] = pipeline_version

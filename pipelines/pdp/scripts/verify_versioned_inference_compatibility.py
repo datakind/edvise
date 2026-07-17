@@ -14,12 +14,12 @@ if str(_REPO_ROOT) not in sys.path:
 
 from pipelines.pdp.launchers.bundle_from_dab import load_inference_job_definition
 from pipelines.pdp.launchers.inference_job_submit import build_submit_run_body
-from pipelines.pdp.launchers.inference_parameters import resolve_versioned_job_parameters
+from pipelines.pdp.launchers.inference_parameters import (
+    resolve_versioned_job_parameters,
+)
 from pipelines.pdp.launchers.pipeline_version_ref import build_git_source, git_ref_kind
 
-_FIXTURE = (
-    _REPO_ROOT / "tests/pdp/fixtures/inference_job_parameter_contract.yml"
-)
+_FIXTURE = _REPO_ROOT / "tests/pdp/fixtures/inference_job_parameter_contract.yml"
 
 
 def _check_case(
@@ -100,7 +100,9 @@ def main(argv: list[str] | None = None) -> int:
                 'variables:\n  schema_type:\n    default: "pdp"\n',
                 encoding="utf-8",
             )
-            _check_case(label=label, pipeline_version=pv, workspace=ws, bundle_dir=bundle_dir)
+            _check_case(
+                label=label, pipeline_version=pv, workspace=ws, bundle_dir=bundle_dir
+            )
     return 0
 
 

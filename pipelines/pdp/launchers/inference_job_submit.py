@@ -24,7 +24,9 @@ from pipelines.pdp.launchers.bundle_from_dab import (
     inference_yml_path,
     load_inference_job_definition,
 )
-from pipelines.pdp.launchers.inference_parameters import resolve_versioned_job_parameters
+from pipelines.pdp.launchers.inference_parameters import (
+    resolve_versioned_job_parameters,
+)
 from pipelines.pdp.launchers.pipeline_version_ref import build_git_source, git_ref_kind
 
 LOGGER = logging.getLogger(__name__)
@@ -253,7 +255,9 @@ def propagate_union_libraries_for_submit(
     for task in tasks:
         merged = copy.deepcopy(task)
         existing = {
-            n for n in (_pypi_package_name(lib) for lib in merged.get("libraries") or []) if n
+            n
+            for n in (_pypi_package_name(lib) for lib in merged.get("libraries") or [])
+            if n
         }
         libs = list(merged.get("libraries") or [])
         for lib in union:
@@ -382,7 +386,11 @@ def _effective_run_state_from_tasks(
     task_lifecycles: list[str] = []
     task_results: list[str | None] = []
     for task in tasks:
-        state_obj = task.get("state") if isinstance(task, dict) else getattr(task, "state", None)
+        state_obj = (
+            task.get("state")
+            if isinstance(task, dict)
+            else getattr(task, "state", None)
+        )
         life, result = _state_from_obj(state_obj)
         if life:
             task_lifecycles.append(life)
@@ -521,7 +529,10 @@ def wait_for_inference_run(
                 run_id, run, life_cycle, result_state, logger=logger
             )
             return
-        if timeout_seconds is not None and (time.monotonic() - start) >= timeout_seconds:
+        if (
+            timeout_seconds is not None
+            and (time.monotonic() - start) >= timeout_seconds
+        ):
             msg = (
                 f"Timed out after {timeout_seconds}s waiting for child inference "
                 f"run_id={run_id} (last life_cycle_state={life_cycle!r})"
@@ -573,7 +584,9 @@ def build_submit_run_body(
         msg = f"Job {inference_job_key!r} tasks could not be sanitized for submit"
         raise TypeError(msg)
     if not isinstance(cleaned_clusters, list):
-        msg = f"Job {inference_job_key!r} job_clusters could not be sanitized for submit"
+        msg = (
+            f"Job {inference_job_key!r} job_clusters could not be sanitized for submit"
+        )
         raise TypeError(msg)
 
     cleaned_tasks = render_job_parameter_refs(
@@ -614,7 +627,9 @@ def build_submit_run_body(
         body["run_as"] = {"service_principal_name": run_as}
 
     acl = build_submit_access_control_list(
-        access_control_overrides if access_control_overrides is not None else parameter_overrides
+        access_control_overrides
+        if access_control_overrides is not None
+        else parameter_overrides
     )
     if acl:
         body["access_control_list"] = acl
@@ -706,9 +721,7 @@ def submit_versioned_inference_from_bundle(
     )
     inst = archived_parameters.get("databricks_institution_name", "unknown")
     model = archived_parameters.get("model_name", "unknown")
-    run_name = (
-        f"versioned-inference-{inst}-{model}-{pipeline_version[:12]}"
-    )
+    run_name = f"versioned-inference-{inst}-{model}-{pipeline_version[:12]}"
     body = build_submit_run_body(
         job,
         pipeline_version=pipeline_version,

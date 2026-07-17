@@ -39,7 +39,10 @@ _FULL_YML = (
 
 def test_resolve_job_parameter_specs_strips_bundle_vars() -> None:
     specs = [
-        {"name": "databricks_institution_name", "default": "${var.databricks_institution_name}"},
+        {
+            "name": "databricks_institution_name",
+            "default": "${var.databricks_institution_name}",
+        },
         {"name": "DB_workspace", "default": "${var.DB_workspace}"},
         {"name": "db_run_id", "default": "{{job.run_id}}"},
     ]
@@ -103,7 +106,9 @@ def test_normalize_versioned_inference_db_run_id_dashed_uuid() -> None:
 
 def test_normalize_versioned_inference_db_run_id_already_prefixed() -> None:
     assert (
-        normalize_versioned_inference_db_run_id("versioned_67b39f0b2caa4a919f289749883bd04c")
+        normalize_versioned_inference_db_run_id(
+            "versioned_67b39f0b2caa4a919f289749883bd04c"
+        )
         == "versioned_67b39f0b2caa4a919f289749883bd04c"
     )
 

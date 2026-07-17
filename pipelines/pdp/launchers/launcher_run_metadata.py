@@ -59,7 +59,9 @@ def record_versioned_inference_launcher_event(
             append_pipeline_run_event,
         )
     except ImportError as exc:
-        logger.warning("versioned_inference_launcher: pipeline_runs import failed: %s", exc)
+        logger.warning(
+            "versioned_inference_launcher: pipeline_runs import failed: %s", exc
+        )
         return False
 
     return append_pipeline_run_event(

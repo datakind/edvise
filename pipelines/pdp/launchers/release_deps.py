@@ -62,9 +62,7 @@ def write_release_requirements(
     logger: logging.Logger = LOGGER,
 ) -> list[str]:
     """Write ``release_requirements.txt`` from a ``pyproject.toml`` file."""
-    deps = parse_pyproject_dependencies(
-        pyproject_file.read_text(encoding="utf-8")
-    )
+    deps = parse_pyproject_dependencies(pyproject_file.read_text(encoding="utf-8"))
     lines = list(deps)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")

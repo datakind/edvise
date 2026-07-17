@@ -19,7 +19,9 @@ if str(_REPO_ROOT) not in sys.path:
 
 from pipelines.pdp.launchers.bundle_from_dab import load_inference_job_definition
 from pipelines.pdp.launchers.inference_job_submit import build_submit_run_body
-from pipelines.pdp.launchers.inference_parameters import resolve_versioned_job_parameters
+from pipelines.pdp.launchers.inference_parameters import (
+    resolve_versioned_job_parameters,
+)
 from pipelines.pdp.launchers.model_metadata import resolve_release_dir
 from pipelines.pdp.launchers.pipeline_version_ref import build_git_source
 
@@ -58,7 +60,9 @@ def _write_bundle(release_dir: Path) -> None:
 
 
 @pytest.mark.parametrize("case", MATRIX, ids=[c["label"] for c in MATRIX])
-def test_compatibility_matrix_git_source_and_params(case: dict[str, str], tmp_path: Path) -> None:
+def test_compatibility_matrix_git_source_and_params(
+    case: dict[str, str], tmp_path: Path
+) -> None:
     pv = case["pipeline_version"]
     release_dir = resolve_release_dir(case["release_base"], pv)
     assert str(release_dir).endswith(pv.replace("/", "_"))
@@ -69,7 +73,9 @@ def test_compatibility_matrix_git_source_and_params(case: dict[str, str], tmp_pa
     assert git_src[case["git_key"]] == pv
 
     job = load_inference_job_definition(
-        tmp_path / release_dir.name / "databricks_bundle_snapshot/resources/github_pdp_inference.yml"
+        tmp_path
+        / release_dir.name
+        / "databricks_bundle_snapshot/resources/github_pdp_inference.yml"
     )
     resolved = resolve_versioned_job_parameters(
         job,

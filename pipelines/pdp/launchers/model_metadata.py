@@ -189,9 +189,7 @@ def resolve_pipeline_version_for_model_run(
     pv: str | None = None
     if cfg_path.is_file():
         try:
-            pv = pipeline_version_from_config_toml(
-                cfg_path.read_text(encoding="utf-8")
-            )
+            pv = pipeline_version_from_config_toml(cfg_path.read_text(encoding="utf-8"))
             if pv:
                 logger.info(
                     "pipeline_version from silver training config.toml (%s): %s",

@@ -66,14 +66,18 @@ def materialize_dab_snapshot_from_github(
     """Download DAB YAML files into ``release_dir/databricks_bundle_snapshot/``."""
     marker = inference_yml_in_bundle(release_dir)
     if skip_if_present and marker.is_file():
-        logger.info("DAB snapshot already present at %s; skipping GitHub fetch.", marker)
+        logger.info(
+            "DAB snapshot already present at %s; skipping GitHub fetch.", marker
+        )
         return
 
     snap_root = release_dir / "databricks_bundle_snapshot"
     snap_root.mkdir(parents=True, exist_ok=True)
 
     for repo_path in DAB_SNAPSHOT_FILES:
-        dest = release_dir / repo_path.replace("pipelines/pdp/", "databricks_bundle_snapshot/")
+        dest = release_dir / repo_path.replace(
+            "pipelines/pdp/", "databricks_bundle_snapshot/"
+        )
         if repo_path.endswith("databricks.yml"):
             dest = snap_root / "databricks.yml"
         elif "github_pdp_inference.yml" in repo_path:
@@ -81,11 +85,11 @@ def materialize_dab_snapshot_from_github(
         else:
             dest = snap_root / Path(repo_path).name
         dest.parent.mkdir(parents=True, exist_ok=True)
-        logger.info("Fetching %s from GitHub (%s @ %s)", repo_path, github_repo, git_ref)
+        logger.info(
+            "Fetching %s from GitHub (%s @ %s)", repo_path, github_repo, git_ref
+        )
         try:
-            content = fetch_github_file(
-                github_repo, git_ref, repo_path, token=token
-            )
+            content = fetch_github_file(github_repo, git_ref, repo_path, token=token)
         except urllib.error.HTTPError as exc:
             msg = f"GitHub fetch failed for {repo_path} at {git_ref}: HTTP {exc.code}"
             raise OSError(msg) from exc

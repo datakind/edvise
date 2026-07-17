@@ -26,7 +26,9 @@ from pipelines.pdp.launchers.inference_parameters import (
 )
 
 _FIXTURE = (
-    Path(__file__).resolve().parent / "fixtures" / "inference_job_parameter_contract.yml"
+    Path(__file__).resolve().parent
+    / "fixtures"
+    / "inference_job_parameter_contract.yml"
 )
 
 
@@ -216,7 +218,10 @@ def test_builtin_stable_aliases_map_from_stable_trigger_only() -> None:
 
 def test_merge_parameter_aliases_release_overrides_builtin() -> None:
     merged = merge_parameter_aliases({"schema_type": "institution"})
-    assert merged["cohort_file_name"] == DEFAULT_STABLE_PARAMETER_ALIASES["cohort_file_name"]
+    assert (
+        merged["cohort_file_name"]
+        == DEFAULT_STABLE_PARAMETER_ALIASES["cohort_file_name"]
+    )
     assert merged["schema_type"] == "institution"
 
 

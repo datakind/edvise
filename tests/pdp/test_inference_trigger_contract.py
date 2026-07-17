@@ -37,7 +37,10 @@ def test_build_versioned_inference_job_parameters_with_extra_json() -> None:
         databricks_institution_name="miles_cc",
         model_name="retention_into_year_2_associates",
         db_workspace="dev_sst_02",
-        inference_parameters_json={"db_run_id": "custom-run", "DK_CC_EMAIL": "cc@example.com"},
+        inference_parameters_json={
+            "db_run_id": "custom-run",
+            "DK_CC_EMAIL": "cc@example.com",
+        },
     )
     extra = json.loads(params["inference_parameters_json"])
     assert extra["db_run_id"] == "custom-run"
@@ -45,4 +48,7 @@ def test_build_versioned_inference_job_parameters_with_extra_json() -> None:
 
 
 def test_job_key_constant() -> None:
-    assert itc.VERSIONED_INFERENCE_LAUNCHER_JOB_KEY == "edvise_versioned_inference_launcher"
+    assert (
+        itc.VERSIONED_INFERENCE_LAUNCHER_JOB_KEY
+        == "edvise_versioned_inference_launcher"
+    )

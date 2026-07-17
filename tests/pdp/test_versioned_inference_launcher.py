@@ -392,15 +392,11 @@ def test_check_runtime_bundle_dbr_mismatch(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def test_databricks_runtime_compatible_short_cluster_version() -> None:
-    assert vil.databricks_runtime_compatible(
-        "15.4.x-cpu-ml-scala2.12", "15.4"
-    )
+    assert vil.databricks_runtime_compatible("15.4.x-cpu-ml-scala2.12", "15.4")
     assert vil.databricks_runtime_compatible(
         "15.4.x-cpu-ml-scala2.12", "15.4.x-cpu-ml-scala2.12"
     )
-    assert not vil.databricks_runtime_compatible(
-        "15.4.x-cpu-ml-scala2.12", "14.3"
-    )
+    assert not vil.databricks_runtime_compatible("15.4.x-cpu-ml-scala2.12", "14.3")
 
 
 def test_check_runtime_bundle_dbr_short_env_ok(monkeypatch: pytest.MonkeyPatch) -> None:

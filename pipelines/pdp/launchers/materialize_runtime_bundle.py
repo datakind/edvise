@@ -201,7 +201,10 @@ def main(argv: list[str] | None = None) -> int:
         model_run_id=model_run_id,
         pipeline_version=pipeline_version,
         launcher_run_id=launcher_run_id,
-        payload={"bundle_materialized": str(release_dir), "task": "materialize_runtime_bundle"},
+        payload={
+            "bundle_materialized": str(release_dir),
+            "task": "materialize_runtime_bundle",
+        },
         logger=LOGGER,
     )
     return 0

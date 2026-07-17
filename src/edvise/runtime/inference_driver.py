@@ -32,7 +32,9 @@ def main(argv: list[str] | None = None) -> int:
         format="%(levelname)s %(name)s: %(message)s",
         stream=sys.stderr,
     )
-    parser = argparse.ArgumentParser(description="MVP versioned inference smoke driver.")
+    parser = argparse.ArgumentParser(
+        description="MVP versioned inference smoke driver."
+    )
     parser.add_argument(
         "--payload",
         required=True,

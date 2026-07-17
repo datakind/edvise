@@ -24,10 +24,7 @@ def test_default_release_base_path_known_workspaces() -> None:
 
 
 def test_resolve_release_base_path_prefers_explicit() -> None:
-    assert (
-        rc.resolve_release_base_path("dev_sst_02", "/custom/path")
-        == "/custom/path"
-    )
+    assert rc.resolve_release_base_path("dev_sst_02", "/custom/path") == "/custom/path"
 
 
 def test_default_release_base_path_empty_raises() -> None:

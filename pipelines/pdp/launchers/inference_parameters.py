@@ -356,7 +356,9 @@ def suggest_missing_parameter_mappings(
     suggestions: list[str] = []
     norm_missing = _normalize_param_token(missing_param)
 
-    launcher_keys = [k for k in launcher_overrides if _non_empty(launcher_overrides.get(k))]
+    launcher_keys = [
+        k for k in launcher_overrides if _non_empty(launcher_overrides.get(k))
+    ]
     close_launcher = difflib.get_close_matches(
         missing_param, launcher_keys, n=3, cutoff=0.6
     )
@@ -370,7 +372,7 @@ def suggest_missing_parameter_mappings(
     for key in dict.fromkeys(close_launcher + norm_launcher):
         suggestions.append(
             f"launcher flat key {key!r} (exact-name match or add "
-            f'parameter_aliases.json: {{{missing_param!r}: {key!r}}})'
+            f"parameter_aliases.json: {{{missing_param!r}: {key!r}}})"
         )
 
     for archived, source in merged_aliases.items():
@@ -383,22 +385,20 @@ def suggest_missing_parameter_mappings(
         if _normalize_param_token(archived) == norm_missing:
             suggestions.append(
                 f"similar archived alias {archived!r} → {source!r} "
-                f'(try parameter_aliases.json: {{{missing_param!r}: {source!r}}})'
+                f"(try parameter_aliases.json: {{{missing_param!r}: {source!r}}})"
             )
         elif norm_missing and (
             norm_missing in _normalize_param_token(archived)
             or _normalize_param_token(archived) in norm_missing
         ):
-            suggestions.append(
-                f"similar archived alias {archived!r} → {source!r}"
-            )
+            suggestions.append(f"similar archived alias {archived!r} → {source!r}")
 
     if stable_trigger is not None:
         for source in sorted({s for s in merged_aliases.values() if "." in s}):
             if resolve_stable_path(stable_trigger, source):
                 suggestions.append(
                     f"stable path {source!r} has a value "
-                    f'(parameter_aliases.json: {{{missing_param!r}: {source!r}}})'
+                    f"(parameter_aliases.json: {{{missing_param!r}: {source!r}}})"
                 )
 
     # De-dupe while preserving order
@@ -583,15 +583,13 @@ def _log_resolved_parameters(
     )
 
 
-def deep_merge_stable_dict(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
+def deep_merge_stable_dict(
+    base: dict[str, Any], overlay: dict[str, Any]
+) -> dict[str, Any]:
     """Deep-merge ``overlay`` onto ``base`` (overlay wins for scalar values)."""
     out: dict[str, Any] = dict(base)
     for key, val in overlay.items():
-        if (
-            key in out
-            and isinstance(out[key], dict)
-            and isinstance(val, dict)
-        ):
+        if key in out and isinstance(out[key], dict) and isinstance(val, dict):
             out[key] = deep_merge_stable_dict(out[key], val)
         else:
             out[key] = val
@@ -659,7 +657,9 @@ def build_stable_trigger_payload(
 def contract_summary_for_log(contract: list[ParameterSpec]) -> dict[str, list[str]]:
     """Grouped archived parameter names for operator logs."""
     required = [spec.name for spec in contract if spec.required]
-    optional = [spec.name for spec in contract if spec.referenced_by_tasks and not spec.required]
+    optional = [
+        spec.name for spec in contract if spec.referenced_by_tasks and not spec.required
+    ]
     declared = [spec.name for spec in contract if not spec.referenced_by_tasks]
     return {
         "required": required,

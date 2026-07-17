@@ -60,9 +60,7 @@ def test_materialize_skips_when_snapshot_present(tmp_path: Path) -> None:
     inf.parent.mkdir(parents=True)
     inf.write_text("existing", encoding="utf-8")
 
-    with patch(
-        "pipelines.pdp.launchers.bundle_materialize.fetch_github_file"
-    ) as fetch:
+    with patch("pipelines.pdp.launchers.bundle_materialize.fetch_github_file") as fetch:
         materialize_dab_snapshot_from_github(release_dir, "sha", skip_if_present=True)
         fetch.assert_not_called()
 
