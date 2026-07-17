@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   create-release-branch:
@@ -97,6 +98,15 @@ jobs:
           git commit -m "chore(release): prepare ${VERSION}"
           git push -u origin "release/${VERSION}"
 
+      - name: Trigger release branch CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # GITHUB_TOKEN pushes do not trigger other workflows; dispatch explicitly.
+          gh workflow run release-branch-ci-dev --ref "release/${VERSION}"
+          echo "✓ Triggered release-branch-ci-dev on release/${VERSION}" >> $GITHUB_STEP_SUMMARY
+
       - name: Summary
         run: |
           echo "## Release branch created: release/${VERSION}" >> $GITHUB_STEP_SUMMARY
@@ -104,5 +114,5 @@ jobs:
           echo "✓ Version metadata updated" >> $GITHUB_STEP_SUMMARY
           echo "✓ Release branch pushed" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Next step:** Once release CI completes, Finish Release will open PRs automatically." >> $GITHUB_STEP_SUMMARY
+          echo "**Next step:** Once release CI completes, it will dispatch Finish Release to open the release PR." >> $GITHUB_STEP_SUMMARY
 

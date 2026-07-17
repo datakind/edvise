@@ -7,7 +7,12 @@ from edvise.data_audit.schemas.raw_edvise_student import RawEdviseStudentDataSch
 from edvise.genai.mapping.schema_mapping_agent.manifest.prompts import (
     audit_step2a_batched_prompt,
     audit_step2a_prompt,
+    build_refinement_pass1_system_prompt,
+    build_refinement_pass2_system_prompt,
     build_step2a_batched_prompt,
+    build_step2a_prompt_cohort_pass,
+    build_step2a_prompt_course_pass,
+    extract_schema_descriptor,
 )
 
 
@@ -125,3 +130,55 @@ def test_audit_step2a_batched_prompt_section_breakdown():
         "rules",
     }
     assert out["total_estimated_tokens"] == sum(out["sections"].values())
+
+
+def _shared_prompt_kwargs() -> dict:
+    return dict(
+        institution_id="test_cc",
+        output_path="s3://bucket/manifest.json",
+        institution_schema_contract=_minimal_institution_schema_contract(),
+        reference_manifests=[_minimal_reference_manifest()],
+    )
+
+
+def test_cohort_pass_includes_type_vs_major_rules_not_course_degree_rules():
+    text = build_step2a_prompt_cohort_pass(
+        **_shared_prompt_kwargs(),
+        cohort_schema_class=RawEdviseStudentDataSchema,
+    )
+    assert "Credential TYPE vs major / plan" in text
+    assert "intended_program_type" in text
+    assert "declared_major_at_entry" in text
+    assert "COURSE term_degree AND term_declared_major" not in text
+
+
+def test_course_pass_includes_term_degree_vs_major_rules_not_cohort_program_rules():
+    text = build_step2a_prompt_course_pass(
+        **_shared_prompt_kwargs(),
+        course_schema_class=RawEdviseCourseDataSchema,
+    )
+    assert "COURSE term_degree AND term_declared_major" in text
+    assert "COHORT intended_program_type AND declared_major_at_entry" not in text
+
+
+def test_schema_descriptor_notes_separate_type_from_major():
+    student = extract_schema_descriptor(RawEdviseStudentDataSchema)
+    course = extract_schema_descriptor(RawEdviseCourseDataSchema)
+    ipt = student["fields"]["intended_program_type"]["semantic_note"]
+    major = student["fields"]["declared_major_at_entry"]["semantic_note"]
+    term_deg = course["fields"]["term_degree"]["semantic_note"]
+    term_maj = course["fields"]["term_declared_major"]["semantic_note"]
+    assert "credential / program TYPE" in ipt
+    assert "NOT an academic plan" in ipt
+    assert "NOT a degree/credential type code" in major
+    assert "degree / credential LEVEL or TYPE" in term_deg
+    assert "NOT a degree/credential type code" in term_maj
+
+
+def test_refinement_prompts_include_cohort_and_course_type_vs_major_rules():
+    pass1 = build_refinement_pass1_system_prompt()
+    pass2 = build_refinement_pass2_system_prompt()
+    assert "Column kind:" in pass1
+    assert "term_degree" in pass1 and "term_declared_major" in pass1
+    assert "prefer degree/credential-type columns" in pass2
+    assert "Course term_degree vs term_declared_major" in pass2

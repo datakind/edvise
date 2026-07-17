@@ -854,16 +854,11 @@ class TestWorkflowConditions:
         assert not automate_releases.should_run_release_integration("1.4.6", "1.4.5")
 
     def test_release_pr_condition(self):
-        """Test condition for opening release PR after CI."""
-        event_name = "workflow_run"
-        conclusion = "success"
-        branch = "release/0.1.9"
+        """Test condition for opening release PR via Finish Release dispatch."""
+        event_name = "workflow_dispatch"
+        version = "0.1.9"
 
-        should_trigger = (
-            event_name == "workflow_run"
-            and conclusion == "success"
-            and branch.startswith("release/")
-        )
+        should_trigger = event_name == "workflow_dispatch" and bool(version)
 
         assert should_trigger
 
@@ -975,11 +970,14 @@ class TestWorkflowYAMLSyntax:
 
         on_section = workflow.get(True) or workflow.get("on")
         assert on_section is not None
-        assert "workflow_run" in on_section
+        assert "workflow_dispatch" in on_section
+        assert "version" in on_section["workflow_dispatch"]["inputs"]
+        assert "workflow_run" not in on_section
         assert "pull_request" in on_section
         assert "open-release-pr" in workflow["jobs"]
         assert "tag-and-open-backmerge-pr" in workflow["jobs"]
         assert "delete-release-branch" in workflow["jobs"]
+        assert "workflow_dispatch" in workflow["jobs"]["open-release-pr"]["if"]
 
     def test_release_integration_workflow_yaml(self):
         """Test release-integration.yml gates integration on bump type."""
@@ -997,11 +995,15 @@ class TestWorkflowYAMLSyntax:
         assert "workflow_dispatch" in on_section
         assert "force_integration" in on_section["workflow_dispatch"]["inputs"]
 
+        assert workflow["permissions"]["actions"] == "write"
+
         jobs = workflow["jobs"]
         assert "classify-release" in jobs
         assert jobs["classify-release"]["outputs"]["run_integration"]
         assert jobs["classify-release"]["outputs"]["bump_type"]
-        assert "finish-release" not in jobs
+        assert jobs["classify-release"]["outputs"]["version"]
+        assert "trigger-finish-release" in jobs
+        assert "Finish Release" in jobs["trigger-finish-release"]["steps"][-1]["run"]
 
         for job_name in ("pdp-integration", "es-integration"):
             job = jobs[job_name]
@@ -1016,6 +1018,7 @@ class TestWorkflowYAMLSyntax:
         workflows = [
             "start-release.yml",
             "finish-release.yml",
+            "release-integration.yml",
         ]
 
         for workflow_file in workflows:
@@ -1029,12 +1032,16 @@ class TestWorkflowYAMLSyntax:
             if workflow_file == "start-release.yml":
                 assert "contents" in workflow["permissions"]
                 assert workflow["permissions"]["contents"] == "write"
+                assert workflow["permissions"]["actions"] == "write"
 
             if workflow_file == "finish-release.yml":
                 assert "contents" in workflow["permissions"]
                 assert workflow["permissions"]["contents"] == "write"
                 assert "pull-requests" in workflow["permissions"]
                 assert workflow["permissions"]["pull-requests"] == "write"
+
+            if workflow_file == "release-integration.yml":
+                assert workflow["permissions"]["actions"] == "write"
 
     def test_workflow_job_structure(self):
         """Test that finish-release workflow jobs have required structure."""

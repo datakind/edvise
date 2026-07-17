@@ -342,6 +342,17 @@ def test_raw_edvise_student_schema_gender_many_distinct_values_passes() -> None:
     assert len(validated_df) == 6
 
 
+def test_raw_edvise_course_schema_coerces_both_credit_columns_to_float64() -> None:
+    """Both credit cols coerce to Float64 (shared Field only coerced the last one)."""
+    row = _minimal_valid_course_row()
+    df = pd.DataFrame([row]).reindex(columns=COURSE_COLUMNS)
+    df["course_credits_attempted"] = pd.Series(["3.0"], dtype="string")
+    df["course_credits_earned"] = pd.Series(["3.0"], dtype="string")
+    validated = RawEdviseCourseDataSchema.validate(df, lazy=True)
+    assert str(validated["course_credits_attempted"].dtype) == "Float64"
+    assert str(validated["course_credits_earned"].dtype) == "Float64"
+
+
 def test_raw_edvise_course_schema_empty_dataframe_passes() -> None:
     """Empty DataFrame with all schema columns passes."""
     df = pd.DataFrame(columns=COURSE_COLUMNS)

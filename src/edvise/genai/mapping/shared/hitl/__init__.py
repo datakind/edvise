@@ -12,14 +12,14 @@ from .exceptions import HITLBlockingError
 from .gate import raise_if_hitl_pending
 from .json_io import read_pydantic_json, write_pydantic_json
 from .run_log import (
-    ManifestRepairEvent,
+    MappingOverrideEvent,
+    MappingOverrideLog,
+    MappingOverrideLogEvent,
     PipelineRunEvent,
-    RepairLog,
-    RepairLogEvent,
     RunEvent,
     RunLog,
     SMARRunEvent,
-    append_repair_event,
+    append_mapping_override_event,
     append_run_log_event,
     resolve_task_run_id,
 )
@@ -28,14 +28,14 @@ from .time import utc_now_iso
 __all__ = [
     "HITLBlockingError",
     "PIPELINE_HITL_CONFIDENCE_THRESHOLD",
-    "ManifestRepairEvent",
+    "MappingOverrideEvent",
+    "MappingOverrideLog",
+    "MappingOverrideLogEvent",
     "PipelineRunEvent",
-    "RepairLog",
-    "RepairLogEvent",
     "RunEvent",
     "RunLog",
     "SMARRunEvent",
-    "append_repair_event",
+    "append_mapping_override_event",
     "append_run_log_event",
     "resolve_task_run_id",
     "raise_if_hitl_pending",

@@ -1,3 +1,22 @@
+## 1.5.2 (2026-07-17)
+- fix: allow for custom graduation outcome descriptions in legacy model cards (#226)
+- fix(genai): enforce term year_semantics HITL coverage using ValidationError with LLM retry (#227)
+- fix(release-automation): create one trigger for all deploy actions in our automated release process (#228)
+
+## 1.5.1 (2026-07-16)
+- fix(release-automation): patch dispatch of Finish Release step in release integration action (#218)
+- fix: adding level 9 courses to features table (#219)
+- fix: cap incomplete feature threshold at 20 percent (#220)
+
+## 1.5.0 (2026-07-15)
+- fix(release-automation): dispatch Finish Release from release CI (#213)
+- feat(genai): add post-gate SMA manifest mapping overrides (#214)
+- fix(genai): SMA prompt improvements with program type vs major column discrimination (#215)
+- fix: coerce both ES course credit columns to Float64 (#217)
+
+## 1.4.8 (2026-07-14)
+- fix: finish-release gh checkout + Start Release CI dispatch (#212)
+
 ## 1.4.7 (2026-07-09)
 - fix(genai): ensure prompt asks for term year semantics HITL with hook generation (#205)
 

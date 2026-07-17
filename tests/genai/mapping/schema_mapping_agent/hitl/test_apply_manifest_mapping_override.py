@@ -1,4 +1,4 @@
-"""Tests for :func:`apply_2a_manifest_repair`."""
+"""Tests for :func:`apply_manifest_mapping_override`."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.artifacts import (
 )
 from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.resolver import (
     SMAHITLResolverError,
-    apply_2a_manifest_repair,
+    apply_manifest_mapping_override,
 )
 from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import (
     EntityType,
@@ -21,7 +21,7 @@ from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import (
     ReviewStatus,
 )
 from edvise.genai.mapping.shared.hitl.json_io import read_pydantic_json
-from edvise.genai.mapping.shared.hitl.run_log import RepairLog
+from edvise.genai.mapping.shared.hitl.run_log import MappingOverrideLog
 
 
 def _fmr(**overrides: object) -> FieldMappingRecord:
@@ -37,7 +37,7 @@ def _fmr(**overrides: object) -> FieldMappingRecord:
     return FieldMappingRecord.model_validate(base)
 
 
-def test_apply_2a_manifest_repair_preserves_confidence_and_rationale(
+def test_apply_manifest_mapping_override_preserves_confidence_and_rationale(
     tmp_path: Path,
 ) -> None:
     tmp = tmp_path
@@ -48,7 +48,7 @@ def test_apply_2a_manifest_repair_preserves_confidence_and_rationale(
         mappings=[original],
     )
     manifest_path = write_sma_manifest_artifact(tmp, fm, basename="m.json")
-    repair_log_path = tmp / "repair_log.json"
+    override_log_path = tmp / "mapping_override_log.json"
 
     corrected = _fmr(
         source_column="student_id_v2",
@@ -56,13 +56,13 @@ def test_apply_2a_manifest_repair_preserves_confidence_and_rationale(
         rationale="should not appear",
     )
 
-    apply_2a_manifest_repair(
+    apply_manifest_mapping_override(
         manifest_path,
         "cohort",
         "learner_id",
         corrected,
-        repair_log_path=repair_log_path,
-        repaired_by="ops",
+        override_log_path=override_log_path,
+        overridden_by="ops",
         original_db_run_id="db-42",
         original_task_run_id="t-7",
         reviewer_notes="fixed column",
@@ -74,19 +74,20 @@ def test_apply_2a_manifest_repair_preserves_confidence_and_rationale(
     assert m0.source_column == "student_id_v2"
     assert m0.confidence == 0.4
     assert m0.rationale == "original rationale"
-    assert m0.review_status == ReviewStatus.corrected_by_repair
+    assert m0.review_status == ReviewStatus.corrected_by_override
     assert m0.reviewer_notes == "fixed column"
 
-    log = read_pydantic_json(repair_log_path, RepairLog)
+    log = read_pydantic_json(override_log_path, MappingOverrideLog)
     assert log.institution_id == "u9"
     assert len(log.events) == 1
     e0 = log.events[0]
     assert e0.original_value["confidence"] == 0.4
     assert e0.corrected_value["confidence"] == 0.4
     assert e0.corrected_value["source_column"] == "student_id_v2"
+    assert e0.override_type == "manifest_mapping"
 
 
-def test_apply_2a_manifest_repair_envelope(tmp_path: Path) -> None:
+def test_apply_manifest_mapping_override_envelope(tmp_path: Path) -> None:
     tmp = tmp_path
     original = _fmr()
     cohort_fm = FieldMappingManifest(
@@ -113,16 +114,16 @@ def test_apply_2a_manifest_repair_envelope(tmp_path: Path) -> None:
     )
     manifest_path = tmp / "env.json"
     manifest_path.write_text(envelope.model_dump_json(indent=2))
-    repair_log_path = tmp / "repair_log.json"
+    override_log_path = tmp / "mapping_override_log.json"
 
     corrected = _fmr(source_column="s_fixed")
-    apply_2a_manifest_repair(
+    apply_manifest_mapping_override(
         manifest_path,
         "cohort",
         "learner_id",
         corrected,
-        repair_log_path=repair_log_path,
-        repaired_by="r",
+        override_log_path=override_log_path,
+        overridden_by="r",
         original_db_run_id="d",
         reviewer_notes=None,
     )
@@ -131,11 +132,11 @@ def test_apply_2a_manifest_repair_envelope(tmp_path: Path) -> None:
     assert env2.manifests[EntityType.cohort].mappings[0].source_column == "s_fixed"
     assert env2.manifests[EntityType.course].mappings[0].source_column == "c1"
 
-    log = read_pydantic_json(repair_log_path, RepairLog)
+    log = read_pydantic_json(override_log_path, MappingOverrideLog)
     assert log.institution_id == "u1"
 
 
-def test_apply_2a_manifest_repair_requires_institution_for_standalone(
+def test_apply_manifest_mapping_override_requires_institution_for_standalone(
     tmp_path: Path,
 ) -> None:
     tmp = tmp_path
@@ -146,18 +147,18 @@ def test_apply_2a_manifest_repair_requires_institution_for_standalone(
     )
     path = write_sma_manifest_artifact(tmp, fm)
     with pytest.raises(SMAHITLResolverError, match="institution_id"):
-        apply_2a_manifest_repair(
+        apply_manifest_mapping_override(
             path,
             "cohort",
             "learner_id",
             _fmr(source_column="x"),
-            repair_log_path=tmp / "r.json",
-            repaired_by="x",
+            override_log_path=tmp / "r.json",
+            overridden_by="x",
             original_db_run_id="d",
         )
 
 
-def test_apply_2a_manifest_repair_wrong_target_field_raises(
+def test_apply_manifest_mapping_override_wrong_target_field_raises(
     tmp_path: Path,
 ) -> None:
     tmp = tmp_path
@@ -169,13 +170,13 @@ def test_apply_2a_manifest_repair_wrong_target_field_raises(
     path = write_sma_manifest_artifact(tmp, fm)
     bad = _fmr(target_field="other")
     with pytest.raises(SMAHITLResolverError, match="target_field"):
-        apply_2a_manifest_repair(
+        apply_manifest_mapping_override(
             path,
             "cohort",
             "learner_id",
             bad,
-            repair_log_path=tmp / "r.json",
-            repaired_by="x",
+            override_log_path=tmp / "r.json",
+            overridden_by="x",
             original_db_run_id="d",
             institution_id="u1",
         )

@@ -1,0 +1,45 @@
+name: Release Deploy
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  validate-tag:
+    name: Validate release tag
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require a version tag ref
+        env:
+          RELEASE_REF: ${{ github.ref }}
+        run: |
+          if [[ "$RELEASE_REF" != refs/tags/v* ]]; then
+            echo "Release deployments must run against a v* tag, got: $RELEASE_REF"
+            exit 1
+          fi
+
+  deploy-core:
+    name: Core bundles
+    needs: validate-tag
+    uses: ./.github/workflows/deploy.yml
+    secrets: inherit
+
+  deploy-genai-mapping:
+    name: GenAI mapping
+    needs: validate-tag
+    uses: ./.github/workflows/deploy-genai-mapping.yml
+    secrets: inherit
+
+  deploy-genai-hitl-app:
+    name: GenAI HITL app
+    needs: validate-tag
+    uses: ./.github/workflows/deploy-genai-hitl-app.yml
+    secrets: inherit
+
+  deploy-metadata-dashboard:
+    name: Metadata dashboard
+    needs: validate-tag
+    uses: ./.github/workflows/deploy-metadata-dashboard.yml
+    secrets: inherit
