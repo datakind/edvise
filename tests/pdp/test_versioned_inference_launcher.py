@@ -343,6 +343,12 @@ def test_main_ok_yaml_snapshot_only(
         "resolve_model_run_and_pipeline_version",
         lambda **_: ("resolved-mr", "v1"),
     )
+    # Bundle metadata maps DBR 15.4 → Python 3.11; CI may run 3.10.
+    monkeypatch.setattr(
+        vil,
+        "check_runtime_bundle_compatibility",
+        lambda *a, **k: (True, ""),
+    )
 
     argv = [
         "--databricks_institution_name",

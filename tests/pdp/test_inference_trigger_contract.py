@@ -26,9 +26,22 @@ def test_build_versioned_inference_job_parameters_flat() -> None:
     assert params["databricks_institution_name"] == "miles_cc"
     assert params["model_name"] == "retention_into_year_2_associates"
     assert params["cohort_file_name"] == "cohort.csv"
-    stable = json.loads(params["stable_trigger_json"])
-    assert stable["datasets"]["cohort"] == "cohort.csv"
-    assert stable["outputs"]["bucket"] == "my-bucket"
+    assert "stable_trigger_json" not in params
+    assert "viewer_user" not in params
+    assert "inference_output_run_id" not in params
+    assert "inference_parameters_json" not in params
+
+
+def test_build_versioned_inference_job_parameters_with_extra_json() -> None:
+    params = itc.build_versioned_inference_job_parameters(
+        databricks_institution_name="miles_cc",
+        model_name="retention_into_year_2_associates",
+        db_workspace="dev_sst_02",
+        inference_parameters_json={"db_run_id": "custom-run", "DK_CC_EMAIL": "cc@example.com"},
+    )
+    extra = json.loads(params["inference_parameters_json"])
+    assert extra["db_run_id"] == "custom-run"
+    assert extra["DK_CC_EMAIL"] == "cc@example.com"
 
 
 def test_job_key_constant() -> None:

@@ -726,7 +726,7 @@ def submit_versioned_inference_from_bundle(
     else:
         logger.warning(
             "Submit has no access_control_list; child run may only be visible to run_as "
-            "(pass datakind_group_to_manage_workflow / viewer_user on the launcher job)."
+            "(pass datakind_group_to_manage_workflow on the launcher job)."
         )
     logger.info(
         "Submitting inference job %r at git %s %s (%s tasks)",

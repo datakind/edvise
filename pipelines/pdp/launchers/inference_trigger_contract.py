@@ -12,9 +12,6 @@ There is no fallback to HEAD/current-deploy inference when validation fails.
 from __future__ import annotations
 
 import json
-from typing import Any
-
-from pipelines.pdp.launchers.inference_parameters import build_stable_trigger_payload
 
 VERSIONED_INFERENCE_LAUNCHER_JOB_KEY = "edvise_versioned_inference_launcher"
 
@@ -22,6 +19,7 @@ VERSIONED_INFERENCE_LAUNCHER_JOB_KEY = "edvise_versioned_inference_launcher"
 VERSIONED_INFERENCE_LAUNCHER_JOB_PARAMETERS: tuple[str, ...] = (
     "databricks_institution_name",
     "model_name",
+    "model_run_id",
     "DB_workspace",
     "release_base_path",
     "github_repo",
@@ -34,10 +32,7 @@ VERSIONED_INFERENCE_LAUNCHER_JOB_PARAMETERS: tuple[str, ...] = (
     "ds_run_as",
     "service_account_executer",
     "datakind_group_to_manage_workflow",
-    "viewer_user",
-    "inference_output_run_id",
     "inference_parameters_json",
-    "stable_trigger_json",
 )
 
 
@@ -54,23 +49,22 @@ def build_versioned_inference_job_parameters(
     ds_run_as: str = "",
     service_account_executer: str = "",
     datakind_group_to_manage_workflow: str = "",
-    viewer_user: str = "",
-    inference_output_run_id: str = "",
     release_base_path: str = "",
     github_repo: str = "datakind/edvise",
     git_url: str = "https://github.com/datakind/edvise",
+    model_run_id: str = "",
     inference_parameters_json: dict[str, str] | None = None,
-    stable_trigger: dict[str, Any] | None = None,
 ) -> dict[str, str]:
     """
     Build Databricks ``run_now`` job_parameters for ``edvise_versioned_inference_launcher``.
 
-    Prefer ``stable_trigger`` (Layer-1 webapp payload); otherwise flat fields are mapped
-  inside the launcher via built-in aliases.
+    Flat fields map to archived inference params via built-in aliases inside the launcher.
+    Use ``inference_parameters_json`` for optional archived-name overrides (e.g. ``db_run_id``).
     """
     params: dict[str, str] = {
         "databricks_institution_name": databricks_institution_name.strip(),
         "model_name": model_name.strip(),
+        "model_run_id": model_run_id.strip(),
         "DB_workspace": db_workspace.strip(),
         "release_base_path": release_base_path.strip(),
         "github_repo": github_repo.strip(),
@@ -83,25 +77,7 @@ def build_versioned_inference_job_parameters(
         "ds_run_as": ds_run_as.strip(),
         "service_account_executer": service_account_executer.strip(),
         "datakind_group_to_manage_workflow": datakind_group_to_manage_workflow.strip(),
-        "viewer_user": viewer_user.strip(),
-        "inference_output_run_id": inference_output_run_id.strip(),
     }
     if inference_parameters_json:
         params["inference_parameters_json"] = json.dumps(inference_parameters_json)
-    if stable_trigger is None:
-        stable_trigger = build_stable_trigger_payload(
-            institution=databricks_institution_name,
-            model_name=model_name,
-            workspace=db_workspace,
-            cohort_dataset=cohort_file_name,
-            course_dataset=course_file_name,
-            output_bucket=gcp_bucket_name,
-            notification_to=datakind_notification_email,
-            notification_cc=dk_cc_email,
-            inference_output_run_id=inference_output_run_id,
-            ds_run_as=ds_run_as,
-            service_account_executer=service_account_executer,
-        )
-    if stable_trigger:
-        params["stable_trigger_json"] = json.dumps(stable_trigger)
     return params

@@ -51,9 +51,12 @@ def main(argv: list[str] | None = None) -> int:
     pipeline_version = payload.get("pipeline_version")
     institution = payload.get("databricks_institution_name")
     model_name = payload.get("model_name")
-    release = payload.get("release")
-    if not isinstance(release, dict):
-        release = payload.get("manifest") if isinstance(payload.get("manifest"), dict) else {}
+    release_raw = payload.get("release")
+    if isinstance(release_raw, dict):
+        release: dict[str, Any] = release_raw
+    else:
+        manifest = payload.get("manifest")
+        release = manifest if isinstance(manifest, dict) else {}
 
     LOGGER.info("model_run_id=%r", model_run_id)
     LOGGER.info("pipeline_version=%r", pipeline_version)

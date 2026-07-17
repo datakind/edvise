@@ -9,8 +9,6 @@ from typing import Any
 
 from pipelines.pdp.launchers.inference_parameters import (
     build_stable_trigger_payload,
-    deep_merge_stable_dict,
-    parse_stable_trigger_json,
 )
 from pipelines.pdp.launchers.release_config import resolve_release_base_path
 
@@ -72,10 +70,11 @@ def add_inference_trigger_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--ds_run_as", default="")
     parser.add_argument("--service_account_executer", default="")
     parser.add_argument("--datakind_group_to_manage_workflow", default="")
-    parser.add_argument("--viewer_user", default="")
-    parser.add_argument("--inference_output_run_id", default="")
-    parser.add_argument("--inference_parameters_json", default="")
-    parser.add_argument("--stable_trigger_json", default="")
+    parser.add_argument(
+        "--inference_parameters_json",
+        default="",
+        help="Optional JSON object of archived inference parameter name overrides.",
+    )
 
 
 def parse_extra_parameter_overrides(raw: str) -> dict[str, str]:
@@ -105,19 +104,16 @@ def build_launcher_parameter_overrides(args: argparse.Namespace) -> dict[str, st
         "ds_run_as",
         "service_account_executer",
         "datakind_group_to_manage_workflow",
-        "viewer_user",
     ):
         val = _optional_arg(getattr(args, key, ""))
         if val is not None:
             overrides[key] = val
-    out_id = _optional_arg(getattr(args, "inference_output_run_id", ""))
-    if out_id is not None:
-        overrides["db_run_id"] = out_id
     return overrides
 
 
 def build_stable_trigger(args: argparse.Namespace) -> dict[str, Any]:
-    base = build_stable_trigger_payload(
+    """Build internal stable trigger from flat launcher args (for alias resolution)."""
+    return build_stable_trigger_payload(
         institution=args.databricks_institution_name.strip(),
         model_name=args.model_name.strip(),
         workspace=args.DB_workspace.strip(),
@@ -126,14 +122,9 @@ def build_stable_trigger(args: argparse.Namespace) -> dict[str, Any]:
         output_bucket=args.gcp_bucket_name.strip(),
         notification_to=args.datakind_notification_email.strip(),
         notification_cc=args.DK_CC_EMAIL.strip(),
-        inference_output_run_id=args.inference_output_run_id.strip(),
         ds_run_as=args.ds_run_as.strip(),
         service_account_executer=args.service_account_executer.strip(),
     )
-    overlay = parse_stable_trigger_json(getattr(args, "stable_trigger_json", ""))
-    if overlay:
-        return deep_merge_stable_dict(base, overlay)
-    return base
 
 
 def build_launcher_trigger_inputs(

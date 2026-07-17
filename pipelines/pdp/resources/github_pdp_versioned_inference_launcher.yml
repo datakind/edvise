@@ -1,7 +1,7 @@
 # PDP versioned inference launcher — triggered by edvise-api (see inference_trigger_contract.py).
 #
 # API-overridden job parameters mirror edvise_github_sourced_pdp_inference_pipeline plus:
-#   release_base_path, stable_trigger_json, inference_parameters_json, inference_output_run_id
+#   release_base_path, inference_parameters_json (optional archived-name overrides).
 #
 # Models trained in dev store pipeline_version as Git SHA; staging models store a release tag.
 resources:
@@ -78,14 +78,8 @@ resources:
               - "{{job.parameters.service_account_executer}}"
               - --datakind_group_to_manage_workflow
               - "{{job.parameters.datakind_group_to_manage_workflow}}"
-              - --viewer_user
-              - "{{job.parameters.viewer_user}}"
-              - --inference_output_run_id
-              - "{{job.parameters.inference_output_run_id}}"
               - --inference_parameters_json
               - "{{job.parameters.inference_parameters_json}}"
-              - --stable_trigger_json
-              - "{{job.parameters.stable_trigger_json}}"
           job_cluster_key: edvise-versioned-inference-launcher-cluster
         - task_key: trigger_versioned_inference
           description: >
@@ -126,14 +120,8 @@ resources:
               - "{{job.parameters.service_account_executer}}"
               - --datakind_group_to_manage_workflow
               - "{{job.parameters.datakind_group_to_manage_workflow}}"
-              - --viewer_user
-              - "{{job.parameters.viewer_user}}"
-              - --inference_output_run_id
-              - "{{job.parameters.inference_output_run_id}}"
               - --inference_parameters_json
               - "{{job.parameters.inference_parameters_json}}"
-              - --stable_trigger_json
-              - "{{job.parameters.stable_trigger_json}}"
           job_cluster_key: edvise-versioned-inference-launcher-cluster
       job_clusters:
         - job_cluster_key: edvise-versioned-inference-launcher-cluster
@@ -188,13 +176,7 @@ resources:
           default: ${var.service_account_executer}
         - name: datakind_group_to_manage_workflow
           default: ${var.datakind_group_to_manage_workflow}
-        - name: viewer_user
-          default: ""
-        - name: inference_output_run_id
-          default: ""
         - name: inference_parameters_json
-          default: ""
-        - name: stable_trigger_json
           default: ""
       permissions:
         - group_name: ${var.datakind_group_to_manage_workflow}
