@@ -72,7 +72,10 @@ def register_attribute_sections(card, registry):
 
                 description = f"This model predicts the likelihood of {outcome} based on student, course, and academic data."
             else:
-                outcome = "not graduating on time"
+                outcome = (
+                    getattr(card.cfg.preprocessing.target, "optional_desc", None)
+                    or "not graduating on time"
+                )
                 unit = card.cfg.preprocessing.target.unit
                 value = card.cfg.preprocessing.target.value
 

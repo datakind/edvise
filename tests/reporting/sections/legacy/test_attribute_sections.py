@@ -116,6 +116,14 @@ def test_development_note_without_version(mock_card):
         ),
         (
             "graduation",
+            "pct_completion",
+            100,
+            "graduation_100pct_time_or_transferred",
+            "neither transferring to another 2-year or 4-year institution nor graduating on time",
+            "neither transferring to another 2-year or 4-year institution nor graduating on time at 100% completion",
+        ),
+        (
+            "graduation",
             "legacy_metric",
             5,
             None,
