@@ -6,7 +6,10 @@
 name: deploy-genai-hitl-app
 
 on:
+  # invoked by release-deploy.yml as part of a full release
   workflow_call:
+  # escape hatch: run this component standalone against a tag ref
+  workflow_dispatch:
 
 concurrency:
   group: deploy-genai-hitl-app-${{ github.ref }}
