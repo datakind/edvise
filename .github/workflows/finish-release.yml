@@ -17,6 +17,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  actions: write  # required to dispatch the deploy workflow after tagging
 
 concurrency:
   group: finish-release-${{ github.event_name }}-${{ github.event.inputs.version || github.event.pull_request.head.ref || github.run_id }}
@@ -112,6 +113,21 @@ jobs:
 
           echo "## Tag" >> $GITHUB_STEP_SUMMARY
           echo "- ${TAG}" >> $GITHUB_STEP_SUMMARY
+
+      - name: Trigger deploy for the new tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.meta.outputs.tag }}"
+
+          # A tag pushed by GITHUB_TOKEN does not fire the orchestrator's push
+          # trigger, so dispatch the complete release deployment explicitly.
+          gh workflow run release-deploy.yml --ref "$TAG"
+          echo "✓ Dispatched release-deploy.yml for $TAG"
+
+          echo "## Deploy" >> $GITHUB_STEP_SUMMARY
+          echo "- Dispatched release-deploy.yml @ ${TAG}" >> $GITHUB_STEP_SUMMARY
 
       - name: Open PR main -> develop (if missing)
         env:
