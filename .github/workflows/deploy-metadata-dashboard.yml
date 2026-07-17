@@ -1,9 +1,7 @@
 name: deploy-metadata-dashboard
 
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_call:
 
 concurrency:
   group: deploy-metadata-dashboard-${{ github.ref_name }}-${{ github.job }}

@@ -1,10 +1,7 @@
 name: deploy
 
 on:
-  # deploy only when version tags are pushed
-  push:
-    tags:
-      - 'v*'
+  workflow_call:
 
 concurrency:
   group: deploy-prod-${{ github.ref_name }}-${{ github.job }}
