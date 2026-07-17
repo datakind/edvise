@@ -30,7 +30,11 @@ from .schemas import (
     TermContract,
     get_term_contract_schema_context,
 )
-from .validation import assert_term_hook_groups_compatible
+from .validation import (
+    assert_term_hook_groups_compatible,
+    collect_term_year_semantics_hitl_coverage_errors,
+    raise_term_semantic_validation_error_if_any,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1313,6 +1317,10 @@ def parse_institution_term_contracts_with_hitl(
         inst = InstitutionTermContract.model_validate(d2)
         _assert_term_batch_hitl_items_match_flags(inst, items)
         assert_term_hook_groups_compatible(inst, items)
+        # ValidationError (not ValueError) so llm_complete_with_parse_retry can correct.
+        raise_term_semantic_validation_error_if_any(
+            collect_term_year_semantics_hitl_coverage_errors(inst, items)
+        )
         return inst, items
     except Exception:
         text = raw if isinstance(raw, str) else str(raw)[:500]
