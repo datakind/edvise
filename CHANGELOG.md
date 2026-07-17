@@ -1,3 +1,6 @@
+## 1.5.3 (2026-07-17)
+- fix: round ROC table scores and thresholds consistently (#223)
+
 ## 1.5.2 (2026-07-17)
 - fix: allow for custom graduation outcome descriptions in legacy model cards (#226)
 - fix(genai): enforce term year_semantics HITL coverage using ValidationError with LLM retry (#227)
