@@ -121,7 +121,9 @@ def test_normalize_versioned_inference_db_run_id_already_prefixed() -> None:
 
 
 def test_normalize_versioned_inference_db_run_id_numeric_parent() -> None:
-    assert normalize_versioned_inference_db_run_id("439619245566927") == "439619245566927"
+    assert (
+        normalize_versioned_inference_db_run_id("439619245566927") == "439619245566927"
+    )
 
 
 def test_ensure_concrete_db_run_id_respects_hex_override() -> None:

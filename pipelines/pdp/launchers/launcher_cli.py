@@ -127,7 +127,9 @@ def build_launcher_parameter_overrides(args: argparse.Namespace) -> dict[str, st
 
 def build_stable_trigger(args: argparse.Namespace) -> dict[str, Any]:
     """Build internal stable trigger from flat launcher args (for alias resolution)."""
-    launcher_run_id = resolve_launcher_run_id(getattr(args, "launcher_run_id", "")) or ""
+    launcher_run_id = (
+        resolve_launcher_run_id(getattr(args, "launcher_run_id", "")) or ""
+    )
     return build_stable_trigger_payload(
         institution=args.databricks_institution_name.strip(),
         model_name=args.model_name.strip(),
