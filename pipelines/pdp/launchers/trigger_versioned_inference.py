@@ -57,7 +57,7 @@ from pipelines.pdp.launchers.launcher_cli import (  # noqa: E402
     optional_model_run_id,
 )
 from pipelines.pdp.launchers.launcher_run_metadata import (  # noqa: E402
-    get_databricks_run_id,
+    resolve_launcher_run_id,
     record_versioned_inference_launcher_event,
 )
 from pipelines.pdp.launchers.model_metadata import (  # noqa: E402
@@ -139,7 +139,20 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    launcher_run_id = get_databricks_run_id()
+    launcher_run_id = resolve_launcher_run_id(getattr(args, "launcher_run_id", ""))
+    if not launcher_run_id:
+        return _fail(
+            catalog=db_ws,
+            inst=inst,
+            model=model,
+            model_run_id=None,
+            pipeline_version=None,
+            launcher_run_id=None,
+            message=(
+                "launcher_run_id is required (job parameter launcher_run_id with "
+                "default {{job.run_id}}). Synthetic versioned_* db_run_id is not used."
+            ),
+        )
     try:
         inputs = build_launcher_trigger_inputs(args, default_git_url=DEFAULT_GIT_URL)
     except (json.JSONDecodeError, TypeError, ValueError) as exc:
@@ -231,6 +244,9 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     if not args.dry_run:
+        db_run_id = inputs.param_overrides.get("db_run_id") or launcher_run_id
+        if inputs.extra_param_overrides.get("db_run_id"):
+            db_run_id = inputs.extra_param_overrides["db_run_id"]
         record_versioned_inference_launcher_event(
             catalog=db_ws,
             event="completed" if not args.no_wait else "started",
@@ -242,22 +258,32 @@ def main(argv: list[str] | None = None) -> int:
             child_inference_run_id=run_id,
             cohort_dataset_name=inputs.param_overrides.get("cohort_file_name"),
             course_dataset_name=inputs.param_overrides.get("course_file_name"),
-            payload={"task": "trigger_versioned_inference", "no_wait": args.no_wait},
+            payload={
+                "task": "trigger_versioned_inference",
+                "no_wait": args.no_wait,
+                "parent_launcher_run_id": launcher_run_id,
+                "child_inference_run_id": str(run_id),
+                "db_run_id": db_run_id,
+            },
             logger=LOGGER,
         )
         if args.no_wait:
             LOGGER.info(
                 "Versioned inference submitted (no-wait; training model_run_id=%s, "
-                "jobs run_id=%s)",
+                "parent_launcher_run_id=%s, child_inference_run_id=%s, db_run_id=%s)",
                 model_run_id,
+                launcher_run_id,
                 run_id,
+                db_run_id,
             )
         else:
             LOGGER.info(
                 "Versioned inference completed successfully (training model_run_id=%s, "
-                "jobs run_id=%s)",
+                "parent_launcher_run_id=%s, child_inference_run_id=%s, db_run_id=%s)",
                 model_run_id,
+                launcher_run_id,
                 run_id,
+                db_run_id,
             )
     return 0
 

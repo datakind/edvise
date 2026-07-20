@@ -10,6 +10,7 @@ from typing import Any
 from pipelines.pdp.launchers.inference_parameters import (
     build_stable_trigger_payload,
 )
+from pipelines.pdp.launchers.launcher_run_metadata import resolve_launcher_run_id
 from pipelines.pdp.launchers.release_config import resolve_release_base_path
 
 
@@ -48,6 +49,14 @@ def add_model_resolution_args(parser: argparse.ArgumentParser) -> None:
         "--release_base_path",
         default="",
         help="UC volume base for edvise_releases; defaults from DB_workspace.",
+    )
+    parser.add_argument(
+        "--launcher_run_id",
+        default="",
+        help=(
+            "Parent launcher job run id from Databricks job parameter "
+            "{{job.run_id}}. Used as child inference db_run_id (silver table suffix)."
+        ),
     )
 
 
@@ -108,11 +117,17 @@ def build_launcher_parameter_overrides(args: argparse.Namespace) -> dict[str, st
         val = _optional_arg(getattr(args, key, ""))
         if val is not None:
             overrides[key] = val
+    # Parent launcher run id becomes child inference db_run_id / table suffix.
+    # Explicit inference_parameters_json db_run_id still wins (higher precedence).
+    launcher_run_id = resolve_launcher_run_id(getattr(args, "launcher_run_id", ""))
+    if launcher_run_id:
+        overrides["db_run_id"] = launcher_run_id
     return overrides
 
 
 def build_stable_trigger(args: argparse.Namespace) -> dict[str, Any]:
     """Build internal stable trigger from flat launcher args (for alias resolution)."""
+    launcher_run_id = resolve_launcher_run_id(getattr(args, "launcher_run_id", "")) or ""
     return build_stable_trigger_payload(
         institution=args.databricks_institution_name.strip(),
         model_name=args.model_name.strip(),
@@ -122,6 +137,7 @@ def build_stable_trigger(args: argparse.Namespace) -> dict[str, Any]:
         output_bucket=args.gcp_bucket_name.strip(),
         notification_to=args.datakind_notification_email.strip(),
         notification_cc=args.DK_CC_EMAIL.strip(),
+        inference_output_run_id=launcher_run_id,
         ds_run_as=args.ds_run_as.strip(),
         service_account_executer=args.service_account_executer.strip(),
     )

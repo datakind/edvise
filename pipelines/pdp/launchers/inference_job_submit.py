@@ -13,7 +13,6 @@ import json
 import logging
 import re
 import time
-import uuid
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
@@ -61,9 +60,9 @@ def normalize_versioned_inference_db_run_id(value: str) -> str:
     """
     Normalize user-supplied ``db_run_id`` for versioned ``runs/submit`` inference.
 
-    Auto-generated ids look like ``versioned_<32 hex>``, producing silver tables such as
-    ``predicted_dataset_versioned_<hex>``. Accept either the full string or bare 32-char
-    hex (from Catalog table names) so re-runs can overwrite the same Delta tables.
+    Prefer the parent launcher Databricks job run id (numeric). Legacy explicit
+    ``versioned_<32 hex>`` / bare hex overrides are still accepted so re-runs can
+    overwrite older Delta tables that used the synthetic naming scheme.
     """
     s = (value or "").strip()
     if not s:
@@ -149,17 +148,23 @@ def ensure_concrete_db_run_id(
     parameter_overrides: dict[str, str],
 ) -> str:
     """
-    ``runs/submit`` does not assign ``{{job.run_id}}``; use override or generate one.
+    ``runs/submit`` does not interpolate ``{{job.run_id}}``.
 
-    Explicit ``db_run_id`` (e.g. from ``--inference_output_run_id``) is normalized so
-    bare 32-char hex matches existing ``versioned_<hex>`` table names.
+    Require an explicit concrete ``db_run_id`` — typically the parent launcher job
+    run id passed via job parameter ``launcher_run_id`` (default ``{{job.run_id}}``).
+    Do not synthesize ``versioned_*`` ids (those break webapp result lookups).
     """
     for source in (parameter_overrides, parameter_values):
         val = source.get("db_run_id", "")
         raw = str(val).strip() if val else ""
         if raw and raw != _UNRESOLVED_RUN_ID:
             return normalize_versioned_inference_db_run_id(raw)
-    return f"versioned_{uuid.uuid4().hex}"
+    msg = (
+        "db_run_id is unresolved for runs/submit; pass the parent launcher run id "
+        "(job parameter launcher_run_id / {{job.run_id}}) or an explicit db_run_id "
+        "override. Synthetic versioned_* ids are not generated."
+    )
+    raise ValueError(msg)
 
 
 def render_job_parameter_refs(
@@ -572,11 +577,17 @@ def build_submit_run_body(
         parameter_overrides,
     )
     parameter_values = job_parameter_values_from_specs(parameters, parameter_overrides)
-    db_run_id = ensure_concrete_db_run_id(parameter_values, parameter_overrides)
-    parameter_values["db_run_id"] = db_run_id
-    for spec in parameters:
-        if spec["name"] == "db_run_id":
-            spec["default"] = db_run_id
+    has_db_run_id_spec = any(spec["name"] == "db_run_id" for spec in parameters)
+    override_db_run_id = str(parameter_overrides.get("db_run_id", "") or "").strip()
+    db_run_id: str | None = None
+    if has_db_run_id_spec or override_db_run_id:
+        db_run_id = ensure_concrete_db_run_id(parameter_values, parameter_overrides)
+        parameter_values["db_run_id"] = db_run_id
+        for spec in parameters:
+            if spec["name"] == "db_run_id":
+                spec["default"] = db_run_id
+        if not has_db_run_id_spec:
+            parameters.append({"name": "db_run_id", "default": db_run_id})
 
     cleaned_tasks = _strip_unresolved_bundle_refs(tasks)
     cleaned_clusters = _strip_unresolved_bundle_refs(job_clusters)

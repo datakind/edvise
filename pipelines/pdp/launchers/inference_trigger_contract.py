@@ -59,7 +59,9 @@ def build_versioned_inference_job_parameters(
     Build Databricks ``run_now`` job_parameters for ``edvise_versioned_inference_launcher``.
 
     Flat fields map to archived inference params via built-in aliases inside the launcher.
-    Use ``inference_parameters_json`` for optional archived-name overrides (e.g. ``db_run_id``).
+    Use ``inference_parameters_json`` for optional archived-name overrides (e.g. an
+    explicit ``db_run_id``). By default the launcher sets ``db_run_id`` to the parent
+    launcher job run id (``launcher_run_id`` / ``{{job.run_id}}``).
     """
     params: dict[str, str] = {
         "databricks_institution_name": databricks_institution_name.strip(),

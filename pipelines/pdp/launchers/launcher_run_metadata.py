@@ -9,15 +9,35 @@ from typing import Any
 LOGGER = logging.getLogger(__name__)
 
 VERSIONED_INFERENCE_LAUNCHER_RUN_TYPE = "versioned_inference_launcher"
+_UNRESOLVED_JOB_RUN_ID = "{{job.run_id}}"
 
 
 def get_databricks_run_id() -> str | None:
-    """Best-effort launcher job run id from the Databricks driver environment."""
+    """
+    Best-effort launcher job run id from the Databricks driver environment.
+
+    Prefer :func:`resolve_launcher_run_id` with the job parameter
+    ``launcher_run_id`` (default ``{{job.run_id}}``) instead of this alone.
+    """
     for key in ("DATABRICKS_RUN_ID",):
         raw = os.environ.get(key)
         if raw is not None and str(raw).strip():
             return str(raw).strip()
     return None
+
+
+def resolve_launcher_run_id(cli_value: str | None = None) -> str | None:
+    """
+    Resolve the parent launcher job run id.
+
+    Prefer the Databricks job parameter ``{{job.run_id}}`` (passed as
+    ``--launcher_run_id``). Fall back to the driver env only when the CLI value
+    is missing or still an unresolved template.
+    """
+    raw = (cli_value or "").strip()
+    if raw and raw != _UNRESOLVED_JOB_RUN_ID:
+        return raw
+    return get_databricks_run_id()
 
 
 def record_versioned_inference_launcher_event(
@@ -39,6 +59,10 @@ def record_versioned_inference_launcher_event(
     """
     Upsert launcher lifecycle into ``<catalog>.default.pipeline_runs``.
 
+    ``run_id`` is the parent launcher job run id. When a child inference run is
+    submitted, ``payload`` records the parent → child link
+    (``parent_launcher_run_id``, ``child_inference_run_id``, ``db_run_id``).
+
     Best-effort: observability failures must not fail the launcher.
     """
     run_id = launcher_run_id or get_databricks_run_id()
@@ -51,6 +75,9 @@ def record_versioned_inference_launcher_event(
     body: dict[str, Any] = dict(payload or {})
     body.setdefault("launcher_job", "edvise_versioned_inference_launcher")
     body.setdefault("model_name", model_name)
+    body.setdefault("parent_launcher_run_id", str(run_id))
+    # Child inference silver tables use parent launcher run id as db_run_id.
+    body.setdefault("db_run_id", str(run_id))
     if child_inference_run_id is not None:
         body["child_inference_run_id"] = str(child_inference_run_id)
 

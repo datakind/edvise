@@ -84,10 +84,17 @@ def test_render_job_parameter_refs_missing_raises() -> None:
         render_job_parameter_refs("{{job.parameters.cohort_file_name}}", {})
 
 
-def test_ensure_concrete_db_run_id_generates_when_unresolved() -> None:
-    run_id = ensure_concrete_db_run_id({"db_run_id": "{{job.run_id}}"}, {})
-    assert run_id.startswith("versioned_")
-    assert "{{" not in run_id
+def test_ensure_concrete_db_run_id_requires_parent_or_override() -> None:
+    with pytest.raises(ValueError, match="launcher_run_id"):
+        ensure_concrete_db_run_id({"db_run_id": "{{job.run_id}}"}, {})
+
+
+def test_ensure_concrete_db_run_id_uses_parent_launcher_run_id() -> None:
+    rid = ensure_concrete_db_run_id(
+        {"db_run_id": "{{job.run_id}}"},
+        {"db_run_id": "439619245566927"},
+    )
+    assert rid == "439619245566927"
 
 
 def test_normalize_versioned_inference_db_run_id_bare_hex() -> None:
@@ -111,6 +118,10 @@ def test_normalize_versioned_inference_db_run_id_already_prefixed() -> None:
         )
         == "versioned_67b39f0b2caa4a919f289749883bd04c"
     )
+
+
+def test_normalize_versioned_inference_db_run_id_numeric_parent() -> None:
+    assert normalize_versioned_inference_db_run_id("439619245566927") == "439619245566927"
 
 
 def test_ensure_concrete_db_run_id_respects_hex_override() -> None:

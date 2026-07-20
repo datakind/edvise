@@ -63,7 +63,7 @@ from pipelines.pdp.launchers.launcher_cli import (  # noqa: E402
     optional_model_run_id,
 )
 from pipelines.pdp.launchers.launcher_run_metadata import (  # noqa: E402
-    get_databricks_run_id,
+    resolve_launcher_run_id,
     record_versioned_inference_launcher_event,
 )
 from pipelines.pdp.launchers.model_metadata import (  # noqa: E402
@@ -238,7 +238,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    launcher_run_id = get_databricks_run_id()
+    launcher_run_id = resolve_launcher_run_id(getattr(args, "launcher_run_id", ""))
     try:
         inputs = build_launcher_trigger_inputs(args, default_git_url=DEFAULT_GIT_URL)
     except (json.JSONDecodeError, TypeError, ValueError) as exc:

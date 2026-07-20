@@ -39,6 +39,8 @@ resources:
               - "{{job.parameters.release_base_path}}"
               - --github_repo
               - "{{job.parameters.github_repo}}"
+              - --launcher_run_id
+              - "{{job.parameters.launcher_run_id}}"
           job_cluster_key: edvise-versioned-inference-launcher-cluster
         - task_key: versioned_inference_launcher_validate
           description: >
@@ -80,6 +82,8 @@ resources:
               - "{{job.parameters.datakind_group_to_manage_workflow}}"
               - --inference_parameters_json
               - "{{job.parameters.inference_parameters_json}}"
+              - --launcher_run_id
+              - "{{job.parameters.launcher_run_id}}"
           job_cluster_key: edvise-versioned-inference-launcher-cluster
         - task_key: trigger_versioned_inference
           description: >
@@ -122,6 +126,8 @@ resources:
               - "{{job.parameters.datakind_group_to_manage_workflow}}"
               - --inference_parameters_json
               - "{{job.parameters.inference_parameters_json}}"
+              - --launcher_run_id
+              - "{{job.parameters.launcher_run_id}}"
           job_cluster_key: edvise-versioned-inference-launcher-cluster
       job_clusters:
         - job_cluster_key: edvise-versioned-inference-launcher-cluster
@@ -178,6 +184,8 @@ resources:
           default: ${var.datakind_group_to_manage_workflow}
         - name: inference_parameters_json
           default: ""
+        - name: launcher_run_id
+          default: "{{job.run_id}}"
       permissions:
         - group_name: ${var.datakind_group_to_manage_workflow}
           level: CAN_MANAGE
