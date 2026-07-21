@@ -49,40 +49,6 @@ _NON_TERMINAL_LIFE_CYCLE_STATES = frozenset(
 _SUCCESS_RESULT_STATE = "SUCCESS"
 _DEFAULT_WAIT_TIMEOUT = timedelta(hours=24)
 _UNRESOLVED_RUN_ID = "{{job.run_id}}"
-_HEX32 = re.compile(r"^[0-9a-fA-F]{32}$")
-_UUID_DASHED = re.compile(
-    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
-    re.IGNORECASE,
-)
-
-
-def normalize_versioned_inference_db_run_id(value: str) -> str:
-    """
-    Normalize user-supplied ``db_run_id`` for versioned ``runs/submit`` inference.
-
-    Prefer the parent launcher Databricks job run id (numeric). Legacy explicit
-    ``versioned_<32 hex>`` / bare hex overrides are still accepted so re-runs can
-    overwrite older Delta tables that used the synthetic naming scheme.
-    """
-    s = (value or "").strip()
-    if not s:
-        msg = "db_run_id must be non-empty when normalizing"
-        raise ValueError(msg)
-    if s == _UNRESOLVED_RUN_ID:
-        return s
-    lowered = s.lower()
-    if lowered.startswith("versioned_"):
-        suffix = s[len("versioned_") :].strip()
-        compact = re.sub(r"[^0-9a-fA-F]", "", suffix)
-        if len(compact) == 32 and _HEX32.match(compact):
-            return f"versioned_{compact.lower()}"
-        return f"versioned_{suffix}"
-    if _HEX32.match(s):
-        return f"versioned_{s.lower()}"
-    if _UUID_DASHED.match(s):
-        compact = re.sub(r"[^0-9a-fA-F]", "", s)
-        return f"versioned_{compact.lower()}"
-    return s
 
 
 def _contains_bundle_var(value: Any) -> bool:
@@ -158,11 +124,11 @@ def ensure_concrete_db_run_id(
         val = source.get("db_run_id", "")
         raw = str(val).strip() if val else ""
         if raw and raw != _UNRESOLVED_RUN_ID:
-            return normalize_versioned_inference_db_run_id(raw)
+            return raw
     msg = (
         "db_run_id is unresolved for runs/submit; pass the parent launcher run id "
         "(job parameter launcher_run_id / {{job.run_id}}) or an explicit db_run_id "
-        "override. Synthetic versioned_* ids are not generated."
+        "override."
     )
     raise ValueError(msg)
 
