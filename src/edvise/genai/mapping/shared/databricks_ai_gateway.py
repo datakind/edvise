@@ -210,6 +210,13 @@ def resolve_column_roles_gateway_model_id() -> str:
     )
 
 
+def resolve_grain_resolution_gateway_model_id() -> str:
+    """``GRAIN_RESOLUTION_GATEWAY_MODEL_ID`` env, else :data:`DEFAULT_GATEWAY_CLAUDE_HAIKU_MODEL_ID`."""
+    return os.environ.get(
+        "GRAIN_RESOLUTION_GATEWAY_MODEL_ID", DEFAULT_GATEWAY_CLAUDE_HAIKU_MODEL_ID
+    )
+
+
 def _token_from_authorization_header(headers: dict[str, str]) -> str | None:
     auth = headers.get("Authorization") or headers.get("authorization")
     if not auth or not isinstance(auth, str):
