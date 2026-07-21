@@ -32,6 +32,7 @@ from hitl_reviewer.ui.manifest_explorer import (
     load_json_object_or_none,
     resolve_explorer_paths,
 )
+from hitl_reviewer.ui.sma.enriched_schema_contract import visualize_value_whitespace
 from hitl_reviewer.utils.institution_naming import format_institution_display_name
 
 st.set_page_config(page_title="Manifest explorer", layout="wide")
@@ -226,23 +227,58 @@ if search.strip():
 
 st.caption(f"**{len(filtered)} of {len(df)}** field mappings shown.")
 
-display_cols = [
+# Core columns fit on-screen without horizontal scroll; `join` / `row_selection` / values
+# preview are intentionally left out by default since they're already shown in full in the
+# detail panel below when you select a row — add them back here only if you want them visible
+# across every row at once.
+_CORE_COLS = [
     "entity_type",
     "target_field",
     "source_table",
     "source_column",
-    "join",
-    "row_selection",
     "confidence",
     "review_status",
     "flagged_for_hitl",
+    "has_padded_values",
+]
+_OPTIONAL_COLS = [
+    "join",
+    "row_selection",
     "hitl_failure_mode",
     "dtype",
     "null_percentage",
     "unique_count",
     "sample_values",
 ]
-display_cols = [c for c in display_cols if c in filtered.columns]
+core_cols = [c for c in _CORE_COLS if c in filtered.columns]
+optional_cols = [c for c in _OPTIONAL_COLS if c in filtered.columns]
+extra_pick = st.multiselect(
+    "+ more columns",
+    options=optional_cols,
+    default=[],
+    help="Add columns to the table below. Full detail (join, row selection, all values) is "
+    "always available in the detail panel after selecting a row, regardless of this picker.",
+)
+display_cols = core_cols + [c for c in extra_pick if c not in core_cols]
+
+column_config = {
+    "sample_values": st.column_config.TextColumn(
+        "values (preview)",
+        help=(
+            "Unique values when the column has <=50 distinct values (per the enriched schema "
+            "contract), else the 5 most frequent values. Truncated to 12 here — see the detail "
+            "panel below for the full list."
+        ),
+    ),
+    "has_padded_values": st.column_config.CheckboxColumn(
+        "padded?",
+        help=(
+            "Source column has values with leading/trailing whitespace (e.g. a fixed-width "
+            "CHAR export) — visible as \u00b7 in values (preview) / the detail panel below. "
+            "This reflects the raw source data, not a display bug."
+        ),
+    ),
+}
 
 event = st.dataframe(
     filtered[display_cols],
@@ -252,6 +288,7 @@ event = st.dataframe(
     on_select="rerun",
     selection_mode="single-row",
     key="manifest_explorer_table",
+    column_config=column_config,
 )
 
 st.download_button(
@@ -305,12 +342,32 @@ if sel_rows:
         label = "Unique values" if mode == "unique" else "Sample values"
         st.caption(label)
         if chips:
-            esc = "".join(
-                f'<span class="hitl-chip">{html.escape(v)[:200]}</span>' for v in chips
-            )
+            any_padded = False
+            spans: list[str] = []
+            for v in chips:
+                display, had_padding = visualize_value_whitespace(v)
+                any_padded = any_padded or had_padding
+                cls = "hitl-chip hitl-chip-padded" if had_padding else "hitl-chip"
+                title = (
+                    "Source value has leading/trailing whitespace (e.g. a fixed-width "
+                    "source column) — shown here as \u00b7 so it isn't confused with the "
+                    "trimmed value."
+                    if had_padding
+                    else ""
+                )
+                spans.append(
+                    f'<span class="{cls}" title="{html.escape(title)}">'
+                    f"{html.escape(display)[:200]}</span>"
+                )
             st.markdown(
-                f'<div class="hitl-chip-row">{esc}</div>', unsafe_allow_html=True
+                f'<div class="hitl-chip-row">{"".join(spans)}</div>',
+                unsafe_allow_html=True,
             )
+            if any_padded:
+                st.caption(
+                    "\u00b7 marks leading/trailing whitespace present in the raw source "
+                    "value (not stripped — shown as-is)."
+                )
         else:
             st.caption("—")
 

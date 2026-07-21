@@ -27,6 +27,7 @@ from hitl_reviewer.platform.volume_path_utils import silver_genai_mapping_root
 from hitl_reviewer.ui.sma.enriched_schema_contract import (
     extract_column_panel_fields,
     load_json_object_from_text,
+    visualize_value_whitespace,
 )
 
 # Columns always present on the returned table, even when a source file is missing/unreadable
@@ -43,6 +44,7 @@ _COLUMN_STATS_COLUMNS: tuple[str, ...] = (
     "null_count",
     "unique_count",
     "sample_values",
+    "has_padded_values",
 )
 
 
@@ -261,13 +263,25 @@ def attach_column_stats(df: pd.DataFrame, contract: dict[str, Any] | None) -> pd
         if panel is None:
             return pd.Series({c: None for c in _COLUMN_STATS_COLUMNS})
         chips = panel.get("chip_values") or []
+        preview_cap = 12
+        displayed: list[str] = []
+        any_padded = False
+        for v in chips[:preview_cap]:
+            disp, had_padding = visualize_value_whitespace(v)
+            any_padded = any_padded or had_padding
+            displayed.append(disp)
+        preview = ", ".join(displayed)
+        remaining = len(chips) - preview_cap
+        if remaining > 0:
+            preview += f", … (+{remaining} more — see detail panel)"
         return pd.Series(
             {
                 "dtype": panel.get("dtype"),
                 "null_percentage": panel.get("null_percentage"),
                 "null_count": panel.get("null_count"),
                 "unique_count": panel.get("unique_count"),
-                "sample_values": ", ".join(str(c) for c in chips[:12]),
+                "sample_values": preview,
+                "has_padded_values": any_padded,
             }
         )
 
