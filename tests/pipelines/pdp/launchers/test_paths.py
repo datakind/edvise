@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import sys
-from pathlib import Path
 
 from pipelines.pdp.launchers._paths import (
     edvise_repo_root,
