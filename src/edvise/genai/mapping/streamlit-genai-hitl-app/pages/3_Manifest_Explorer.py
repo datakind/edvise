@@ -238,17 +238,16 @@ _CORE_COLS = [
     "source_column",
     "confidence",
     "review_status",
-    "flagged_for_hitl",
-    "has_padded_values",
+    "null_percentage",
+    "sample_values",
 ]
 _OPTIONAL_COLS = [
     "join",
     "row_selection",
+    "flagged_for_hitl",
     "hitl_failure_mode",
     "dtype",
-    "null_percentage",
     "unique_count",
-    "sample_values",
 ]
 core_cols = [c for c in _CORE_COLS if c in filtered.columns]
 optional_cols = [c for c in _OPTIONAL_COLS if c in filtered.columns]
@@ -267,15 +266,8 @@ column_config = {
         help=(
             "Unique values when the column has <=50 distinct values (per the enriched schema "
             "contract), else the 5 most frequent values. Truncated to 12 here — see the detail "
-            "panel below for the full list."
-        ),
-    ),
-    "has_padded_values": st.column_config.CheckboxColumn(
-        "padded?",
-        help=(
-            "Source column has values with leading/trailing whitespace (e.g. a fixed-width "
-            "CHAR export) — visible as \u00b7 in values (preview) / the detail panel below. "
-            "This reflects the raw source data, not a display bug."
+            "panel below for the full list. Leading/trailing whitespace in a value (e.g. a "
+            "padded fixed-width source column) is shown as \u00b7 rather than stripped."
         ),
     ),
 }
