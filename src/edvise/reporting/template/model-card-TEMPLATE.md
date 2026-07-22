@@ -134,7 +134,10 @@ Before we train any model, we take several careful steps to make sure your data 
         - Guidelines to interpret the plot:
             - Each dot represents a single student-term record.
             - Features are ordered by overall importance, with the most influential at the top.
-            - SHAP values (x-axis) indicate whether a feature increases (+) or decreases (–) the predicted likelihood of needing support.
+            - SHAP values (x-axis) show each feature’s contribution to that student’s support score:
+                - A **positive** value means this feature is pushing the student’s support score **up** (higher predicted need for support).
+                - A **negative** value means this feature is pushing the student’s support score **down** (lower predicted need for support).
+                - The **size** of the value (how far from zero) shows how strong that contribution is.
             - **Color** reflects the feature’s value for that student:
                 - <span class="dk-red">High</span> values in red
                 - <span class="dk-blue">Low</span> values in blue
@@ -248,7 +251,7 @@ A condition where two or more features contain highly overlapping information.
 The process of transforming raw data into meaningful variables.
 
 ***Feature Importance*** <a id="glossary-feature-importance"></a><br>
-A measure of how much each feature contributes to the model's predictions. Feature importance plots visually display which features most strongly influence predictions overall.
+A measure of how much each feature contributes to a student’s predicted support score. A positive value means this feature is pushing the student’s support score up (higher predicted need for support). A negative value means this feature is pushing the student’s support score down (lower predicted need for support). The size of the value (how far from zero) shows how strong that contribution is. Feature importance plots visually display which features most strongly influence predictions overall.
 
 ***Feature Selection*** <a id="glossary-feature-selection"></a><br>
 The process of retaining a subset of features that provide the strongest predictive signal.
@@ -272,7 +275,7 @@ The structured process and supporting infrastructure used to prepare data, train
 A technique that assigns different importance to observations during model training.
 
 ***SHAP (Shapley Additive Explanations)*** <a id="glossary-shap"></a><br>
-A method used to explain model predictions by quantifying how much each feature contributes to a prediction. SHAP values indicate both the **direction** (whether a feature increases or decreases the predicted likelihood of needing support) and the **magnitude** of that contribution. When aggregated across students, SHAP values provide insight into which features are most influential overall.
+A method used to explain model predictions by quantifying how much each feature contributes to a prediction. A positive SHAP value means this feature is pushing the student’s support score up (higher predicted need for support). A negative SHAP value means this feature is pushing the student’s support score down (lower predicted need for support). The size of the value (how far from zero) shows how strong that contribution is. When aggregated across students, SHAP values provide insight into which features are most influential overall.
 
 ***Variance Inflation Factor (VIF)*** <a id="glossary-vif"></a><br>
 A statistic used to quantify multicollinearity between features.
