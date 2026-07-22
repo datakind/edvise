@@ -154,8 +154,12 @@ def sort_season_map_dataframe_chronologically(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return df.reset_index(drop=True)
     unknown_rank = max(_CALENDAR_CHRONOLOGY_RANK.values()) + 1
-    rank_col = df["canonical"].astype(str).str.strip().str.upper().map(
-        lambda c: _CALENDAR_CHRONOLOGY_RANK.get(c, unknown_rank)
+    rank_col = (
+        df["canonical"]
+        .astype(str)
+        .str.strip()
+        .str.upper()
+        .map(lambda c: _CALENDAR_CHRONOLOGY_RANK.get(c, unknown_rank))
     )
     sorted_df = df.assign(_chrono_rank=rank_col).sort_values(
         "_chrono_rank", kind="stable"
