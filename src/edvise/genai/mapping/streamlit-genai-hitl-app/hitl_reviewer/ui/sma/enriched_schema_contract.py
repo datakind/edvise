@@ -128,7 +128,9 @@ def load_json_object_from_text(raw: str) -> dict[str, Any]:
     return data
 
 
-_WHITESPACE_VISIBLE_MARK = "\u00b7"  # middle dot; renders leading/trailing spaces visibly
+_WHITESPACE_VISIBLE_MARK = (
+    "\u00b7"  # middle dot; renders leading/trailing spaces visibly
+)
 
 
 def visualize_value_whitespace(value: Any) -> tuple[str, bool]:
@@ -153,5 +155,9 @@ def visualize_value_whitespace(value: Any) -> tuple[str, bool]:
         return _WHITESPACE_VISIBLE_MARK * len(s), True
     lead = len(s) - len(s.lstrip())
     trail = len(s) - len(s.rstrip())
-    visible = (_WHITESPACE_VISIBLE_MARK * lead) + stripped + (_WHITESPACE_VISIBLE_MARK * trail)
+    visible = (
+        (_WHITESPACE_VISIBLE_MARK * lead)
+        + stripped
+        + (_WHITESPACE_VISIBLE_MARK * trail)
+    )
     return visible, True

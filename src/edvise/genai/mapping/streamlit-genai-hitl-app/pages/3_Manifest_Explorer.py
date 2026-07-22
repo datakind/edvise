@@ -15,7 +15,9 @@ import pandas as pd
 import streamlit as st
 
 from hitl_reviewer.platform.databricks_uc_sql import load_onboard_runs_hitl_complete
-from hitl_reviewer.platform.volume_path_utils import institution_id_from_silver_volume_path
+from hitl_reviewer.platform.volume_path_utils import (
+    institution_id_from_silver_volume_path,
+)
 from hitl_reviewer.ui._shared import inject_hitl_css, render_institution_line
 from hitl_reviewer.ui.hitl_streamlit import (
     default_catalog,
@@ -159,8 +161,16 @@ if st.button("Reload manifest/contract from volume"):
 
 envelope = _cached_json_object(paths["manifest_map"])
 contract = _cached_json_object(paths["enriched_schema_contract"])
-cohort_hitl = _cached_json_object(paths["cohort_hitl_manifest"]) if paths["cohort_hitl_manifest"] else None
-course_hitl = _cached_json_object(paths["course_hitl_manifest"]) if paths["course_hitl_manifest"] else None
+cohort_hitl = (
+    _cached_json_object(paths["cohort_hitl_manifest"])
+    if paths["cohort_hitl_manifest"]
+    else None
+)
+course_hitl = (
+    _cached_json_object(paths["course_hitl_manifest"])
+    if paths["course_hitl_manifest"]
+    else None
+)
 
 df = flatten_manifest_envelope(envelope)
 df = attach_hitl_status(df, cohort_hitl=cohort_hitl, course_hitl=course_hitl)
@@ -169,8 +179,10 @@ df = attach_column_stats(df, contract)
 availability = {
     "manifest_map": envelope is not None,
     "enriched_schema_contract": contract is not None,
-    "cohort_hitl_manifest": bool(paths["cohort_hitl_manifest"]) and cohort_hitl is not None,
-    "course_hitl_manifest": bool(paths["course_hitl_manifest"]) and course_hitl is not None,
+    "cohort_hitl_manifest": bool(paths["cohort_hitl_manifest"])
+    and cohort_hitl is not None,
+    "course_hitl_manifest": bool(paths["course_hitl_manifest"])
+    and course_hitl is not None,
 }
 
 missing = []
@@ -180,9 +192,13 @@ if not availability["enriched_schema_contract"]:
     missing.append("enriched_schema_contract.json (column stats will be blank)")
 if source != "Active":
     if not availability["cohort_hitl_manifest"]:
-        missing.append("cohort_hitl_manifest.json (HITL status will be blank for cohort fields)")
+        missing.append(
+            "cohort_hitl_manifest.json (HITL status will be blank for cohort fields)"
+        )
     if not availability["course_hitl_manifest"]:
-        missing.append("course_hitl_manifest.json (HITL status will be blank for course fields)")
+        missing.append(
+            "course_hitl_manifest.json (HITL status will be blank for course fields)"
+        )
 if missing:
     st.warning("Could not read: " + "; ".join(missing))
 
@@ -200,7 +216,9 @@ with f_cols[0]:
         default=sorted(df["entity_type"].dropna().unique().tolist()),
     )
 with f_cols[1]:
-    status_options = sorted([s for s in df["review_status"].dropna().unique().tolist() if s])
+    status_options = sorted(
+        [s for s in df["review_status"].dropna().unique().tolist() if s]
+    )
     status_pick = st.multiselect("Review status", options=status_options, default=[])
 with f_cols[2]:
     flagged_only = st.checkbox("Flagged for HITL only", value=False)
@@ -261,9 +279,9 @@ column_config = {
         "values",
         width="large",
         help=(
-            "\"unique (N)\": the complete set of N distinct values — shown whenever the "
+            '"unique (N)": the complete set of N distinct values — shown whenever the '
             "enriched schema contract judged this column low-cardinality (<=50 distinct). "
-            "\"sample, top 5\": only shown when the column exceeds that cardinality and the "
+            '"sample, top 5": only shown when the column exceeds that cardinality and the '
             "contract never computed a full distinct list — the 5 most frequent values, not "
             "exhaustive. Leading/trailing whitespace in a value (e.g. a padded fixed-width "
             "source column) is shown as \u00b7 rather than stripped."
@@ -372,4 +390,6 @@ if sel_rows:
         st.markdown("**Reviewer notes**")
         st.caption(row.get("reviewer_notes"))
 else:
-    st.caption("Select a row above to see full sourcing detail and source-column values.")
+    st.caption(
+        "Select a row above to see full sourcing detail and source-column values."
+    )

@@ -154,7 +154,9 @@ def flatten_manifest_envelope(envelope: dict[str, Any] | None) -> pd.DataFrame:
                         "source_table": rec.get("source_table"),
                         "source_column": rec.get("source_column"),
                         "join": _join_summary(rec.get("join")),
-                        "row_selection": _row_selection_summary(rec.get("row_selection")),
+                        "row_selection": _row_selection_summary(
+                            rec.get("row_selection")
+                        ),
                         "confidence": rec.get("confidence"),
                         "review_status": rec.get("review_status") or "",
                         "rationale": rec.get("rationale") or "",
@@ -240,7 +242,9 @@ def attach_hitl_status(
     return pd.concat([df, extra], axis=1)
 
 
-def attach_column_stats(df: pd.DataFrame, contract: dict[str, Any] | None) -> pd.DataFrame:
+def attach_column_stats(
+    df: pd.DataFrame, contract: dict[str, Any] | None
+) -> pd.DataFrame:
     """
     Joins per-row source-column stats (dtype, null rate, unique count, sample values) from the
     enriched schema contract. Reuses :func:`extract_column_panel_fields` — the same lookup the
@@ -317,8 +321,10 @@ def build_manifest_explorer_table(
     availability = {
         "manifest_map": envelope is not None,
         "enriched_schema_contract": contract is not None,
-        "cohort_hitl_manifest": bool(cohort_hitl_manifest_path) and cohort_hitl is not None,
-        "course_hitl_manifest": bool(course_hitl_manifest_path) and course_hitl is not None,
+        "cohort_hitl_manifest": bool(cohort_hitl_manifest_path)
+        and cohort_hitl is not None,
+        "course_hitl_manifest": bool(course_hitl_manifest_path)
+        and course_hitl is not None,
     }
     return df, availability
 
