@@ -25,6 +25,7 @@ from edvise.genai.mapping.identity_agent.hitl.schemas import GrainResolution
 from edvise.genai.mapping.shared.databricks_ai_gateway import (
     create_openai_client_for_databricks_gateway,
     make_databricks_gateway_llm_complete,
+    resolve_grain_resolution_gateway_model_id,
 )
 from edvise.genai.mapping.shared.grain.dedup_strategies import (
     SmaGrainMultiplicityProposalStrategy,
@@ -344,7 +345,9 @@ def propose_dedup_policy(
     user = json.dumps(user_payload, indent=2)
 
     client = create_openai_client_for_databricks_gateway()
-    complete = make_databricks_gateway_llm_complete(client)
+    complete = make_databricks_gateway_llm_complete(
+        client, model=resolve_grain_resolution_gateway_model_id()
+    )
     validated = llm_complete_with_parse_retry(
         complete,
         system,
