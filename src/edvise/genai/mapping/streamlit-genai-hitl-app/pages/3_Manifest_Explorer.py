@@ -227,23 +227,19 @@ if search.strip():
 
 st.caption(f"**{len(filtered)} of {len(df)}** field mappings shown.")
 
-# Core columns fit on-screen without horizontal scroll; `join` / `row_selection` / values
-# preview are intentionally left out by default since they're already shown in full in the
-# detail panel below when you select a row — add them back here only if you want them visible
-# across every row at once.
 _CORE_COLS = [
     "entity_type",
     "target_field",
     "source_table",
     "source_column",
+    "sample_values",
+    "null_percentage",
     "confidence",
     "review_status",
-    "null_percentage",
-    "sample_values",
-]
-_OPTIONAL_COLS = [
     "join",
     "row_selection",
+]
+_OPTIONAL_COLS = [
     "flagged_for_hitl",
     "hitl_failure_mode",
     "dtype",
@@ -255,8 +251,8 @@ extra_pick = st.multiselect(
     "+ more columns",
     options=optional_cols,
     default=[],
-    help="Add columns to the table below. Full detail (join, row selection, all values) is "
-    "always available in the detail panel after selecting a row, regardless of this picker.",
+    help="Add columns to the table below. Full detail is always available in the detail "
+    "panel after selecting a row, regardless of this picker.",
 )
 display_cols = core_cols + [c for c in extra_pick if c not in core_cols]
 
