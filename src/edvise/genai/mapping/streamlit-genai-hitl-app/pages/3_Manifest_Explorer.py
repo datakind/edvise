@@ -262,12 +262,15 @@ display_cols = core_cols + [c for c in extra_pick if c not in core_cols]
 
 column_config = {
     "sample_values": st.column_config.TextColumn(
-        "values (preview)",
+        "values",
+        width="large",
         help=(
-            "Unique values when the column has <=50 distinct values (per the enriched schema "
-            "contract), else the 5 most frequent values. Truncated to 12 here — see the detail "
-            "panel below for the full list. Leading/trailing whitespace in a value (e.g. a "
-            "padded fixed-width source column) is shown as \u00b7 rather than stripped."
+            "\"unique (N)\": the complete set of N distinct values — shown whenever the "
+            "enriched schema contract judged this column low-cardinality (<=50 distinct). "
+            "\"sample, top 5\": only shown when the column exceeds that cardinality and the "
+            "contract never computed a full distinct list — the 5 most frequent values, not "
+            "exhaustive. Leading/trailing whitespace in a value (e.g. a padded fixed-width "
+            "source column) is shown as \u00b7 rather than stripped."
         ),
     ),
 }

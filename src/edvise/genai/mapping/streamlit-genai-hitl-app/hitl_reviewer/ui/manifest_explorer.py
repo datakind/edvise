@@ -263,17 +263,21 @@ def attach_column_stats(df: pd.DataFrame, contract: dict[str, Any] | None) -> pd
         if panel is None:
             return pd.Series({c: None for c in _COLUMN_STATS_COLUMNS})
         chips = panel.get("chip_values") or []
-        preview_cap = 12
+        mode = panel.get("chip_mode", "sample")
+        # No truncation: the enriched schema contract already caps `unique_values` at a sane
+        # cardinality (contract_builder.UNIQUE_VALUES_MAX_CARDINALITY, currently 50) before this
+        # ever reaches the UI, so when chip_mode is "unique" this genuinely is the full distinct
+        # set for the column — show it all rather than an arbitrary further preview cap. Label
+        # explicitly so "unique" (complete) is never confused with "sample" (top 5 by frequency,
+        # not exhaustive) at a glance.
         displayed: list[str] = []
         any_padded = False
-        for v in chips[:preview_cap]:
+        for v in chips:
             disp, had_padding = visualize_value_whitespace(v)
             any_padded = any_padded or had_padding
             displayed.append(disp)
-        preview = ", ".join(displayed)
-        remaining = len(chips) - preview_cap
-        if remaining > 0:
-            preview += f", … (+{remaining} more — see detail panel)"
+        label = f"unique ({len(chips)})" if mode == "unique" else "sample, top 5"
+        preview = f"{label}: " + ", ".join(displayed) if displayed else f"{label}: —"
         return pd.Series(
             {
                 "dtype": panel.get("dtype"),
