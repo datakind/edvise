@@ -87,6 +87,46 @@ def test_apply_manifest_mapping_override_preserves_confidence_and_rationale(
     assert e0.override_type == "manifest_mapping"
 
 
+def test_apply_manifest_mapping_override_can_rewrite_rationale(
+    tmp_path: Path,
+) -> None:
+    tmp = tmp_path
+    original = _fmr()
+    fm = FieldMappingManifest(
+        entity_type="cohort",
+        target_schema="RawEdviseStudentDataSchema",
+        mappings=[original],
+    )
+    manifest_path = write_sma_manifest_artifact(tmp, fm, basename="m.json")
+    override_log_path = tmp / "mapping_override_log.json"
+
+    corrected = _fmr(
+        source_column="student_id_v2",
+        confidence=0.99,
+        rationale="should not appear either",
+    )
+
+    apply_manifest_mapping_override(
+        manifest_path,
+        "cohort",
+        "learner_id",
+        corrected,
+        override_log_path=override_log_path,
+        overridden_by="ops",
+        original_db_run_id="db-42",
+        reviewer_notes="fixed column",
+        rationale="rewritten: original mapping pointed at the wrong column",
+        institution_id="u9",
+    )
+
+    out = read_pydantic_json(manifest_path, FieldMappingManifest)
+    m0 = out.mappings[0]
+    assert m0.source_column == "student_id_v2"
+    assert m0.confidence == 0.4  # still preserved from original
+    assert m0.rationale == "rewritten: original mapping pointed at the wrong column"
+    assert m0.review_status == ReviewStatus.corrected_by_override
+
+
 def test_apply_manifest_mapping_override_envelope(tmp_path: Path) -> None:
     tmp = tmp_path
     original = _fmr()
