@@ -116,16 +116,6 @@ def compute_target(
     intensity_num_terms = utils.data_cleaning.convert_intensity_time_limits(
         "term", intensity_time_limits, num_terms_in_year=num_terms_in_year
     )
-    # Four terms per year only (e.g. fall/winter/spring/summer): a limit of N academic
-    # years from first fall to spring of year N spans N * 4 - 1 terms (the summer after
-    # graduation is outside the window). Two- and three-term calendars do not use this
-    # adjustment; their fall–spring paths already align with ``years * num_terms_in_year``.
-    if num_terms_in_year == 4:
-        intensity_num_terms = {
-            intensity: max(num_terms - 1.0, 1.0)
-            for intensity, num_terms in intensity_num_terms.items()
-        }
-
     intensity_time_limits_for_eligibility = t.cast(
         utils.types.IntensityTimeLimitsType,
         {
@@ -133,13 +123,16 @@ def compute_target(
             for intensity, num_terms in intensity_num_terms.items()
         },
     )
+    ckpt_include_cols = student_id_cols + [term_rank_col, enrollment_intensity_col]
+    if "academic_term" in df.columns:
+        ckpt_include_cols = ckpt_include_cols + ["academic_term"]
     df_labelable_students = shared.get_students_with_max_target_term_in_dataset(
         df,
         checkpoint=ft.partial(
             checkpoints.nth_student_terms.first_student_terms_within_cohort,
             student_id_cols=student_id_cols,
             sort_cols=term_rank_col,
-            include_cols=(student_id_cols + [term_rank_col, enrollment_intensity_col]),
+            include_cols=ckpt_include_cols,
             term_is_pre_cohort_col=term_is_pre_cohort_col,
             term_is_core_col="term_is_core",
             exclude_non_core_terms=False,

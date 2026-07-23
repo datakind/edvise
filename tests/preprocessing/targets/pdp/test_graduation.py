@@ -268,3 +268,149 @@ def test_graduation_two_three_term_insufficient_max_term_rank_yields_no_labels(
         enrollment_year_col="enrollment_year",
     )
     assert len(obs) == 0
+
+
+def _core_endpoint_student_terms(
+    *,
+    start_term: str,
+    start_rank: int,
+    max_rank: int,
+    years_to_degree: int,
+    final_term_is_core: bool,
+) -> pd.DataFrame:
+    """Minimal student-term rows spanning ``start_rank``..``max_rank`` for eligibility tests."""
+    ranks = list(range(start_rank, max_rank + 1))
+    n = len(ranks)
+    # Filler rows are core FALL; only checkpoint + final seasons matter for these tests.
+    academic_term = ["FALL"] * n
+    term_is_core = [True] * n
+    academic_term[0] = start_term
+    term_is_core[0] = start_term in {"FALL", "SPRING"}
+    # Fall/Summer → Spring; Spring/Winter → Fall.
+    needs_fall = start_term in {"SPRING", "WINTER"}
+    if final_term_is_core:
+        academic_term[-1] = "FALL" if needs_fall else "SPRING"
+        term_is_core[-1] = True
+    else:
+        academic_term[-1] = "SUMMER"
+        term_is_core[-1] = False
+        if n >= 2:
+            # Prior core term: opposite of what the start still needs, so coverage is short.
+            academic_term[-2] = "SPRING" if needs_fall else "FALL"
+            term_is_core[-2] = True
+    return pd.DataFrame(
+        {
+            "student_id": ["01"] * n,
+            "enrollment_intensity": ["FT"] * n,
+            "years_to_degree": [years_to_degree] * n,
+            "enrollment_year": [1] * n,
+            "term_rank": ranks,
+            "term_is_pre_cohort": [False] * n,
+            "term_is_core": term_is_core,
+            "academic_term": academic_term,
+        },
+    ).astype(
+        {
+            "student_id": "string",
+            "enrollment_intensity": "string",
+            "academic_term": "string",
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    ["start_term", "num_terms_in_year", "max_rank"],
+    [
+        ("SPRING", 3, 12),
+        ("WINTER", 4, 16),
+    ],
+)
+def test_graduation_spring_like_start_summer_without_fall_not_labelable(
+    start_term, num_terms_in_year, max_rank
+):
+    """Spring/Winter starters need Fall; a trailing Summer is not enough."""
+    df = _core_endpoint_student_terms(
+        start_term=start_term,
+        start_rank=1,
+        max_rank=max_rank,
+        years_to_degree=5,
+        final_term_is_core=False,
+    )
+    obs = graduation.compute_target(
+        df,
+        intensity_time_limits={"FT": [4, "year"]},
+        num_terms_in_year=num_terms_in_year,
+        max_term_rank="infer",
+        student_id_cols="student_id",
+        enrollment_intensity_col="enrollment_intensity",
+        years_to_degree_col="years_to_degree",
+        enrollment_year_col="enrollment_year",
+    )
+    assert len(obs) == 0
+
+
+@pytest.mark.parametrize(
+    ["start_term", "num_terms_in_year", "max_rank"],
+    [
+        ("SPRING", 3, 12),
+        ("WINTER", 4, 16),
+    ],
+)
+def test_graduation_spring_like_start_with_fall_is_labelable(
+    start_term, num_terms_in_year, max_rank
+):
+    """Spring/Winter starters become labelable once Fall exists."""
+    df = _core_endpoint_student_terms(
+        start_term=start_term,
+        start_rank=1,
+        max_rank=max_rank,
+        years_to_degree=5,
+        final_term_is_core=True,
+    )
+    obs = graduation.compute_target(
+        df,
+        intensity_time_limits={"FT": [4, "year"]},
+        num_terms_in_year=num_terms_in_year,
+        max_term_rank="infer",
+        student_id_cols="student_id",
+        enrollment_intensity_col="enrollment_intensity",
+        years_to_degree_col="years_to_degree",
+        enrollment_year_col="enrollment_year",
+    )
+    assert len(obs) == 1
+    assert bool(obs.loc["01"]) is True
+
+
+@pytest.mark.parametrize(
+    ["start_term", "num_terms_in_year", "max_rank"],
+    [
+        # Fall/Summer → Spring: years*num_terms - 1
+        ("FALL", 3, 11),
+        ("SUMMER", 3, 11),
+        ("FALL", 4, 15),
+        ("SUMMER", 4, 15),
+    ],
+)
+def test_graduation_fall_like_start_ends_at_spring_not_summer(
+    start_term, num_terms_in_year, max_rank
+):
+    """Fall/Summer starters need Spring; they should not require the following Summer."""
+    df = _core_endpoint_student_terms(
+        start_term=start_term,
+        start_rank=1,
+        max_rank=max_rank,
+        years_to_degree=4,
+        final_term_is_core=True,
+    )
+    obs = graduation.compute_target(
+        df,
+        intensity_time_limits={"FT": [4, "year"]},
+        num_terms_in_year=num_terms_in_year,
+        max_term_rank="infer",
+        student_id_cols="student_id",
+        enrollment_intensity_col="enrollment_intensity",
+        years_to_degree_col="years_to_degree",
+        enrollment_year_col="enrollment_year",
+    )
+    assert len(obs) == 1
+    assert bool(obs.loc["01"]) is False

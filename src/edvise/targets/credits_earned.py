@@ -98,13 +98,13 @@ def compute_target(
     intensity_num_terms = utils.data_cleaning.convert_intensity_time_limits(
         "term", intensity_time_limits, num_terms_in_year=num_terms_in_year
     )
-    # Match :func:`graduation.compute_target`: four terms per year only, fall-to-spring
-    # paths span one fewer term than ``years * 4`` (see graduation for rationale).
-    if num_terms_in_year == 4:
-        intensity_num_terms = {
-            intensity: max(num_terms - 1.0, 1.0)
-            for intensity, num_terms in intensity_num_terms.items()
-        }
+    # Risk-label budget: legacy 4-term fall-centric -1. Eligibility endpoints (opposite
+    # core term) are handled in :func:`shared.get_students_with_max_target_term_in_dataset`.
+    intensity_num_terms_for_target = (
+        {k: max(v - 1.0, 1.0) for k, v in intensity_num_terms.items()}
+        if num_terms_in_year == 4
+        else intensity_num_terms
+    )
 
     # 6. Apply intensity-specific time limits and select at-risk student IDs
     # Check if student took more terms than allowed (e.g., full-time students get 12 terms, part-time get 16)
@@ -121,7 +121,7 @@ def compute_target(
                 | df_at[f"{tr_col}_tgt"].isna()
             )
         )
-        for intensity, num_terms in intensity_num_terms.items()
+        for intensity, num_terms in intensity_num_terms_for_target.items()
     ]
     target = np.logical_or.reduce(targets)
 
@@ -132,7 +132,7 @@ def compute_target(
         .astype({"target": "boolean"})
     )
 
-    # 7. Eligibility (see :func:`shared.get_students_with_max_target_term_in_dataset`):
+    # 7. Eligibility: pass raw term budgets; shared applies core-term endpoints.
     intensity_time_limits_for_eligibility = t.cast(
         utils.types.IntensityTimeLimitsType,
         {
