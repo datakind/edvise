@@ -5,6 +5,45 @@ resources:
       max_concurrent_runs: 5
 
       tasks:
+        # Mirrors ES's data_ingestion task: reuse upload-time bronze sync
+        # (gcs_uploads/{batch_id}/) or download validated GCS objects when not ready.
+        # Skips (no-op) when validated_blob_paths_json is empty, e.g. legacy runs
+        # without a batch_id; legacy_preprocessing then falls back to the existing
+        # top-level gcs_uploads keyword search.
+        - task_key: data_ingestion
+          spark_python_task:
+            python_file: src/edvise/scripts/legacy_gcp_databricks_ingestion.py
+            source: GIT
+            parameters:
+              - --DB_workspace
+              - "{{job.parameters.DB_workspace}}"
+              - --databricks_institution_name
+              - "{{job.parameters.databricks_institution_name}}"
+              - --gcp_bucket_name
+              - "{{job.parameters.gcp_bucket_name}}"
+              - --batch_id
+              - "{{job.parameters.batch_id}}"
+              - --validated_blob_paths_json
+              - "{{job.parameters.validated_blob_paths_json}}"
+              - --db_run_id
+              - "{{job.parameters.db_run_id}}"
+          job_cluster_key: edvise-legacy-inference-pipeline-cluster
+          libraries:
+            - pypi:
+                package: google-cloud-storage==2.19.0
+            - pypi:
+                package: pandera==0.23.0
+            - pypi:
+                package: pydantic~=2.10
+            - pypi:
+                package: pyarrow~=16.0
+            - pypi:
+                package: tomli==2.2.1
+            - pypi:
+                package: tomlkit==0.13.3
+            - pypi:
+                package: mlflow~=2.22
+
         - task_key: inference_setup
           spark_python_task:
             python_file: src/edvise/scripts/legacy_inference_inputs.py
@@ -35,6 +74,7 @@ resources:
         # SSI workspace preprocessing.py; config from silver training artifacts (inference_setup).
         - task_key: legacy_preprocessing
           depends_on:
+            - task_key: data_ingestion
             - task_key: inference_setup
           spark_python_task:
             python_file: src/edvise/scripts/legacy_preprocessing.py
@@ -54,6 +94,8 @@ resources:
               - "{{job.parameters.term_filter}}"
               - --ds_run_as
               - "{{job.parameters.ds_run_as}}"
+              - --bronze_batch_dir
+              - "{{tasks.data_ingestion.values.bronze_batch_dir}}"
           job_cluster_key: edvise-legacy-inference-pipeline-cluster
           libraries:
             - pypi:
@@ -244,6 +286,10 @@ resources:
           default: ${var.ds_run_as}
         - name: gcp_bucket_name
           default: databricks-2052166062819251-unitycatalog
+        - name: batch_id
+          default: ""
+        - name: validated_blob_paths_json
+          default: "[]"
         - name: service_account_executer
           default: ${var.service_account_executer}
         - name: datakind_notification_email

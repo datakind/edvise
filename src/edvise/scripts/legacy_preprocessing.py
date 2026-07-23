@@ -396,11 +396,15 @@ def materialize_legacy_config_with_uc_catalog(
 
 
 def materialize_legacy_bronze_predict_paths(
-    config_file_path: str, db_workspace: str
+    config_file_path: str, db_workspace: str, bronze_batch_dir: str | None = None
 ) -> str:
     """
     For legacy inference, resolve ``datasets.bronze[*].predict_file_path`` from
     ``predict_file_keyword`` when the explicit path is missing.
+
+    ``bronze_batch_dir`` (from the ``data_ingestion`` task, when a ``batch_id`` was
+    supplied) is searched first; falls back to the institution's top-level
+    ``gcs_uploads`` and ``train_file_path`` parent otherwise.
 
     Writes a temp TOML when any path is resolved or updated; otherwise returns
     ``config_file_path`` unchanged.
@@ -433,6 +437,7 @@ def materialize_legacy_bronze_predict_paths(
             dataset_key=str(key),
             db_workspace=db_workspace,
             institution_id=institution_id,
+            bronze_batch_dir=bronze_batch_dir,
         )
         if not resolved:
             continue
@@ -535,6 +540,16 @@ def main() -> None:
             "``preprocessing.run`` accepts a ``term_filter`` parameter."
         ),
     )
+    parser.add_argument(
+        "--bronze_batch_dir",
+        default="",
+        help=(
+            "Predict only: batch-scoped gcs_uploads/{batch_id}/ dir from the "
+            "data_ingestion task's bronze_batch_dir task value. Searched first when "
+            "resolving predict_file_keyword; falls back to top-level gcs_uploads "
+            "when empty."
+        ),
+    )
     args = parser.parse_args()
 
     inst = (args.databricks_institution_name or "").strip()
@@ -587,7 +602,7 @@ def main() -> None:
     )
     if args.run_type == "predict":
         effective_config = materialize_legacy_bronze_predict_paths(
-            effective_config, args.DB_workspace
+            effective_config, args.DB_workspace, args.bronze_batch_dir
         )
 
     LOGGER.info(

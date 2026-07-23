@@ -76,15 +76,26 @@ def legacy_bronze_predict_search_dirs(
     db_workspace: str,
     institution_id: str,
     ds: dict[str, t.Any],
+    *,
+    bronze_batch_dir: str | None = None,
 ) -> list[str]:
     """
     Directories searched for ``predict_file_keyword`` at legacy inference time.
 
-    Order: institution ``gcs_uploads``, then parent of ``train_file_path`` when set.
+    Order: batch-scoped ``gcs_uploads/{batch_id}/`` dir (when the batch GCS ingest task
+    ran and produced one), then institution top-level ``gcs_uploads``, then parent of
+    ``train_file_path`` when set. The batch-scoped dir takes priority since it reflects
+    exactly the files validated for this run; top-level ``gcs_uploads`` remains as a
+    fallback for runs without a ``batch_id`` (e.g. older or manually-triggered runs).
     """
     dirs: list[str] = []
+    batch_dir = (bronze_batch_dir or "").strip()
+    if batch_dir:
+        dirs.append(batch_dir)
     if (db_workspace or "").strip() and (institution_id or "").strip():
-        dirs.append(legacy_bronze_gcs_uploads_dir(db_workspace, institution_id))
+        top_level = legacy_bronze_gcs_uploads_dir(db_workspace, institution_id)
+        if top_level not in dirs:
+            dirs.append(top_level)
     train = (ds.get("train_file_path") or ds.get("file_path") or "").strip()
     if train:
         parent = str(pathlib.Path(local_fs_path(train)).parent)
@@ -156,13 +167,16 @@ def resolve_legacy_bronze_predict_file(
     dataset_key: str,
     db_workspace: str,
     institution_id: str,
+    bronze_batch_dir: str | None = None,
 ) -> str | None:
     """
     Resolve ``predict_file_path`` for one ``datasets.bronze`` entry at inference time.
 
     Priority:
       1. Existing ``predict_file_path`` (or legacy ``file_path``) when present on disk
-      2. ``predict_file_keyword`` under ``gcs_uploads`` and ``train_file_path`` parent
+      2. ``predict_file_keyword`` under the batch-scoped ``gcs_uploads/{batch_id}/`` dir
+         (when the batch GCS ingest task ran), then top-level ``gcs_uploads`` and
+         ``train_file_path`` parent
       3. Otherwise leave unset (school preprocessing may fall back to ``train_file_path``)
     """
     explicit = (ds.get("predict_file_path") or ds.get("file_path") or "").strip()
@@ -170,7 +184,7 @@ def resolve_legacy_bronze_predict_file(
 
     if keyword:
         search_dirs = legacy_bronze_predict_search_dirs(
-            db_workspace, institution_id, ds
+            db_workspace, institution_id, ds, bronze_batch_dir=bronze_batch_dir
         )
         all_matches: list[pathlib.Path] = []
         needle = keyword.lower()
