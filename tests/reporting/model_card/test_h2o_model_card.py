@@ -103,6 +103,25 @@ def test_get_feature_metadata_success(mock_get_features, mock_config, mock_clien
     assert metadata["incomplete_threshold"] == "5"
 
 
+@patch("edvise.reporting.model_card.h2o_base.h2o_ml.inference.get_h2o_used_features")
+def test_get_feature_metadata_caps_incomplete_threshold(
+    mock_get_features, mock_config, mock_client
+):
+    mock_get_features.return_value = ["a"]
+    mock_config.modeling.feature_selection.incomplete_threshold = 0.5
+    card = TestableH2OModelCard(
+        config=mock_config,
+        catalog="catalog",
+        model_name="inst_my_model",
+        mlflow_client=mock_client,
+    )
+    card.model = MagicMock()
+
+    metadata = card.get_feature_metadata()
+
+    assert metadata["incomplete_threshold"] == "20"
+
+
 @patch(
     "edvise.reporting.model_card.h2o_base.h2o_ml.evaluation.extract_number_of_runs_from_model_training"
 )
