@@ -5,6 +5,9 @@ GenAI mapping — Unity Catalog ``hitl_reviews`` HITL reviewer UI (multipage).
   (``hitl_reviews`` table, filters, and per-group silver JSON/UC on one page).
 * **Maps & outputs** — ``pages/2_Maps_and_Outputs.py``: institution dropdown, then **Active** or a **HITL-complete onboard run**,
   with catalog from the environment (not a sidebar field on that page).
+* **Manifest explorer** — ``pages/3_Manifest_Explorer.py``: same institution/run picker, but renders the
+  field mapping manifest as one filterable table joined with source-column stats (enriched schema
+  contract) and HITL status, instead of separate raw-JSON files.
 
 HITL **choice** values live in JSON on the **silver** volume. **IA** / **SMA** write silver JSON
 while the UC group is **pending**; use **HITL Review** for the full flow. See module doc in previous
@@ -37,6 +40,8 @@ from hitl_reviewer.ui.hitl_streamlit import (
     validate_catalog,
 )
 
+MANIFEST_EXPLORER_PAGE = "pages/3_Manifest_Explorer.py"
+
 _HITL_BENCH = "HITL Review"
 
 st.set_page_config(page_title="HITL — home", layout="wide")
@@ -56,6 +61,11 @@ st.page_link(
 st.page_link(
     MAPS_AND_OUTPUTS_PAGE,
     label="Open Maps & outputs (HITL-complete runs + Active)",
+    use_container_width=True,
+)
+st.page_link(
+    MANIFEST_EXPLORER_PAGE,
+    label="Open Manifest explorer (one table: manifest + column stats + HITL status)",
     use_container_width=True,
 )
 
