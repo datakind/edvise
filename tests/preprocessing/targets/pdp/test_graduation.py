@@ -384,17 +384,18 @@ def test_graduation_spring_like_start_with_fall_is_labelable(
 @pytest.mark.parametrize(
     ["start_term", "num_terms_in_year", "max_rank"],
     [
-        # Fall/Summer → Spring: years*num_terms - 1
+        # Fall → Spring: trim -1 so Spring is enough (no following Summer/Fall required)
         ("FALL", 3, 11),
-        ("SUMMER", 3, 11),
         ("FALL", 4, 15),
-        ("SUMMER", 4, 15),
+        # Summer → Spring: untrimmed already lands on Spring (no -1)
+        ("SUMMER", 3, 12),
+        ("SUMMER", 4, 16),
     ],
 )
 def test_graduation_fall_like_start_ends_at_spring_not_summer(
     start_term, num_terms_in_year, max_rank
 ):
-    """Fall/Summer starters need Spring; they should not require the following Summer."""
+    """Fall/Summer starters need Spring; Fall must not require the following Summer."""
     df = _core_endpoint_student_terms(
         start_term=start_term,
         start_rank=1,
@@ -414,3 +415,51 @@ def test_graduation_fall_like_start_ends_at_spring_not_summer(
     )
     assert len(obs) == 1
     assert bool(obs.loc["01"]) is False
+
+
+def test_graduation_summer_start_four_term_does_not_over_trim():
+    """Summer@rank 4, 4y/4-term: untrimmed=19 (Spring Y5); trimming would hit Winter."""
+    # Minimal rows: checkpoint Summer rank 4, core Spring at 19 as latest coverage.
+    n = 19
+    academic_term = ["FALL"] * n
+    term_is_core = [True] * n
+    academic_term[3] = "SUMMER"  # rank 4
+    term_is_core[3] = False
+    academic_term[-1] = "SPRING"  # rank 19
+    term_is_core[-1] = True
+    # Avoid a later false "max core" from filler FALL after spring endpoint.
+    for i in range(4, n - 1):
+        academic_term[i] = "WINTER"
+        term_is_core[i] = False
+    df = pd.DataFrame(
+        {
+            "student_id": ["01"] * n,
+            "enrollment_intensity": ["FT"] * n,
+            "years_to_degree": [5] * n,
+            "enrollment_year": [1] * n,
+            "term_rank": list(range(1, n + 1)),
+            "term_is_pre_cohort": [False] * n,
+            "term_is_core": term_is_core,
+            "academic_term": academic_term,
+        },
+    ).astype(
+        {
+            "student_id": "string",
+            "enrollment_intensity": "string",
+            "academic_term": "string",
+        }
+    )
+    # First within-cohort term must be the Summer checkpoint (rank 4).
+    df.loc[df["term_rank"] < 4, "term_is_pre_cohort"] = True
+    obs = graduation.compute_target(
+        df,
+        intensity_time_limits={"FT": [4, "year"]},
+        num_terms_in_year=4,
+        max_term_rank="infer",
+        student_id_cols="student_id",
+        enrollment_intensity_col="enrollment_intensity",
+        years_to_degree_col="years_to_degree",
+        enrollment_year_col="enrollment_year",
+    )
+    assert len(obs) == 1
+    assert bool(obs.loc["01"]) is True

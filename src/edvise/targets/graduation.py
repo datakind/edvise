@@ -116,6 +116,17 @@ def compute_target(
     intensity_num_terms = utils.data_cleaning.convert_intensity_time_limits(
         "term", intensity_time_limits, num_terms_in_year=num_terms_in_year
     )
+    # Four terms per year only (e.g. fall/winter/spring/summer): a limit of N academic
+    # years from first fall to spring of year N spans N * 4 - 1 terms (the summer after
+    # graduation is outside the window). Two- and three-term calendars do not use this
+    # adjustment here; three-term fall→spring is applied in
+    # :func:`shared.get_students_with_max_target_term_in_dataset` when start season is known.
+    if num_terms_in_year == 4:
+        intensity_num_terms = {
+            intensity: max(num_terms - 1.0, 1.0)
+            for intensity, num_terms in intensity_num_terms.items()
+        }
+
     intensity_time_limits_for_eligibility = t.cast(
         utils.types.IntensityTimeLimitsType,
         {
