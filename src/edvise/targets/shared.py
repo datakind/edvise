@@ -102,9 +102,9 @@ def get_students_with_max_target_term_in_dataset(
         if num_terms_in_year == 3:
             df_ckpt.loc[season.eq("FALL"), "student_max_term_rank"] -= 1.0
         elif num_terms_in_year == 4:
-            df_ckpt.loc[
-                season.isin(["SUMMER", "WINTER"]), "student_max_term_rank"
-            ] += 1.0
+            df_ckpt.loc[season.isin(["SUMMER", "WINTER"]), "student_max_term_rank"] += (
+                1.0
+            )
     df_out = (
         df_ckpt.loc[
             df_ckpt["student_max_term_rank"].le(max_term_rank),
