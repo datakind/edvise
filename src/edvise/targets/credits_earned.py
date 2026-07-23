@@ -101,7 +101,10 @@ def compute_target(
     # Risk-label budget: legacy 4-term fall-centric -1. Eligibility endpoints (opposite
     # core term) are handled in :func:`shared.get_students_with_max_target_term_in_dataset`.
     intensity_num_terms_for_target = (
-        {k: max(v - 1.0, 1.0) for k, v in intensity_num_terms.items()}
+        {
+            intensity: max(num_terms - 1.0, 1.0)
+            for intensity, num_terms in intensity_num_terms.items()
+        }
         if num_terms_in_year == 4
         else intensity_num_terms
     )
