@@ -98,7 +98,11 @@ def extract_column_panel_fields(
     sample_values = _as_str_list(row.get("sample_values"))
     chips: list[str]
     chip_mode: str
-    if isinstance(unique_values, list) and len(unique_values) <= 20:
+    # Profiling (contract_builder.UNIQUE_VALUES_MAX_CARDINALITY) only populates `unique_values`
+    # for low-cardinality columns (<=50 distinct) in the first place — trust that cutoff here
+    # rather than re-capping more strictly and silently falling back to "top 5 by frequency"
+    # for a column that's genuinely enumerable (e.g. 21-50 grade/status codes).
+    if isinstance(unique_values, list) and len(unique_values) > 0:
         chips = [str(x) for x in unique_values if x is not None]
         chip_mode = "unique"
     else:
@@ -122,3 +126,38 @@ def load_json_object_from_text(raw: str) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise TypeError("Expected JSON object")
     return data
+
+
+_WHITESPACE_VISIBLE_MARK = (
+    "\u00b7"  # middle dot; renders leading/trailing spaces visibly
+)
+
+
+def visualize_value_whitespace(value: Any) -> tuple[str, bool]:
+    """
+    Display-only rendering of a raw column value with leading/trailing whitespace made visible
+    (e.g. ``"A       "`` -> ``"A·······"``) instead of silently truncated or indistinguishable
+    from the trimmed value.
+
+    Common cause: source systems that export fixed-width/CHAR columns (e.g. some SIS/mainframe
+    extracts) pad string values to a fixed length. That padding is real source data — this
+    function does not strip or otherwise alter it, only makes it visible in review UIs so a
+    reviewer isn't confused by "duplicate-looking" chips like ``"A"`` and ``"A       "``.
+
+    Returns ``(display_string, had_padding)``.
+    """
+    s = "" if value is None else str(value)
+    stripped = s.strip()
+    if s == stripped:
+        return s, False
+    if not stripped:
+        # Whitespace-only value (should already be nulled by upstream cleaning, but be defensive).
+        return _WHITESPACE_VISIBLE_MARK * len(s), True
+    lead = len(s) - len(s.lstrip())
+    trail = len(s) - len(s.rstrip())
+    visible = (
+        (_WHITESPACE_VISIBLE_MARK * lead)
+        + stripped
+        + (_WHITESPACE_VISIBLE_MARK * trail)
+    )
+    return visible, True
