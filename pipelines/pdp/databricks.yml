@@ -5,6 +5,7 @@ bundle:
 include:
   - resources/github_pdp_training.yml
   - resources/github_pdp_inference.yml
+  - resources/github_pdp_versioned_inference_launcher.yml
   - resources/synthetic/github_synth_cleanup.yml
 
 variables:
@@ -43,6 +44,9 @@ variables:
     description: "Slack webhook ID for training pipeline failure notifications"
   inference_slack_webhook_id:
     description: "Slack webhook ID for inference pipeline failure notifications"
+  release_base_path:
+    description: "UC volume base for versioned inference runtime bundles (edvise_releases)"
+    default: ""
 
 run_as:
   service_principal_name: ${var.ds_run_as}
@@ -52,6 +56,7 @@ targets:
     mode: development
     variables:
       DB_workspace: "dev_sst_02"
+      release_base_path: "/Volumes/dev_sst_02/default/edvise_releases"
       training_slack_webhook_id: "1e30ca91-8d95-4324-be05-9d20bffd747b"    # edvise-data-crew channel on dev_sst_02                            
       inference_slack_webhook_id: "1e30ca91-8d95-4324-be05-9d20bffd747b"   # edvise-data-crew channel on dev_sst_02  
     resources:
@@ -69,6 +74,11 @@ targets:
             git_url: https://github.com/datakind/edvise
             git_provider: gitHub
             git_commit: ${var.git_commit}
+        edvise_versioned_inference_launcher:
+          git_source:
+            git_url: https://github.com/datakind/edvise
+            git_provider: gitHub
+            git_commit: ${var.git_commit}
         edvise_cleanup_synthetic:
           git_source:
             git_url: https://github.com/datakind/edvise
@@ -80,6 +90,7 @@ targets:
     mode: production
     variables:
       DB_workspace: "staging_sst_01"
+      release_base_path: "/Volumes/staging_sst_01/default/edvise_releases"
       training_slack_webhook_id: "0fb252f8-f343-4be7-91de-b55f5408a031"  # edvise-data-crew channel on staging_sst_01                                        
       inference_slack_webhook_id: "c51b737e-988d-45dd-ad9b-6f9024a6b56b"  # edvise-support channel on staging_sst_01  
     resources:
@@ -93,6 +104,11 @@ targets:
             git_provider: gitHub
             git_tag: ${var.git_tag}
         edvise_github_sourced_pdp_inference_pipeline:
+          git_source:
+            git_url: https://github.com/datakind/edvise
+            git_provider: gitHub
+            git_tag: ${var.git_tag}
+        edvise_versioned_inference_launcher:
           git_source:
             git_url: https://github.com/datakind/edvise
             git_provider: gitHub
