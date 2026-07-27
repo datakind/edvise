@@ -209,12 +209,70 @@ def apply_transformation_hook_hitl_resolutions(
     return out
 
 
+def attach_materialized_hook_specs_to_plans(
+    transformation_data: dict[str, Any],
+    *,
+    entity_type: Literal["cohort", "course"],
+    preview_rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """
+    Patch a deep copy of ``transformation_data``: for each hook-preview row whose
+    ``review_context.target_field`` matches a ``hook_required`` plan in ``entity_type``, set
+    ``plan['hook_spec']`` to that row's (post-approval) ``hook_spec``.
+
+    Call this once per entity after ``materialize_hook_specs_to_file`` (passing rows read back
+    via ``load_hook_spec_rows_from_sma_preview_path`` so reviewer edits made during the
+    ``sma_gate_2_hook_preview`` HITL wait are picked up) and before writing
+    ``transformation_map.json``. Without this, ``hook_required`` plans have no pointer to the
+    materialized function and the field executor treats them as gaps even though the hook
+    file exists on disk.
+
+    ``hook_required`` is intentionally left ``True`` — it still means "no built-in utility
+    chain covers this field"; ``hook_spec`` is what tells the executor a materialized function
+    is now available to run instead of a utility chain.
+    """
+    out: dict[str, Any] = json.loads(json.dumps(transformation_data))
+    tmaps = out.get("transformation_maps")
+    if not isinstance(tmaps, dict):
+        return out
+    plans = _plans_from_entity_section(tmaps.get(entity_type))
+    if not plans:
+        return out
+
+    for row in preview_rows:
+        ctx = row.get("review_context") or {}
+        if not isinstance(ctx, dict):
+            continue
+        if str(ctx.get("entity_type") or "") != entity_type:
+            continue
+        tf = str(ctx.get("target_field") or "").strip()
+        if not tf:
+            continue
+        hook_spec = row.get("hook_spec")
+        if not isinstance(hook_spec, dict):
+            continue
+        ix = _find_plan_index(plans, tf)
+        if ix is None:
+            logger.warning(
+                "Hook preview row %s targets unknown field %s (%s) — skipping",
+                row.get("item_id"),
+                tf,
+                entity_type,
+            )
+            continue
+        if plans[ix].get("hook_required"):
+            plans[ix]["hook_spec"] = hook_spec
+
+    return out
+
+
 __all__ = [
     "InstitutionSMATransformationHookHITLItems",
     "SMATransformationHookHITLItem",
     "SMATransformationHookHITLOption",
     "SMATransformationHookResolution",
     "apply_transformation_hook_hitl_resolutions",
+    "attach_materialized_hook_specs_to_plans",
     "build_transformation_hook_hitl_envelope_for_entity",
     "check_transformation_hook_hitl_gate",
     "default_transformation_hook_hitl_options",
