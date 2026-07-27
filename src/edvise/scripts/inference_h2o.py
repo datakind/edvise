@@ -482,10 +482,11 @@ class ModelInferenceTask:
         MANDRILL_PASSWORD = w.dbutils.secrets.get(scope="sst", key="MANDRILL_PASSWORD")
         SENDER_EMAIL = Address("Datakind Info", "help", "datakind.org")
 
+        cc_email_list = [self.args.DK_CC_EMAIL] if self.args.DK_CC_EMAIL else []
         emails.send_inference_kickoff_email(
             str(SENDER_EMAIL),
             [self.args.datakind_notification_email],
-            [self.args.DK_CC_EMAIL],
+            cc_email_list,
             MANDRILL_USERNAME,
             MANDRILL_PASSWORD,
         )
@@ -522,7 +523,13 @@ def parse_arguments() -> argparse.Namespace:
     )
     parser.add_argument("--silver_volume_path", type=str, required=True)
     parser.add_argument("--datakind_notification_email", type=str, required=True)
-    parser.add_argument("--DK_CC_EMAIL", type=str, required=True)
+    parser.add_argument(
+        "--DK_CC_EMAIL",
+        type=str,
+        required=False,
+        default="",
+        help="Optional CC address for the inference kickoff email.",
+    )
     parser.add_argument("--features_table_path", type=str, required=False)
     parser.add_argument("--ds_run_as", type=str, required=False)
     parser.add_argument(
