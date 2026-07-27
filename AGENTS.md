@@ -1,38 +1,27 @@
 # AGENTS.md
 
-This file provides guidance to AI coding agents (Claude Code, Cursor, etc.) when working with code in this repository.
-
-## What this is
-
-`edvise` is a school-agnostic Python library implementing Student Success Tool (SST) workflows for
-Datakind: ingesting institution data, auditing/standardizing it, generating features, training/running
-H2O AutoML models, and producing model card reports. It runs on Databricks — most orchestration lives
-in Databricks Asset Bundle (DAB) job YAMLs, not in a Python `main()`.
+This file provides guidance to AI coding agents (Claude Code, Cursor, etc.) when working with code in this
+repository. See [README.md](README.md) for the project overview, requirements, and local setup (`uv sync --frozen
+--dev`, `pytest`, `ruff`, `mypy`) — this file only adds what the README doesn't cover: CI's exact command
+variants and architecture that takes reading multiple files to piece together.
 
 ## Commands
 
-Dependency management is via `uv` (see `uv.lock`); dev tools (`pytest`, `ruff`, `mypy`) are in the `dev`
-dependency group and installed via `uv sync --frozen --dev`.
+A few things CI does differently from the README's plain invocations, worth matching locally:
 
 ```bash
-# Run the full test suite
-uv run python -m pytest
-
 # Run a single test file / test
 uv run python -m pytest tests/genai/mapping/schema_mapping_agent/hitl/test_apply_manifest_mapping_override.py
 uv run python -m pytest tests/targets/test_graduation.py::test_specific_case -v
 
-# Lint (CI runs this only against changed files, with --diff)
-uv tool run ruff check <files>
-uv tool run ruff format --diff <files>
-
-# Type-check (CI runs this only against changed src/**/*.py files)
-uv run python -m mypy --install-types --non-interactive <files>
+# style.yml/type-check.yml only lint/type-check files changed in the PR diff, with --diff
+uv tool run ruff check --diff <changed files>
+uv tool run ruff format --diff <changed files>
+uv run python -m mypy --install-types --non-interactive <changed files>
 ```
 
-CI runs `test.yml` across Python 3.10/3.11/3.12 on every PR; `style.yml` and `type-check.yml` only lint/type-check
-files changed in the PR diff, so running ruff/mypy on the full `src/` tree locally may surface pre-existing issues
-outside your diff — don't feel obligated to fix unrelated ones.
+Running ruff/mypy against the full `src/` tree locally may surface pre-existing issues outside your diff — you
+don't need to fix those.
 
 PR titles are enforced as Conventional Commits (`feat|fix|chore|docs|refactor|test|ci|perf|build|revert|style`) by
 the `semantic-pr` check in `style.yml`.
