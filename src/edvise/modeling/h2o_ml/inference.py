@@ -585,6 +585,46 @@ def group_feature_values(
     return pd.DataFrame(out)
 
 
+def apply_missing_display_values(
+    grouped_df: pd.DataFrame,
+    raw_df: pd.DataFrame,
+    feature_names: t.Iterable[str],
+    *,
+    missing_flags_df: t.Optional[pd.DataFrame] = None,
+) -> pd.DataFrame:
+    """
+    Restore missing values in a display-only copy of grouped feature values.
+
+    Missingness is detected from the current raw input and from any persisted
+    ``*_missing_flag`` columns. The latter preserves missingness when training
+    artifacts already contain imputed feature values.
+    """
+    result = grouped_df.copy()
+
+    for feature in feature_names:
+        grouped_feature = get_base_feature_name(feature)
+        if grouped_feature not in result.columns:
+            continue
+
+        missing_mask = pd.Series(False, index=result.index)
+        if feature in raw_df.columns:
+            missing_mask |= (
+                raw_df[feature].isna().reindex(result.index, fill_value=False)
+            )
+
+        flag_name = f"{feature}_missing_flag"
+        for source in (missing_flags_df, raw_df):
+            if source is not None and flag_name in source.columns:
+                flag_values = source[flag_name].reindex(result.index, fill_value=False)
+                missing_mask |= flag_values.fillna(False).astype(bool)
+
+        if missing_mask.any():
+            result[grouped_feature] = result[grouped_feature].astype(object)
+            result.loc[missing_mask, grouped_feature] = "MISSING"
+
+    return result
+
+
 def create_color_hint_features(
     grouped_df: pd.DataFrame,
     original_dtypes: dict[str, t.Any],

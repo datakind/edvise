@@ -19,6 +19,8 @@ def get_students_with_max_target_term_in_dataset(
     student_id_cols: str | list[str] = "student_id",
     enrollment_intensity_col: str = "student_term_enrollment_intensity",
     term_rank_col: str = "term_rank",
+    term_is_core_col: str = "term_is_core",
+    academic_term_col: str = "academic_term",
 ) -> pd.DataFrame:
     """
     Get set of students in ``checkpoint`` data for which ``df`` includes
@@ -40,6 +42,8 @@ def get_students_with_max_target_term_in_dataset(
         max_term_rank: Maximum term rank value in the full dataset ``df`` , either inferred
             from ``df[term_rank_col]`` itself or as a manually specified value which
             may be different from the actual max value in ``df`` , depending on use case.
+            When ``"infer"``, only core terms (FALL/SPRING) count — a trailing SUMMER
+            cannot make a cohort labelable.
         num_terms_in_year: Number of academic terms in one academic year,
             used to convert from year-based time limits to term-based time limits;
             default value assumes FALL, WINTER, SPRING, and SUMMER terms.
@@ -48,9 +52,16 @@ def get_students_with_max_target_term_in_dataset(
             (usually either "FULL-TIME" or "PART-TIME"), for use in applying a time limit.
         term_rank_col: Column whose values give the absolute integer ranking of a given
             term within the full dataset ``df`` .
+        term_is_core_col: Boolean column identifying core terms (FALL/SPRING by default).
+        academic_term_col: Column with term season labels (FALL, SPRING, SUMMER, …).
     """
+    # Coverage must reach a core term; a trailing summer alone is never enough.
     if max_term_rank == "infer":
         max_term_rank = int(df[term_rank_col].max())
+        if term_is_core_col in df.columns:
+            core_ranks = df.loc[df[term_is_core_col].fillna(False), term_rank_col]
+            if not core_ranks.empty:
+                max_term_rank = int(core_ranks.max())
     assert isinstance(max_term_rank, int)  # type guard
 
     student_id_cols = utils.types.to_list(student_id_cols)
@@ -83,6 +94,17 @@ def get_students_with_max_target_term_in_dataset(
                 - 1.0
             )
         )
+    # Season corrections on top of caller budgets (callers already apply 4-term -1):
+    # - 3-term FALL → SPRING (-1); Spring is enough — no later Fall required
+    # - 4-term SUMMER/WINTER: undo blanket -1 (Summer already lands on Spring; Winter→Fall)
+    if academic_term_col in df_ckpt.columns:
+        season = df_ckpt[academic_term_col].astype("string").str.upper()
+        if num_terms_in_year == 3:
+            df_ckpt.loc[season.eq("FALL"), "student_max_term_rank"] -= 1.0
+        elif num_terms_in_year == 4:
+            df_ckpt.loc[season.isin(["SUMMER", "WINTER"]), "student_max_term_rank"] += (
+                1.0
+            )
     df_out = (
         df_ckpt.loc[
             df_ckpt["student_max_term_rank"].le(max_term_rank),
