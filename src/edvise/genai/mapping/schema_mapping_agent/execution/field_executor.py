@@ -34,7 +34,7 @@ import json
 import logging
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Callable, Optional, Type
+from typing import Any, Callable, Optional, Type, cast
 
 import pandas as pd
 
@@ -952,7 +952,9 @@ def _load_sma_transform_hook_function(
             "(run materialize_hook_specs_to_file before execution)."
         )
     if not hook_spec.functions:
-        raise ExecutionError(f"hook_spec for '{hook_spec.file}' has no functions to load")
+        raise ExecutionError(
+            f"hook_spec for '{hook_spec.file}' has no functions to load"
+        )
 
     path = resolve_hook_module_path(hook_spec.file, root=modules_root)
     module = module_cache.get(path)
@@ -970,7 +972,7 @@ def _load_sma_transform_hook_function(
     fn = getattr(module, fn_name, None)
     if not callable(fn):
         raise ExecutionError(f"Module {path} missing callable {fn_name!r}")
-    return fn
+    return cast(Callable[[pd.Series], pd.Series], fn)
 
 
 # =============================================================================

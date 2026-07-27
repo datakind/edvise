@@ -129,7 +129,7 @@ def _hook_preview_row(*, target_field: str, entity_type: str) -> dict:
                 {
                     "name": f"transform_{entity_type}_{target_field}",
                     "description": "generated",
-                    "draft": f'def transform_{entity_type}_{target_field}(s):\n    return s\n',
+                    "draft": f"def transform_{entity_type}_{target_field}(s):\n    return s\n",
                 }
             ],
         },

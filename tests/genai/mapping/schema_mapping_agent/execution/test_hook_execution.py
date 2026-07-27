@@ -33,11 +33,14 @@ from edvise.genai.mapping.schema_mapping_agent.transformation.schemas import (
     FieldTransformationPlan,
     TransformationMap,
 )
-from edvise.genai.mapping.shared.hitl.hook_spec.schemas import HookFunctionSpec, HookSpec
+from edvise.genai.mapping.shared.hitl.hook_spec.schemas import (
+    HookFunctionSpec,
+    HookSpec,
+)
 
 HOOK_MODULE_RELPATH = "transform_hooks.py"
 
-PREFIX_HOOK_DRAFT = '''def transform_course_course_prefix(s: "pd.Series") -> "pd.Series":
+PREFIX_HOOK_DRAFT = """def transform_course_course_prefix(s: "pd.Series") -> "pd.Series":
     import pandas as pd
     import re
 
@@ -48,7 +51,7 @@ PREFIX_HOOK_DRAFT = '''def transform_course_course_prefix(s: "pd.Series") -> "pd
         return match.group(1).upper() if match else None
 
     return s.apply(extract_alpha_prefix).astype("string")
-'''
+"""
 
 
 def _manifest(course_number_source: str = "course_number") -> FieldMappingManifest:
@@ -127,7 +130,9 @@ def test_hook_required_without_hook_spec_raises_on_gap(tmp_path: Path) -> None:
         target_schema="RawEdviseCourseDataSchema",
         plans=[
             FieldTransformationPlan(target_field="course_id", steps=[]),
-            FieldTransformationPlan(target_field="course_prefix", steps=[], hook_required=True),
+            FieldTransformationPlan(
+                target_field="course_prefix", steps=[], hook_required=True
+            ),
         ],
     )
     with pytest.raises(ExecutionGapError):
@@ -228,7 +233,9 @@ def test_hook_missing_on_disk_raises_execution_error(tmp_path: Path) -> None:
     """hook_spec points at a module that was never materialized — a real bug, not a soft gap."""
     hook_spec = HookSpec(
         file=HOOK_MODULE_RELPATH,
-        functions=[HookFunctionSpec(name="transform_course_course_prefix", description="x")],
+        functions=[
+            HookFunctionSpec(name="transform_course_course_prefix", description="x")
+        ],
     )
     tm = TransformationMap(
         institution_id="test_inst",
@@ -257,8 +264,7 @@ def test_hook_missing_on_disk_raises_execution_error(tmp_path: Path) -> None:
 
 def test_hook_returning_non_series_raises_execution_error(tmp_path: Path) -> None:
     bad_draft = (
-        'def transform_course_course_prefix(s: "pd.Series"):\n'
-        "    return list(s)\n"
+        'def transform_course_course_prefix(s: "pd.Series"):\n    return list(s)\n'
     )
     _materialize(tmp_path, bad_draft)
     hook_spec = HookSpec(
