@@ -10,6 +10,7 @@ from pydantic import Field, field_validator, model_validator
 from edvise.genai.mapping.shared.hitl.confidence import (
     PIPELINE_HITL_CONFIDENCE_THRESHOLD,
 )
+from edvise.genai.mapping.shared.hitl.hook_spec.schemas import HookSpec
 from edvise.genai.mapping.shared.pipeline_artifacts import default_pipeline_version
 
 from ..manifest.schemas import (
@@ -455,7 +456,20 @@ class FieldTransformationPlan(StrictBaseModel):
             "a built-in transform). Include a full explanation in reviewer_notes: what "
             "transformation is needed, what was attempted, and why no existing utility covers it. "
             "hook_required is a plan-level flag — not a step type. steps may be empty or contain "
-            "a best-effort partial chain."
+            "a best-effort partial chain. Omit hook_spec here — the pipeline attaches it after "
+            "hook generation/materialization (see FieldTransformationPlan.hook_spec)."
+        ),
+    )
+    hook_spec: Optional[HookSpec] = Field(
+        default=None,
+        description=(
+            "Pipeline-populated (never set by the agent): points to the materialized "
+            "transform_hooks.py function that implements this field's custom Series -> Series "
+            "logic, attached after generate_sma_transform_hook_spec/materialize_hook_specs_to_file "
+            "run for a hook_required plan. When present, the field executor dynamically imports "
+            "hook_spec.file and calls hook_spec.functions[0].name on the resolved source Series "
+            "instead of treating the plan as an execution gap. Null while the hook is still "
+            "pending generation/approval."
         ),
     )
     flagged_steps: Optional[List[FlaggedStep]] = Field(
@@ -489,6 +503,10 @@ class FieldTransformationPlan(StrictBaseModel):
                 raise ValueError(
                     "hitl_options must be omitted (null) when hook_required is true"
                 )
+        if self.hook_spec is not None and self.hook_required is not True:
+            raise ValueError(
+                "hook_spec must be omitted (null) unless hook_required is true"
+            )
 
         if (
             self.confidence is not None

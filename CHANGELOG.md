@@ -1,3 +1,11 @@
+## 1.7.1 (2026-07-27)
+- docs: update README.md (#225)
+- fix(genai): wire materialized SMA transform hooks into field executor (#243)
+- docs: add CLAUDE.md (#244)
+
+## 1.7.0 (2026-07-27)
+- feat: inference pipeline version compatibility for PDP schools (#231)
+
 ## 1.6.0 (2026-07-23)
 - fix: ensure imputed values display as "MISSING" in inference & advisor outputs (#221)
 - fix(genai): set SMA grain resolution task as Claude Haiku's (#234)
