@@ -1,0 +1,10 @@
+{
+  "parameter_aliases": {
+    "cohort_filename": "datasets.cohort",
+    "cohort_file_name": "datasets.cohort",
+    "course_filename": "datasets.course",
+    "course_file_name": "datasets.course",
+    "bucket_name": "outputs.bucket",
+    "gcp_bucket_name": "outputs.bucket"
+  }
+}
