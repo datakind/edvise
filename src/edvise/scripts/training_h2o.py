@@ -613,7 +613,10 @@ class TrainingTask:
 
         try:
             out = run_predictions(
-                pred_cfg=cfg, pred_paths=paths, run_type=RunType.TRAIN
+                pred_cfg=cfg,
+                pred_paths=paths,
+                run_type=RunType.TRAIN,
+                df_modeling=df_modeling,
             )
 
             # write gold artifacts
