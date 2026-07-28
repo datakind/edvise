@@ -11,6 +11,19 @@ from edvise.utils import types
 
 LOGGER = logging.getLogger(__name__)
 
+# Runtime duplicate key for ES course cleaning (not Pandera / GenAI grain contracts).
+# ``course_section_id`` is aliased to ``section_id`` when needed.
+DEFAULT_EDVISE_SCHEMA_DUP_KEY_COLS: tuple[str, ...] = (
+    "student_id",
+    "academic_term",
+    "course_prefix",
+    "course_number",
+    "section_id",
+)
+
+# Omit ``section_id`` from the runtime dup key when missing or null_frac > this.
+MAX_SECTION_ID_NULL_FRACTION_FOR_DUP_KEY = 0.75
+
 RE_VARIOUS_PUNCTS = re.compile(r"[!()*+\,\-./:;<=>?[\]^_{|}~]")
 RE_QUOTATION_MARKS = re.compile(r"[\'\"\`]")
 
@@ -575,162 +588,145 @@ def _infer_student_id_col(df: pd.DataFrame) -> str:
 
 def _is_lab_lecture_combo(s: pd.Series) -> bool:
     """Check if a series contains both Lab and Lecture course types (case-insensitive)."""
-    LAB_LABELS = {"lab"}
-    LEC_LABELS = {"lecture"}
     types = set(s.dropna().astype(str).str.lower())
-    return bool(types & LAB_LABELS) and bool(types & LEC_LABELS)
+    return bool(types & {"lab"}) and bool(types & {"lecture"})
 
 
-def _find_pdp_rows_to_renumber(
-    df: pd.DataFrame, dup_mask: pd.Series, unique_cols: list[str]
-) -> list[int]:
-    """Identify PDP duplicate rows that need renumbering (different course_name)."""
-    to_renumber = []
-    for _, idx in df.loc[dup_mask].groupby(unique_cols, dropna=False).groups.items():
-        idx = list(idx)
-        if len(idx) <= 1:
-            continue
-        names = df.loc[idx, "course_name"]
-        if names.nunique(dropna=False) > 1:
-            to_renumber.extend(idx)
-    return to_renumber
-
-
-def _log_pdp_duplicate_drop(df: pd.DataFrame, dup_mask: pd.Series) -> None:
-    """Log information about true duplicate rows being dropped in PDP mode."""
-    dupe_rows = df.loc[dup_mask, :]
-    pct_dup = (len(dupe_rows) / len(df)) * 100 if len(df) else 0.0
-    if pct_dup < 0.1:
-        LOGGER.warning(
-            " ⚠️ %s (<0.1 percent of data) true duplicate rows found & dropped",
-            len(dupe_rows) // 2,
-        )
-    else:
-        LOGGER.warning(
-            "  ⚠️ %s (%.1f%% of data) true duplicate rows found & dropped",
-            len(dupe_rows) // 2,
-            pct_dup,
-        )
-
-
-def _handle_pdp_duplicates(df: pd.DataFrame) -> pd.DataFrame:
-    """Handle duplicates for PDP mode."""
-    student_id_col = _infer_student_id_col(df)
-    LOGGER.info("handle_duplicates: PDP mode triggered")
-
-    unique_cols = [
-        student_id_col,
-        "academic_year",
-        "academic_term",
-        "course_prefix",
-        "course_number",
-        "section_id",
-    ]
-
-    dup_mask = df.duplicated(unique_cols, keep=False)
-
-    if dup_mask.any() and "course_name" in df.columns:
-        to_renumber = _find_pdp_rows_to_renumber(df, dup_mask, unique_cols)
-
-        if to_renumber:
-            dup_info_before = df.loc[
-                to_renumber, ["course_prefix", "course_name", "course_number"]
-            ]
-            LOGGER.info(f"Renumbering these duplicates (before):\n{dup_info_before}")
-
-            df = dedupe_by_renumbering_courses(df)
-
-            dup_info_after = df.loc[
-                to_renumber, ["course_prefix", "course_name", "course_number"]
-            ]
-            LOGGER.info(f"Renumbering these duplicates (after):\n{dup_info_after}")
-
-            return df
-
-    # true duplicates -> drop (original behavior)
-    _log_pdp_duplicate_drop(df, dup_mask)
-
-    df = df.drop_duplicates(subset=unique_cols, keep="first").sort_values(
-        by=unique_cols + ["number_of_credits_attempted"],
-        ascending=False,
-        ignore_index=True,
-    )
+def _ensure_section_id_column(df: pd.DataFrame) -> pd.DataFrame:
+    """Alias ``course_section_id`` → ``section_id`` when only the ES name is present."""
+    if "section_id" not in df.columns and "course_section_id" in df.columns:
+        df = df.copy()
+        df["section_id"] = df["course_section_id"]
     return df
+
+
+def _omit_section_from_dup_key_if_unusable(
+    df: pd.DataFrame, unique_cols: list[str]
+) -> list[str]:
+    """
+    Drop ``section_id`` from the runtime duplicate key when missing or when the
+    null fraction is strictly greater than
+    :data:`MAX_SECTION_ID_NULL_FRACTION_FOR_DUP_KEY`.
+    """
+    if "section_id" not in unique_cols:
+        return unique_cols
+    if "section_id" not in df.columns:
+        LOGGER.warning("section_id missing; duplicate-key omits section.")
+        return [c for c in unique_cols if c != "section_id"]
+    n = len(df)
+    if n == 0:
+        return [c for c in unique_cols if c != "section_id"]
+    null_frac = float(df["section_id"].isna().sum()) / n
+    if null_frac > MAX_SECTION_ID_NULL_FRACTION_FOR_DUP_KEY:
+        LOGGER.warning(
+            "section_id is %.1f%% null (threshold %.1f%%); duplicate-key omits section.",
+            100.0 * null_frac,
+            100.0 * MAX_SECTION_ID_NULL_FRACTION_FOR_DUP_KEY,
+        )
+        return [c for c in unique_cols if c != "section_id"]
+    return unique_cols
+
+
+def _resolve_runtime_dup_key(
+    df: pd.DataFrame, unique_cols: list[str]
+) -> tuple[pd.DataFrame, list[str]]:
+    """Normalize section column naming, then optionally omit unusable section_id."""
+    df = _ensure_section_id_column(df)
+    return df, _omit_section_from_dup_key_if_unusable(df, list(unique_cols))
+
+
+def _dup_group_field_varies(grp: pd.DataFrame, col: str | None) -> bool:
+    return bool(
+        col is not None and col in grp.columns and grp[col].nunique(dropna=False) > 1
+    )
+
+
+def _material_duplicate_group_differs(
+    grp: pd.DataFrame,
+    *,
+    course_type_col: str | None,
+    course_name_col: str | None,
+    credits_col: str | None,
+    credits_earned_col: str | None,
+    grade_col: str | None,
+) -> bool:
+    """
+    True when rows disagree on enrollment fields that warrant keeping all rows
+    (via course_number suffixing): type/classification, name, credits, or grade.
+    """
+    return (
+        _dup_group_field_varies(grp, course_type_col)
+        or _dup_group_field_varies(grp, course_name_col)
+        or _dup_group_field_varies(grp, credits_col)
+        or _dup_group_field_varies(grp, credits_earned_col)
+        or _dup_group_field_varies(grp, grade_col)
+    )
 
 
 def _log_duplicate_groups(
     duplicate_rows: pd.DataFrame,
-    unique_cols: list[str] = [
-        "student_id",
-        "academic_term",
-        "course_prefix",
-        "course_number",
-    ],
+    unique_cols: list[str] | None = None,
     course_type_col: str | None = "course_classification",
     course_name_col: str | None = "course_name",
 ) -> None:
     """Log detailed breakdown of duplicate course groups."""
+    if unique_cols is None:
+        unique_cols = list(DEFAULT_EDVISE_SCHEMA_DUP_KEY_COLS)
     LOGGER.info("Duplicate Course Groups (course_type / course_name breakdown)")
-    if len(duplicate_rows) == 0:
+    if duplicate_rows.empty:
         LOGGER.info("No duplicate course groups remain.")
         return
 
     for key_vals, group in duplicate_rows.groupby(
         unique_cols, observed=True, dropna=False
     ):
-        sid, term, subj, num = key_vals
+        key_tup = key_vals if isinstance(key_vals, tuple) else (key_vals,)
+        key_str = " ".join(str(v) for v in key_tup)
         parts = []
-        if course_type_col is not None:
+        if course_type_col is not None and course_type_col in group.columns:
             type_counts = group[course_type_col].fillna("UNKNOWN").value_counts()
             parts.append(
                 "type: " + ", ".join(f"{c}×{t}" for t, c in type_counts.items())
             )
-        if course_name_col is not None:
+        if course_name_col is not None and course_name_col in group.columns:
             name_counts = group[course_name_col].fillna("UNKNOWN").value_counts()
             parts.append(
                 "name: " + ", ".join(f"{c}×{n}" for n, c in name_counts.items())
             )
         extra = (" | " + " | ".join(parts)) if parts else ""
-        LOGGER.info(f"  {sid} {term} {subj} {num}{extra}")
+        LOGGER.info("  %s%s", key_str, extra)
 
 
 def _classify_duplicate_groups(
     duplicate_rows: pd.DataFrame,
-    unique_cols: list[str] = [
-        "student_id",
-        "academic_term",
-        "course_prefix",
-        "course_number",
-    ],
+    unique_cols: list[str] | None = None,
     course_type_col: str | None = "course_classification",
     course_name_col: str | None = "course_name",
     credits_col: str | None = "course_credits_attempted",
+    *,
+    grade_col: str | None = None,
+    credits_earned_col: str | None = None,
 ) -> tuple[list[int], list[int], int, int, int]:
-    """
-    Classify duplicate groups into renumber vs drop categories.
-
-    Returns:
-        Tuple of (renumber_idx, drop_idx, renumber_groups, drop_groups, lab_lecture_rows)
-    """
+    """Renumber when material fields differ; otherwise drop extras (keep first)."""
+    if unique_cols is None:
+        unique_cols = list(DEFAULT_EDVISE_SCHEMA_DUP_KEY_COLS)
+    unique_cols = [c for c in unique_cols if c in duplicate_rows.columns]
     renumber_groups = 0
     drop_groups = 0
-    renumber_work_idx = []
-    drop_idx = []
+    renumber_work_idx: list[int] = []
+    drop_idx: list[int] = []
     lab_lecture_rows = 0
+    section_in_key = "section_id" in unique_cols
 
     for _, grp in duplicate_rows.groupby(unique_cols, observed=True, dropna=False):
-        type_varies = (
-            grp[course_type_col].nunique(dropna=False) > 1
-            if course_type_col is not None
-            else False
+        must_renumber = _material_duplicate_group_differs(
+            grp,
+            course_type_col=course_type_col,
+            course_name_col=course_name_col,
+            credits_col=credits_col,
+            credits_earned_col=credits_earned_col,
+            grade_col=grade_col,
         )
-        name_varies = (
-            grp[course_name_col].nunique(dropna=False) > 1
-            if course_name_col is not None
-            else False
-        )
-        must_renumber = type_varies or name_varies
-
         if must_renumber:
             renumber_groups += 1
             renumber_work_idx.extend(list(grp.index))
@@ -738,28 +734,22 @@ def _classify_duplicate_groups(
                 grp[course_type_col]
             ):
                 lab_lecture_rows += len(grp)
+            # Same non-null section + material disagreement is uncommon; keep rows
+            # but surface for data-quality review (may be true duplicates with
+            # conflicting measures, or distinct enrollments missing section grain).
+            if section_in_key and "section_id" in grp.columns:
+                sec = grp["section_id"]
+                if sec.notna().all() and sec.nunique(dropna=False) == 1:
+                    LOGGER.warning(
+                        "Renumbering %s rows that share section_id=%s but differ on "
+                        "type/name/credits/grade; confirm source quality.",
+                        len(grp),
+                        sec.iloc[0],
+                    )
         else:
             drop_groups += 1
-
-            grp_sorted = grp
-
-            # Build sort keys (descending)
-            sort_cols: list[str] = []
-            ascending: list[bool] = []
-
-            if credits_col is not None and credits_col in grp_sorted.columns:
-                sort_cols.append(credits_col)
-                ascending.append(False)
-
-            if sort_cols:
-                grp_sorted = grp_sorted.sort_values(
-                    by=sort_cols,
-                    ascending=ascending,
-                    kind="mergesort",  # stable: preserves original order on ties
-                )
-
-            keep_one = grp_sorted.index[0]
-            drop_idx.extend([i for i in grp_sorted.index if i != keep_one])
+            keep_one = grp.index[0]
+            drop_idx.extend(i for i in grp.index if i != keep_one)
 
     return (
         renumber_work_idx,
@@ -775,17 +765,12 @@ def _drop_true_duplicate_rows(df: pd.DataFrame, drop_idx: list[int]) -> pd.DataF
     dropped_rows = len(drop_idx)
     if dropped_rows > 0:
         pct_dropped = (dropped_rows / len(df)) * 100 if len(df) else 0.0
-        if pct_dropped < 0.1:
-            LOGGER.warning(
-                "⚠️ Dropping %s rows (<0.1%% of data) from duplicate-key groups (keeping best row per key)",
-                dropped_rows,
-            )
-        else:
-            LOGGER.warning(
-                "⚠️ Dropping %s rows (%.2f%% of data) from duplicate-key groups (keeping best row per key)",
-                dropped_rows,
-                pct_dropped,
-            )
+        LOGGER.warning(
+            "⚠️ Dropping %s rows (%.2f%% of data) from duplicate-key groups "
+            "(keeping one row per key)",
+            dropped_rows,
+            pct_dropped,
+        )
         df = df.drop(index=drop_idx)
     return df
 
@@ -798,25 +783,28 @@ def _renumber_duplicates(
     course_type_col: str | None = "course_classification",
     course_name_col: str | None = "course_name",
 ) -> pd.DataFrame:
-    """Renumber duplicate courses for schema mode."""
+    """Suffix ``course_number`` within duplicate-key groups (first row unchanged)."""
     if unique_cols is None:
-        unique_cols = ["student_id", "academic_term", "course_prefix", "course_number"]
-
-    if not renumber_work_idx:
-        return df
+        unique_cols = list(DEFAULT_EDVISE_SCHEMA_DUP_KEY_COLS)
+    unique_cols = [c for c in unique_cols if c in df.columns]
+    if not unique_cols:
+        raise ValueError("renumber_duplicates: none of unique_cols are present on df")
 
     renumber_work_idx = [i for i in renumber_work_idx if i in df.index]
     if not renumber_work_idx:
         return df
 
-    cols_to_show = ["course_prefix", "course_number"]
-    if course_type_col is not None:
-        cols_to_show.append(course_type_col)
-    if course_name_col is not None:
-        cols_to_show.append(course_name_col)
-    if credits_col is not None:
-        cols_to_show.append(credits_col)
-
+    cols_to_show = [
+        c
+        for c in (
+            "course_prefix",
+            "course_number",
+            course_type_col,
+            course_name_col,
+            credits_col,
+        )
+        if c is not None and c in df.columns
+    ]
     LOGGER.info(
         "Renumbering duplicates (before) [showing up to 50 rows]:\n%s",
         df.loc[renumber_work_idx, cols_to_show]
@@ -824,20 +812,10 @@ def _renumber_duplicates(
         .head(50),
     )
 
-    # Work only on rows we intend to renumber
     work = df.loc[renumber_work_idx].copy()
-
-    # Optional: if you want credits to influence -1/-2 ordering and schema credits
-    # aren't already in number_of_credits_attempted
     if credits_col is not None and "number_of_credits_attempted" not in work.columns:
         work["number_of_credits_attempted"] = work[credits_col]
-
-    work = dedupe_by_renumbering_courses(
-        work,
-        unique_cols=unique_cols,
-    )
-
-    # Update only affected rows
+    work = dedupe_by_renumbering_courses(work, unique_cols=unique_cols)
     df.loc[renumber_work_idx, "course_number"] = work["course_number"].astype("string")
 
     LOGGER.info(
@@ -846,8 +824,55 @@ def _renumber_duplicates(
         .sort_values(["course_prefix", "course_number"], kind="mergesort")
         .head(50),
     )
-
     return df
+
+
+def _apply_key_duplicate_resolution(
+    df: pd.DataFrame,
+    unique_cols: list[str],
+    *,
+    course_type_col: str | None,
+    course_name_col: str | None,
+    credits_col: str | None,
+    credits_earned_col: str | None = None,
+    grade_col: str | None = None,
+) -> tuple[pd.DataFrame, list[int], list[int], int, int, int, pd.DataFrame]:
+    """Classify key-dupes, drop non-material extras, renumber material collisions."""
+    dup_mask = df.duplicated(unique_cols, keep=False)
+    duplicate_rows = df.loc[dup_mask]
+    (
+        renumber_work_idx,
+        drop_idx,
+        renumber_groups,
+        drop_groups,
+        lab_lecture_rows,
+    ) = _classify_duplicate_groups(
+        duplicate_rows,
+        unique_cols,
+        course_type_col,
+        course_name_col,
+        credits_col,
+        grade_col=grade_col,
+        credits_earned_col=credits_earned_col,
+    )
+    df = _drop_true_duplicate_rows(df, drop_idx)
+    df = _renumber_duplicates(
+        df,
+        renumber_work_idx,
+        unique_cols,
+        credits_col,
+        course_type_col,
+        course_name_col,
+    )
+    return (
+        df,
+        renumber_work_idx,
+        drop_idx,
+        renumber_groups,
+        drop_groups,
+        lab_lecture_rows,
+        duplicate_rows,
+    )
 
 
 def _log_schema_summary(
@@ -868,38 +893,31 @@ def _log_schema_summary(
     unique_cols: list[str],
 ) -> None:
     LOGGER.info("COURSE RECORD DUPLICATE SUMMARY (edvise schema)")
-
     LOGGER.info(
         "Before cleanup: %s records, %s duplicate-key rows (%.2f%%)",
         total_before,
         initial_dup_rows,
         initial_dup_pct,
     )
-
-    total_removed = total_before - total_after
     LOGGER.info(
         "Rows removed: %s total (exact-identical=%s, keeper-drop=%s) | Rows renumbered: %s",
-        total_removed,
+        total_before - total_after,
         exact_dupes_dropped,
         keeper_dropped_rows,
         renumbered_rows,
     )
-
     if course_type_col is not None:
         LOGGER.info(
             "Lab/lecture duplicates within renumbered rows: %s (%.2f%%)",
             lab_lecture_rows,
             lab_lecture_pct,
         )
-
     LOGGER.info("Duplicate groups renumbered: %s", renumber_groups)
-
     LOGGER.info(
         "After cleanup: %s records | Remaining key-duplicates: %s",
         total_after,
         final_dupe_rows,
     )
-
     if not duplicate_rows.empty:
         LOGGER.info("")
         LOGGER.info("Duplicate group breakdown (post exact-dedup, pre-resolution):")
@@ -909,8 +927,57 @@ def _log_schema_summary(
             course_type_col=course_type_col,
             course_name_col=course_name_col,
         )
-
     LOGGER.info("")
+
+
+def _handle_pdp_duplicates(df: pd.DataFrame) -> pd.DataFrame:
+    """Handle duplicates for PDP mode (runtime key; Pandera schema unchanged)."""
+    LOGGER.info("handle_duplicates: PDP mode triggered")
+    base_key = [
+        _infer_student_id_col(df),
+        "academic_year",
+        "academic_term",
+        "course_prefix",
+        "course_number",
+        "section_id",
+    ]
+    df, unique_cols = _resolve_runtime_dup_key(df, base_key)
+
+    course_type_col = validate_optional_column(
+        df, "course_type", "course_type", logger=LOGGER
+    )
+    course_name_col = validate_optional_column(
+        df, "course_name", "course_name", logger=LOGGER
+    )
+    credits_attempted_col = validate_optional_column(
+        df, "number_of_credits_attempted", "credits attempted", logger=LOGGER
+    )
+    credits_earned_col = validate_optional_column(
+        df, "number_of_credits_earned", "credits earned", logger=LOGGER
+    )
+    grade_col = validate_optional_column(df, "grade", "grade", logger=LOGGER)
+
+    df, *_rest = _apply_key_duplicate_resolution(
+        df,
+        unique_cols,
+        course_type_col=course_type_col,
+        course_name_col=course_name_col,
+        credits_col=credits_attempted_col,
+        credits_earned_col=credits_earned_col,
+        grade_col=grade_col,
+    )
+
+    sort_extra = (
+        [credits_attempted_col]
+        if credits_attempted_col and credits_attempted_col in df.columns
+        else []
+    )
+    return df.sort_values(
+        by=unique_cols + sort_extra,
+        ascending=[True] * len(unique_cols) + [False] * len(sort_extra),
+        ignore_index=True,
+        kind="mergesort",
+    )
 
 
 def _handle_schema_duplicates(
@@ -920,14 +987,24 @@ def _handle_schema_duplicates(
     course_type_col: str | None = "course_classification",
     course_name_col: str | None = "course_name",
 ) -> pd.DataFrame:
-    """Handle duplicates for Edvise schema mode."""
+    """
+    Handle duplicates for Edvise schema mode.
+
+    GenAI IA/SMA remains the source of truth for mapped institutions; this path
+    is the shared cleaner for ES frames that still call ``handling_duplicates``.
+    """
     LOGGER.info("handle_duplicates: edvise schema mode triggered")
-
-    # Set defaults for unique_cols
     if unique_cols is None:
-        unique_cols = ["student_id", "academic_term", "course_prefix", "course_number"]
+        unique_cols = list(DEFAULT_EDVISE_SCHEMA_DUP_KEY_COLS)
+    df, unique_cols = _resolve_runtime_dup_key(df, unique_cols)
 
-    # Validate optional columns; set to None if missing
+    missing_key = [c for c in unique_cols if c not in df.columns]
+    if missing_key:
+        raise ValueError(
+            "Edvise duplicate-key columns missing from dataframe: "
+            + ", ".join(missing_key)
+        )
+
     course_type_col = validate_optional_column(
         df, course_type_col, "course_type", logger=LOGGER
     )
@@ -935,120 +1012,87 @@ def _handle_schema_duplicates(
         df, course_name_col, "course_name", logger=LOGGER
     )
     credits_col = validate_optional_column(df, credits_col, "credits", logger=LOGGER)
+    credits_earned_col = validate_optional_column(
+        df, "course_credits_earned", "credits earned", logger=LOGGER
+    )
+    grade_col = validate_optional_column(df, "grade", "grade", logger=LOGGER)
 
     total_before = len(df)
-
-    # Key-based duplicates BEFORE removing exact dupes
-    initial_dupes_mask = df.duplicated(unique_cols, keep=False)
-    initial_dup_rows = int(initial_dupes_mask.sum())
+    initial_dup_rows = int(df.duplicated(unique_cols, keep=False).sum())
     initial_dup_pct = (initial_dup_rows / total_before * 100) if total_before else 0.0
 
-    # Drop exact duplicates (fully identical rows)
     before_drop = len(df)
-    df = df.drop_duplicates(keep="first")
-    after_drop = len(df)
-    true_dupes_dropped = before_drop - after_drop
+    df = df.drop_duplicates(keep="first").copy()
+    true_dupes_dropped = before_drop - len(df)
 
-    # Remaining duplicates (key-based)
-    dupes_mask = df.duplicated(unique_cols, keep=False)
-    duplicate_rows = df.loc[dupes_mask]
-    # Classify duplicates: renumber vs drop
     (
+        df,
         renumber_work_idx,
         drop_idx,
         renumber_groups,
-        drop_groups,
+        _drop_groups,
         lab_lecture_rows,
-    ) = _classify_duplicate_groups(
         duplicate_rows,
-        unique_cols,
-        course_type_col,
-        course_name_col,
-        credits_col,
-    )
-
-    # Drop rows from duplicate-key groups (keeper logic)
-    dropped_rows = len(drop_idx)
-    df = _drop_true_duplicate_rows(df, drop_idx)
-
-    # Renumber duplicates
-    df = _renumber_duplicates(
+    ) = _apply_key_duplicate_resolution(
         df,
-        renumber_work_idx,
         unique_cols,
-        credits_col,
-        course_type_col,
-        course_name_col,
+        course_type_col=course_type_col,
+        course_name_col=course_name_col,
+        credits_col=credits_col,
+        credits_earned_col=credits_earned_col,
+        grade_col=grade_col,
     )
 
-    # Build course_id (always in schema mode)
     df["course_id"] = (
         df["course_prefix"].astype("string").str.strip()
         + df["course_number"].astype("string").str.strip()
     )
 
-    # Calculate summary statistics
     total_after = len(df)
-    final_dupe_rows = int(df.duplicated(unique_cols, keep=False).sum())
     renumbered_rows = len(set(renumber_work_idx)) if renumber_work_idx else 0
     lab_lecture_pct = (
         (lab_lecture_rows / renumbered_rows * 100) if renumbered_rows else 0.0
     )
-
-    # Log summary (NOW everything exists)
     _log_schema_summary(
         total_before,
         initial_dup_rows,
         initial_dup_pct,
-        true_dupes_dropped,  # exact-identical
-        dropped_rows,  # keeper-drop
+        true_dupes_dropped,
+        len(drop_idx),
         renumbered_rows,
         lab_lecture_rows,
         lab_lecture_pct,
         renumber_groups,
-        final_dupe_rows,
+        int(df.duplicated(unique_cols, keep=False).sum()),
         total_after,
         course_type_col,
         course_name_col,
         duplicate_rows,
         unique_cols,
     )
-
     return df
 
 
 def handling_duplicates(
     df: pd.DataFrame,
     schema_type: str,
-    unique_cols: list[str] | None = [
-        "student_id",
-        "academic_term",
-        "course_prefix",
-        "course_number",
-    ],
+    unique_cols: list[str] | None = None,
     credits_col: str | None = "course_credits_attempted",
     course_type_col: str | None = "course_classification",
     course_name_col: str | None = "course_name",
 ) -> pd.DataFrame:
     """
-    Combined duplicate handling with a schema_type switch.
+    PDP / Edvise-schema course duplicate handling (runtime cleaning only).
 
-    PDP mode: keep logic as close as possible to original `handling_duplicates`:
-      - infer student_id_col
-      - unique_cols = [student_id_col, "academic_year", "academic_term",
-                      "course_prefix", "course_number", "section_id"]
-      - if duplicate-key rows have DIFFERENT course_name -> renumber via dedupe_by_renumbering_courses()
-      - else -> drop true dupes with warning logging similar to original
+    Does **not** change Pandera schema uniqueness or GenAI grain contracts.
 
-    Edvise schema mode: based on `handle_duplicates`, but with "handling_duplicates"-style logic:
-      - unique_cols = ["student_id", "academic_term", "course_prefix", "course_number"]
-      - drop exact duplicates first
-      - for remaining key-dupes:
-          * if differ by course_type OR course_name -> KEEP ALL and renumber course_number
-            like original handle_duplicates: FIRST stays unchanged, others get -01, -02, ...
-          * else -> drop true dupes keeping max credits (if available)
-      - build course_id = course_prefix + course_number
-      - include handle_duplicates-style summary logging + breakdown
+    Shared rule: within a duplicate key, **suffix** ``course_number`` when
+    type/classification, name, credits (attempted/earned), or grade disagree;
+    otherwise keep the first row and drop extras.
+
+    Runtime key includes ``section_id`` when usable (null fraction ≤
+    :data:`MAX_SECTION_ID_NULL_FRACTION_FOR_DUP_KEY`). ES accepts
+    ``course_section_id`` as an alias. PDP also includes ``academic_year``.
     """
     df = df.copy()
     schema_type = (schema_type or "").strip().lower()
@@ -1059,14 +1103,13 @@ def handling_duplicates(
 
     if schema_type == "pdp":
         return _handle_pdp_duplicates(df)
-    else:
-        return _handle_schema_duplicates(
-            df,
-            unique_cols,
-            credits_col,
-            course_type_col,
-            course_name_col,
-        )
+    return _handle_schema_duplicates(
+        df,
+        unique_cols,
+        credits_col,
+        course_type_col,
+        course_name_col,
+    )
 
 
 # Completed letter grades (includes E if present)

@@ -163,6 +163,28 @@ def test_equal_cols_by_group(df, grp_cols, exp):
                 }
             ),
         ),
+        (
+            pd.DataFrame(
+                {
+                    "student_guid": ["123", "123", "123"],
+                    "term_id": [
+                        "23-24 FALL",
+                        "23-24 FALL",
+                        "23-24 SPRING",
+                    ],
+                    "course_id": ["ENG101", "ENG101-1", "ENG101"],
+                }
+            ),
+            ["student_guid", "term_id"],
+            [("course_id", "ENG101")],
+            pd.DataFrame(
+                {
+                    "student_guid": ["123", "123"],
+                    "term_id": ["23-24 FALL", "23-24 SPRING"],
+                    "num_courses_course_id_ENG101": [2, 1],
+                }
+            ),
+        ),
     ],
 )
 def test_sum_val_equal_cols_by_group(df, grp_cols, agg_col_vals, exp):
