@@ -337,7 +337,7 @@ resources:
         - name: DB_workspace
           default: ${var.DB_workspace}
         - name: DK_CC_EMAIL
-          default: ${var.datakind_notification_email}
+          default: ""
         - name: config_file_name
           default: ${var.config_file_name}
         - name: ds_run_as
