@@ -324,6 +324,12 @@ def run_predictions(
     grouped_contribs_df, grouped_features = group_shap_and_features(
         contribs_df, features_df
     )
+    display_grouped_features = modeling.h2o_ml.inference.apply_missing_display_values(
+        grouped_df=grouped_features,
+        raw_df=df_test,
+        feature_names=imp.input_feature_names or model_feature_names,
+        missing_flags_df=features_df,
+    )
 
     log_shap_plot(
         contribs_df,
@@ -334,7 +340,7 @@ def run_predictions(
 
     # ----- Tables -----
     top_features_result = inference.select_top_features_for_display(
-        features=grouped_features,
+        features=display_grouped_features,
         unique_ids=unique_ids,
         predicted_probabilities=list(pred_probs),
         shap_values=grouped_contribs_df.to_numpy(),

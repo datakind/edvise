@@ -32,6 +32,7 @@ from hitl_reviewer.ui.sma.enriched_schema_contract import (
     enriched_schema_contract_path_from_manifest,
     extract_column_panel_fields,
     load_json_object_from_text,
+    visualize_value_whitespace,
 )
 from hitl_reviewer.platform.unity_volume_files import read_unity_file_text
 
@@ -381,14 +382,33 @@ def render_sma_source_column_panel(
         chips = panel.get("chip_values") or []
         mode = panel.get("chip_mode", "sample")
         if chips:
-            esc = "".join(
-                f'<span class="hitl-chip">{html.escape(str(v))[:200]}</span>'
-                for v in chips[:80]
-            )
+            any_padded = False
+            spans: list[str] = []
+            for v in chips[:80]:
+                display, had_padding = visualize_value_whitespace(v)
+                any_padded = any_padded or had_padding
+                cls = "hitl-chip hitl-chip-padded" if had_padding else "hitl-chip"
+                title = (
+                    "Source value has leading/trailing whitespace (e.g. a fixed-width "
+                    "source column) — shown here as \u00b7 so it isn't confused with the "
+                    "trimmed value."
+                    if had_padding
+                    else ""
+                )
+                spans.append(
+                    f'<span class="{cls}" title="{html.escape(title)}">'
+                    f"{html.escape(display)[:200]}</span>"
+                )
+            esc = "".join(spans)
             st.markdown(
                 f'<div class="hitl-chip-row" title="{html.escape(str(mode))}">{esc}</div>',
                 unsafe_allow_html=True,
             )
+            if any_padded:
+                st.caption(
+                    "\u00b7 marks leading/trailing whitespace present in the raw source "
+                    "value (not stripped — shown as-is)."
+                )
         else:
             st.caption("—")
 

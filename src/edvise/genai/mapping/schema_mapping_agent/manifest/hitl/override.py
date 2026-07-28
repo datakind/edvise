@@ -33,6 +33,8 @@ class ManifestMappingOverrideRequest:
     target_field: str
     corrected: FieldMappingRecord
     reviewer_notes: str | None = None
+    rationale: str | None = None
+    """Explicit rationale override — omit to preserve the original manifest rationale."""
 
 
 def unmapped_field_mapping_record(target_field: str) -> FieldMappingRecord:
@@ -99,11 +101,18 @@ def _parse_override_entry(raw: Any, *, index: int) -> ManifestMappingOverrideReq
     notes = str(reviewer_notes).strip() if reviewer_notes is not None else None
     if notes == "":
         notes = None
+
+    rationale = raw.get("rationale")
+    resolved_rationale = str(rationale).strip() if rationale is not None else None
+    if resolved_rationale == "":
+        resolved_rationale = None
+
     return ManifestMappingOverrideRequest(
         entity_type=entity_type,
         target_field=target_field,
         corrected=corrected,
         reviewer_notes=notes,
+        rationale=resolved_rationale,
     )
 
 
@@ -117,7 +126,8 @@ def load_overrides_json(path: str | Path) -> list[ManifestMappingOverrideRequest
           "entity_type": "cohort",
           "target_field": "learner_id",
           "correction": { ... FieldMappingRecord ... },
-          "reviewer_notes": "optional"
+          "reviewer_notes": "optional",
+          "rationale": "optional — rewrites rationale instead of preserving the original"
         }
 
     Or omit ``correction`` and set ``"unmap": true`` to leave the field unmapped.
@@ -179,6 +189,7 @@ def override_manifest_mappings(
             original_db_run_id=original_db_run_id,
             original_task_run_id=original_task_run_id,
             reviewer_notes=req.reviewer_notes,
+            rationale=req.rationale,
             institution_id=institution_id,
         )
     return len(overrides)
@@ -195,13 +206,15 @@ def override_manifest_mapping(
     original_db_run_id: str,
     original_task_run_id: str | None = None,
     reviewer_notes: str | None = None,
+    rationale: str | None = None,
     institution_id: str | None = None,
 ) -> None:
     """
     Apply a single manifest mapping override on local disk paths.
 
-    See :func:`apply_manifest_mapping_override` for merge semantics (original ``confidence`` and
-    ``rationale`` are preserved; ``review_status`` becomes ``corrected_by_override``).
+    See :func:`apply_manifest_mapping_override` for merge semantics (original ``confidence``
+    is always preserved; ``rationale`` is preserved unless an explicit ``rationale`` is
+    passed here; ``review_status`` becomes ``corrected_by_override``).
     """
     override_manifest_mappings(
         manifest_path,
@@ -215,6 +228,7 @@ def override_manifest_mapping(
                     else FieldMappingRecord.model_validate(corrected)
                 ),
                 reviewer_notes=reviewer_notes,
+                rationale=rationale,
             )
         ],
         override_log_path=override_log_path,
