@@ -1,3 +1,9 @@
+## 1.7.2 (2026-07-28)
+- fix(genai): auto-sort non-chronological season_map in term HITL UI (#237)
+- docs: move CLAUDE.md content to AGENTS.md (#247)
+- fix: pin CI service principal CAN_MANAGE on GenAI HITL app permissions (#248)
+- fix: make DK_CC_EMAIL optional for inference/training kickoff emails (#251)
+
 ## 1.7.1 (2026-07-27)
 - docs: update README.md (#225)
 - fix(genai): wire materialized SMA transform hooks into field executor (#243)
