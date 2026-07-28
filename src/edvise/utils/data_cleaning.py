@@ -5,7 +5,7 @@ from collections.abc import Iterable
 
 import pandas as pd
 
-from edvise.dataio.pdp_course_converters import dedupe_by_renumbering_courses
+from edvise.dataio.pdp_course_converters import dedupe_by_suffixing_courses
 from edvise.shared.utils import validate_optional_column
 from edvise.utils import types
 
@@ -641,16 +641,16 @@ def _classify_duplicate_groups(
     grade_col: str | None = None,
     credits_earned_col: str | None = None,
 ) -> tuple[list[int], list[int], int, int]:
-    """Renumber when material fields differ; otherwise drop extras (keep first)."""
+    """Suffix when material fields differ; otherwise drop extras (keep first)."""
     unique_cols = [c for c in unique_cols if c in duplicate_rows.columns]
-    renumber_groups = 0
+    suffix_groups = 0
     drop_groups = 0
-    renumber_work_idx: list[int] = []
+    suffix_work_idx: list[int] = []
     drop_idx: list[int] = []
     section_in_key = "section_id" in unique_cols
 
     for _, grp in duplicate_rows.groupby(unique_cols, observed=True, dropna=False):
-        must_renumber = _material_duplicate_group_differs(
+        must_suffix = _material_duplicate_group_differs(
             grp,
             course_type_col=course_type_col,
             course_name_col=course_name_col,
@@ -658,16 +658,16 @@ def _classify_duplicate_groups(
             credits_earned_col=credits_earned_col,
             grade_col=grade_col,
         )
-        if must_renumber:
-            renumber_groups += 1
-            renumber_work_idx.extend(list(grp.index))
+        if must_suffix:
+            suffix_groups += 1
+            suffix_work_idx.extend(list(grp.index))
             # Same non-null section + material disagreement is uncommon; keep rows
             # but surface for data-quality review.
             if section_in_key and "section_id" in grp.columns:
                 sec = grp["section_id"]
                 if sec.notna().all() and sec.nunique(dropna=False) == 1:
                     LOGGER.warning(
-                        "Renumbering %s rows that share section_id=%s but differ on "
+                        "Suffixing %s rows that share section_id=%s but differ on "
                         "type/name/credits/grade; confirm source quality.",
                         len(grp),
                         sec.iloc[0],
@@ -677,7 +677,7 @@ def _classify_duplicate_groups(
             keep_one = grp.index[0]
             drop_idx.extend(i for i in grp.index if i != keep_one)
 
-    return renumber_work_idx, drop_idx, renumber_groups, drop_groups
+    return suffix_work_idx, drop_idx, suffix_groups, drop_groups
 
 
 def _drop_true_duplicate_rows(df: pd.DataFrame, drop_idx: list[int]) -> pd.DataFrame:
@@ -695,9 +695,9 @@ def _drop_true_duplicate_rows(df: pd.DataFrame, drop_idx: list[int]) -> pd.DataF
     return df
 
 
-def _renumber_duplicates(
+def _suffix_duplicates(
     df: pd.DataFrame,
-    renumber_work_idx: list[int],
+    suffix_work_idx: list[int],
     unique_cols: list[str],
     credits_col: str | None = "number_of_credits_attempted",
     course_type_col: str | None = "course_type",
@@ -706,10 +706,10 @@ def _renumber_duplicates(
     """Suffix ``course_number`` within duplicate-key groups (first row unchanged)."""
     unique_cols = [c for c in unique_cols if c in df.columns]
     if not unique_cols:
-        raise ValueError("renumber_duplicates: none of unique_cols are present on df")
+        raise ValueError("suffix_duplicates: none of unique_cols are present on df")
 
-    renumber_work_idx = [i for i in renumber_work_idx if i in df.index]
-    if not renumber_work_idx:
+    suffix_work_idx = [i for i in suffix_work_idx if i in df.index]
+    if not suffix_work_idx:
         return df
 
     cols_to_show = [
@@ -724,20 +724,20 @@ def _renumber_duplicates(
         if c is not None and c in df.columns
     ]
     LOGGER.info(
-        "Renumbering duplicates (before) [showing up to 50 rows]:\n%s",
-        df.loc[renumber_work_idx, cols_to_show]
+        "Suffixing duplicates (before) [showing up to 50 rows]:\n%s",
+        df.loc[suffix_work_idx, cols_to_show]
         .sort_values(["course_prefix", "course_number"], kind="mergesort")
         .head(50),
     )
 
-    work = dedupe_by_renumbering_courses(
-        df.loc[renumber_work_idx].copy(), unique_cols=unique_cols
+    work = dedupe_by_suffixing_courses(
+        df.loc[suffix_work_idx].copy(), unique_cols=unique_cols
     )
-    df.loc[renumber_work_idx, "course_number"] = work["course_number"].astype("string")
+    df.loc[suffix_work_idx, "course_number"] = work["course_number"].astype("string")
 
     LOGGER.info(
-        "Renumbering duplicates (after) [showing up to 50 rows]:\n%s",
-        df.loc[renumber_work_idx, cols_to_show]
+        "Suffixing duplicates (after) [showing up to 50 rows]:\n%s",
+        df.loc[suffix_work_idx, cols_to_show]
         .sort_values(["course_prefix", "course_number"], kind="mergesort")
         .head(50),
     )
@@ -774,7 +774,7 @@ def _handle_pdp_duplicates(df: pd.DataFrame) -> pd.DataFrame:
     grade_col = validate_optional_column(df, "grade", "grade", logger=LOGGER)
 
     dup_mask = df.duplicated(unique_cols, keep=False)
-    renumber_work_idx, drop_idx, _, _ = _classify_duplicate_groups(
+    suffix_work_idx, drop_idx, _, _ = _classify_duplicate_groups(
         df.loc[dup_mask],
         unique_cols,
         course_type_col,
@@ -784,9 +784,9 @@ def _handle_pdp_duplicates(df: pd.DataFrame) -> pd.DataFrame:
         credits_earned_col=credits_earned_col,
     )
     df = _drop_true_duplicate_rows(df, drop_idx)
-    df = _renumber_duplicates(
+    df = _suffix_duplicates(
         df,
-        renumber_work_idx,
+        suffix_work_idx,
         unique_cols,
         credits_attempted_col,
         course_type_col,

@@ -73,7 +73,7 @@ class TestOmitSectionFromDupKey:
 
 
 class TestClassifyDuplicateGroups:
-    def test_renumbers_when_names_differ(self):
+    def test_suffixes_when_names_differ(self):
         df = pd.DataFrame(
             {
                 "student_id": ["A", "A", "A", "A", "B", "B"],
@@ -93,7 +93,7 @@ class TestClassifyDuplicateGroups:
             }
         )
         dup_rows = df[df.duplicated(_PDP_DUP_UNIQUE_COLS, keep=False)]
-        renumber_idx, drop_idx, rg, dg = data_cleaning._classify_duplicate_groups(
+        suffix_idx, drop_idx, rg, dg = data_cleaning._classify_duplicate_groups(
             dup_rows,
             _PDP_DUP_UNIQUE_COLS,
             course_type_col=None,
@@ -102,10 +102,10 @@ class TestClassifyDuplicateGroups:
         )
         assert rg == 1
         assert dg == 2
-        assert set(renumber_idx) == {0, 1}
+        assert set(suffix_idx) == {0, 1}
         assert len(drop_idx) == 2
 
-    def test_renumbers_when_same_name_different_credits(self):
+    def test_suffixes_when_same_name_different_credits(self):
         df = pd.DataFrame(
             {
                 "student_id": ["A", "A"],
@@ -118,7 +118,7 @@ class TestClassifyDuplicateGroups:
                 "number_of_credits_attempted": [3.0, 4.0],
             }
         )
-        renumber_idx, drop_idx, rg, dg = data_cleaning._classify_duplicate_groups(
+        suffix_idx, drop_idx, rg, dg = data_cleaning._classify_duplicate_groups(
             df[df.duplicated(_PDP_DUP_UNIQUE_COLS, keep=False)],
             _PDP_DUP_UNIQUE_COLS,
             course_type_col=None,
@@ -127,10 +127,10 @@ class TestClassifyDuplicateGroups:
         )
         assert rg == 1
         assert dg == 0
-        assert set(renumber_idx) == {0, 1}
+        assert set(suffix_idx) == {0, 1}
         assert drop_idx == []
 
-    def test_renumbers_when_grades_differ(self):
+    def test_suffixes_when_grades_differ(self):
         df = pd.DataFrame(
             {
                 "student_id": ["A", "A"],
@@ -144,7 +144,7 @@ class TestClassifyDuplicateGroups:
                 "grade": ["C", "A"],
             }
         )
-        renumber_idx, drop_idx, rg, dg = data_cleaning._classify_duplicate_groups(
+        suffix_idx, drop_idx, rg, dg = data_cleaning._classify_duplicate_groups(
             df,
             _PDP_DUP_UNIQUE_COLS,
             course_type_col=None,
@@ -154,7 +154,7 @@ class TestClassifyDuplicateGroups:
         )
         assert rg == 1
         assert dg == 0
-        assert len(renumber_idx) == 2
+        assert len(suffix_idx) == 2
         assert drop_idx == []
 
     def test_drops_when_only_non_material_columns_differ(self):
@@ -201,10 +201,10 @@ class TestDropTrueDuplicateRows:
         assert not mock_logger.warning.called
 
 
-class TestRenumberDuplicates:
-    @patch("edvise.utils.data_cleaning.dedupe_by_renumbering_courses")
+class TestSuffixDuplicates:
+    @patch("edvise.utils.data_cleaning.dedupe_by_suffixing_courses")
     @patch("edvise.utils.data_cleaning.LOGGER")
-    def test_renumbers_courses(self, _mock_logger, mock_dedupe):
+    def test_suffixes_courses(self, _mock_logger, mock_dedupe):
         df = pd.DataFrame(
             {
                 "course_prefix": ["MATH", "MATH", "PHYS"],
@@ -217,9 +217,9 @@ class TestRenumberDuplicates:
         mock_result.loc[1, "course_number"] = "101-2"
         mock_dedupe.return_value = mock_result
 
-        data_cleaning._renumber_duplicates(
+        data_cleaning._suffix_duplicates(
             df,
-            renumber_work_idx=[0, 1],
+            suffix_work_idx=[0, 1],
             unique_cols=["course_prefix", "course_number"],
             credits_col=None,
             course_type_col="course_type",
@@ -230,9 +230,9 @@ class TestRenumberDuplicates:
     @patch("edvise.utils.data_cleaning.LOGGER")
     def test_returns_unchanged_when_no_idx(self, _mock_logger):
         df = pd.DataFrame({"course_prefix": ["MATH"], "course_number": ["101"]})
-        result = data_cleaning._renumber_duplicates(
+        result = data_cleaning._suffix_duplicates(
             df,
-            renumber_work_idx=[],
+            suffix_work_idx=[],
             unique_cols=["course_prefix", "course_number"],
             credits_col=None,
             course_type_col=None,
@@ -273,8 +273,8 @@ class TestHandlePdpDuplicates:
         )
 
     @patch("edvise.utils.data_cleaning.LOGGER")
-    @patch("edvise.utils.data_cleaning.dedupe_by_renumbering_courses")
-    def test_renumbers_when_names_differ(
+    @patch("edvise.utils.data_cleaning.dedupe_by_suffixing_courses")
+    def test_suffixes_when_names_differ(
         self, mock_dedupe, mock_logger, pdp_df_with_different_names
     ):
         mock_dedupe.return_value = pdp_df_with_different_names.copy()
@@ -282,8 +282,8 @@ class TestHandlePdpDuplicates:
         assert mock_dedupe.called
 
     @patch("edvise.utils.data_cleaning.LOGGER")
-    @patch("edvise.utils.data_cleaning.dedupe_by_renumbering_courses")
-    def test_renumbers_when_names_same_but_credits_differ(
+    @patch("edvise.utils.data_cleaning.dedupe_by_suffixing_courses")
+    def test_suffixes_when_names_same_but_credits_differ(
         self, mock_dedupe, mock_logger, pdp_df_with_same_names
     ):
         mock_dedupe.return_value = pdp_df_with_same_names.copy()

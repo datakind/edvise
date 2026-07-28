@@ -694,7 +694,7 @@ def equal_cols_by_group(
 
 def _course_id_matches_catalog_key(ser: pd.Series, key: str) -> pd.Series:
     """
-    Match catalog ``course_id`` or renumbered rows (``{key}-{n}``).
+    Match catalog ``course_id`` or suffixed rows (``{key}-{n}``).
 
     Catalog enrollment counts (not a retake signal): lab/lecture that share a
     catalog id already both count when they keep the bare id. This only restores
@@ -714,7 +714,7 @@ def sum_val_equal_cols_by_group(
     """
     Per-group sums of indicator columns for ``agg_col_vals`` (equals / is-in).
 
-    Scalar ``("course_id", catalog)`` also counts ``catalog-{{n}}`` renumbered ids.
+    Scalar ``("course_id", catalog)`` also counts ``catalog-{{n}}`` suffixed ids.
     """
     temp_col_series = {}
     for col, val in agg_col_vals:
