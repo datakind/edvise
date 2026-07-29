@@ -382,38 +382,17 @@ def persist_sma_transformation_review_from_session(
                     False,
                     f"Item ``{row.get('item_id', i)!s}``: steps must be a JSON array.",
                 )
-            try:
-                from edvise.genai.mapping.schema_mapping_agent.transformation.schemas import (
-                    TransformationStep,
-                )
-                from pydantic import TypeAdapter
-
-                adapter: TypeAdapter[TransformationStep] = TypeAdapter(
-                    TransformationStep
-                )
-                for si, step in enumerate(parsed):
-                    if not isinstance(step, dict):
-                        return (
-                            False,
-                            f"Item ``{row.get('item_id', i)!s}``: step[{si}] must be an object.",
-                        )
-                    adapter.validate_python(step)
-            except ImportError:
-                for si, step in enumerate(parsed):
-                    if (
-                        not isinstance(step, dict)
-                        or not str(step.get("function_name") or "").strip()
-                    ):
-                        return (
-                            False,
-                            f"Item ``{row.get('item_id', i)!s}``: step[{si}] needs function_name (edvise "
-                            "not available for full validation).",
-                        )
-            except Exception as e:  # noqa: BLE001
-                return (
-                    False,
-                    f"Item ``{row.get('item_id', i)!s}``: step validation failed: {e}",
-                )
+            for si, step in enumerate(parsed):
+                if not isinstance(step, dict):
+                    return (
+                        False,
+                        f"Item ``{row.get('item_id', i)!s}``: step[{si}] must be an object.",
+                    )
+                if not str(step.get("function_name") or "").strip():
+                    return (
+                        False,
+                        f"Item ``{row.get('item_id', i)!s}``: step[{si}] needs function_name.",
+                    )
             row["steps"] = parsed
 
         if oid in ("hook_required", "unmappable") or choice_1 == 3:
@@ -521,17 +500,11 @@ def persist_hitl_choice_radios_from_session(
 
 
 def _validate_sma_direct_edit_field_mapping_dict(obj: dict[str, Any]) -> str | None:
-    """Return an error message if ``obj`` is not a valid FieldMappingRecord, else ``None``."""
-    try:
-        from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import (
-            FieldMappingRecord,
-        )
-    except ImportError:
-        return None
-    try:
-        FieldMappingRecord.model_validate(obj)
-    except Exception as e:  # noqa: BLE001
-        return f"Field mapping does not match schema (FieldMappingRecord): {e}"
+    """Basic shape check; pipeline resolve validates FieldMappingRecord."""
+    if not obj:
+        return "direct_edit_field_mapping must be a non-empty JSON object."
+    if not str(obj.get("target_field") or "").strip():
+        return "direct_edit_field_mapping needs target_field."
     return None
 
 

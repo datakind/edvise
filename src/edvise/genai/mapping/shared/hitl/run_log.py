@@ -4,9 +4,10 @@ Append-only ``run_log.json`` for an institution — shared across IdentityAgent 
 Events are a union of :class:`RunEvent` (identity HITL) and :class:`SMARRunEvent` (SMA 2a HITL).
 JSON on disk stays backward compatible: existing identity-only logs still validate.
 
-Append-only ``repair_log.json`` (same directory as ``run_log.json`` in an SMA run) records
-:class:`ManifestRepairEvent` rows for 2a manifest repairs. Additional repair event models can
-be added later as a discriminated union on ``repair_type`` without changing the 2a shape.
+Append-only ``mapping_override_log.json`` (same directory as ``run_log.json`` in an SMA run)
+records :class:`MappingOverrideEvent` rows for post-gate manifest mapping overrides.
+Additional override event models can be added later as a discriminated union on
+``override_type`` without changing the manifest-mapping shape.
 """
 
 from __future__ import annotations
@@ -87,20 +88,20 @@ class RunLog(BaseModel):
 PipelineRunEvent = RunEvent | SMARRunEvent
 
 
-class ManifestRepairEvent(BaseModel):
+class MappingOverrideEvent(BaseModel):
     """
-    Audit row for a Schema Mapping Agent 2a manifest repair.
+    Audit row for a post-gate Schema Mapping Agent manifest mapping override.
 
-    ``repair_type`` is fixed for this model; future repair kinds should use sibling
-    event models and a union on ``repair_type`` in :class:`RepairLog`.
+    ``override_type`` is fixed for this model; future override kinds should use sibling
+    event models and a union on ``override_type`` in :class:`MappingOverrideLog`.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     timestamp: datetime
-    repaired_by: str
+    overridden_by: str
     agent: Literal["schema_mapping_agent"]
-    repair_type: Literal["2a_manifest"]
+    override_type: Literal["manifest_mapping"]
     entity_type: Literal["cohort", "course"]
     target_field: str
     original_value: dict[str, Any]
@@ -109,17 +110,17 @@ class ManifestRepairEvent(BaseModel):
     rerun_scope: Literal["2b_full"]
     original_db_run_id: str
     original_task_run_id: str | None
-    repair_task_run_id: str | None
+    override_task_run_id: str | None
 
 
-# When adding non-2a repairs, widen to a discriminated union, e.g.
-# ``Annotated[ManifestRepairEvent | IAGrainRepairEvent, Field(discriminator="repair_type")]``.
-RepairLogEvent: TypeAlias = ManifestRepairEvent
+# When adding other override kinds, widen to a discriminated union, e.g.
+# ``Annotated[MappingOverrideEvent | …, Field(discriminator="override_type")]``.
+MappingOverrideLogEvent: TypeAlias = MappingOverrideEvent
 
 
-class RepairLog(BaseModel):
+class MappingOverrideLog(BaseModel):
     """
-    Append-only repair audit for one institution (SMA run directory).
+    Append-only mapping-override audit for one institution (SMA run directory).
 
     Written beside ``run_log.json`` under the schema-mapping-agent run root.
     """
@@ -127,7 +128,7 @@ class RepairLog(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     institution_id: str
-    events: list[RepairLogEvent] = Field(default_factory=list)
+    events: list[MappingOverrideLogEvent] = Field(default_factory=list)
 
 
 def resolve_task_run_id() -> str | None:
@@ -203,39 +204,39 @@ def append_run_log_event(
     write_pydantic_json(run_log_path, run_log)
 
 
-def append_repair_event(
-    repair_log_path: Path,
+def append_mapping_override_event(
+    override_log_path: Path,
     institution_id: str,
-    event: RepairLogEvent,
+    event: MappingOverrideLogEvent,
 ) -> None:
     """
-    Append one event to ``repair_log_path``. Creates the file if missing.
+    Append one event to ``override_log_path``. Creates the file if missing.
 
-    When ``event.repair_task_run_id`` is unset, fills it from :func:`resolve_task_run_id`
+    When ``event.override_task_run_id`` is unset, fills it from :func:`resolve_task_run_id`
     (same behavior as :func:`append_run_log_event`).
     """
-    if repair_log_path.exists():
-        repair_log = read_pydantic_json(repair_log_path, RepairLog)
+    if override_log_path.exists():
+        override_log = read_pydantic_json(override_log_path, MappingOverrideLog)
     else:
-        repair_log = RepairLog(institution_id=institution_id)
+        override_log = MappingOverrideLog(institution_id=institution_id)
 
     tid = resolve_task_run_id()
-    if event.repair_task_run_id is None and tid is not None:
-        event = event.model_copy(update={"repair_task_run_id": tid})
+    if event.override_task_run_id is None and tid is not None:
+        event = event.model_copy(update={"override_task_run_id": tid})
 
-    repair_log.events.append(event)
-    write_pydantic_json(repair_log_path, repair_log)
+    override_log.events.append(event)
+    write_pydantic_json(override_log_path, override_log)
 
 
 __all__ = [
-    "ManifestRepairEvent",
+    "MappingOverrideEvent",
+    "MappingOverrideLog",
+    "MappingOverrideLogEvent",
     "PipelineRunEvent",
-    "RepairLog",
-    "RepairLogEvent",
     "RunEvent",
     "RunLog",
     "SMARRunEvent",
-    "append_repair_event",
+    "append_mapping_override_event",
     "append_run_log_event",
     "resolve_task_run_id",
 ]

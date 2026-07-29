@@ -351,6 +351,23 @@ class TermResolution(BaseModel):
             "Column name for combined term encoding. Clears year_col and season_col when set."
         ),
     )
+    year_semantics: (
+        Literal[
+            "calendar_literal",
+            "academic_year_prefix",
+        ]
+        | None
+    ) = Field(
+        default=None,
+        description=(
+            "Reviewer's decision for how the extracted year relates to the calendar year "
+            "(year MEANING, independent of how the season is encoded). "
+            "'calendar_literal': extracted year is the calendar year (e.g. '2024SP' = Spring 2024). "
+            "'academic_year_prefix': extracted year is the academic-year start; SPRING/SUMMER roll "
+            "forward one calendar year (e.g. '2017SR' = Spring 2018, or a period code "
+            "'2025-20' = Spring 2026). Written to term_config.year_semantics when set."
+        ),
+    )
     hook_spec: HookSpec | None = Field(
         default=None,
         description=(

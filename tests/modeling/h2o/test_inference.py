@@ -181,6 +181,43 @@ def test_group_feature_values_with_missing_flag():
     pd.testing.assert_frame_equal(grouped, expected)
 
 
+def test_apply_missing_display_values_uses_raw_and_persisted_missingness():
+    raw_df = pd.DataFrame(
+        {
+            "gpa": [3.5, pd.NA],
+            "enrolled": pd.Series([True, pd.NA], dtype="boolean"),
+            "major": ["Biology", "History"],
+            "credits": [12.0, 15.0],
+            "credits_missing_flag": [True, False],
+        }
+    )
+    grouped_df = pd.DataFrame(
+        {
+            "gpa": [3.5, 3.25],
+            "enrolled": [True, False],
+            "major": ["Biology", "History"],
+            "credits": [12.0, 15.0],
+        }
+    )
+    missing_flags_df = pd.DataFrame(
+        {"major_missing_flag": [False, True]}, index=grouped_df.index
+    )
+
+    result = inference.apply_missing_display_values(
+        grouped_df,
+        raw_df,
+        feature_names=["gpa", "enrolled", "major", "credits"],
+        missing_flags_df=missing_flags_df,
+    )
+
+    assert result["gpa"].tolist() == [3.5, "MISSING"]
+    assert result["enrolled"].tolist() == [True, "MISSING"]
+    assert result["major"].tolist() == ["Biology", "MISSING"]
+    assert result["credits"].tolist() == ["MISSING", 15.0]
+    assert pd.api.types.is_numeric_dtype(grouped_df["gpa"])
+    assert pd.api.types.is_numeric_dtype(grouped_df["credits"])
+
+
 # New test: ambiguous encoding should raise ValueError
 def test_group_feature_values_ambiguous_encoding_raises():
     df = pd.DataFrame(
@@ -194,13 +231,6 @@ def test_group_feature_values_ambiguous_encoding_raises():
 
 
 def test_create_color_hint_features_mixed_types():
-    original_df = pd.DataFrame(
-        {
-            "gender": pd.Series(["M", "F"], dtype="category"),
-            "income": [50000, 60000],
-            "opted_in": [True, False],
-        }
-    )
     orig_dtypes = {"gender": "category", "income": "int", "opted_in": "bool"}
     grouped_df = pd.DataFrame(
         {"gender": [1.0, 0.0], "income": [0.3, 0.7], "opted_in": [1, 0]}

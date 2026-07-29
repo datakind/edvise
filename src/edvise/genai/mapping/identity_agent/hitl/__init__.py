@@ -41,6 +41,7 @@ from edvise.genai.mapping.identity_agent.hitl.resolver import (
     resolve_items,
     validate_hook,
     validate_term_hook_hitl_covers_hook_required,
+    validate_term_year_semantics_resolved,
 )
 from edvise.genai.mapping.identity_agent.hitl.schemas import (
     GrainAmbiguityHITLContext,
@@ -99,6 +100,7 @@ __all__ = [
     "resolve_items",
     "validate_hook",
     "validate_term_hook_hitl_covers_hook_required",
+    "validate_term_year_semantics_resolved",
     "write_identity_grain_artifacts",
     "write_identity_hook_preview_json",
     "write_identity_term_artifacts",

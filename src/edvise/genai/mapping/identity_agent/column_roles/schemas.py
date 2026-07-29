@@ -5,7 +5,13 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import (
+    BaseModel,
+    Field,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 
 from .file_kinds import FileKind
 
@@ -33,6 +39,58 @@ class ColumnRoleAssignment(BaseModel):
         default="",
         description="Brief reason for the label (audit only; not used downstream)",
     )
+
+
+class ColumnRolesLLMResponse(BaseModel):
+    """Structural + completeness validation of the raw ColumnRolesAgent JSON.
+
+    Completeness (every input column assigned exactly once) is enforced when the
+    caller supplies ``expected_columns`` via validation context. Because failures
+    surface as :class:`pydantic.ValidationError`, they are retried with a
+    correction hint by :func:`edvise.utils.llm_utils.call_with_retry` — an omitted
+    column no longer hard-fails the onboard run on the first response.
+    """
+
+    file_kind: FileKind
+    file_kind_confidence: float = Field(..., ge=0.0, le=1.0)
+    file_kind_rationale: str = ""
+    assignments: list[ColumnRoleAssignment]
+    low_confidence_columns: list[str] = Field(default_factory=list)
+
+    @field_validator("file_kind", mode="before")
+    @classmethod
+    def _normalize_file_kind(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return value.strip().lower()
+        return value
+
+    @field_validator("file_kind_rationale", mode="before")
+    @classmethod
+    def _coerce_rationale(cls, value: Any) -> str:
+        return str(value or "")
+
+    @field_validator("low_confidence_columns", mode="before")
+    @classmethod
+    def _coerce_low_confidence(cls, value: Any) -> Any:
+        if value is None:
+            return []
+        if isinstance(value, list):
+            return [str(v) for v in value]
+        return value
+
+    @model_validator(mode="after")
+    def _check_expected_columns(self, info: ValidationInfo) -> "ColumnRolesLLMResponse":
+        expected = (info.context or {}).get("expected_columns")
+        if expected is None:
+            return self
+        assigned = {a.column for a in self.assignments}
+        missing = [c for c in expected if c not in assigned]
+        if missing:
+            raise ValueError(f"Missing role assignments for columns: {missing}")
+        extra = assigned - set(expected)
+        if extra:
+            raise ValueError(f"Unexpected columns in assignments: {sorted(extra)}")
+        return self
 
 
 class ColumnRolesResult(BaseModel):

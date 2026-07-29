@@ -28,7 +28,7 @@ from h2o.estimators.estimator_base import H2OEstimator
 
 from edvise import modeling, dataio
 from edvise.modeling.h2o_ml import utils as h2o_utils
-from edvise.modeling import inference
+from edvise.modeling import drift_detection, inference
 
 
 class RunType(str, Enum):
@@ -61,6 +61,7 @@ class PredOutputs:
     top_features_result: pd.DataFrame
     shap_feature_importance: pd.DataFrame | None
     support_score_distribution: pd.DataFrame
+    feature_drift_report: pd.DataFrame
     grouped_features: pd.DataFrame
     grouped_contribs_df: pd.DataFrame
     unique_ids: pd.Series
@@ -292,6 +293,15 @@ def run_predictions(
     features_df, unique_ids = align_features(
         df_test_imp, model_feature_names, pred_cfg.student_id_col
     )
+
+    df_train_imp = imp.transform(df_train)
+    train_features = df_train_imp.loc[:, model_feature_names]
+    feature_drift_report = drift_detection.log_numeric_ks_drift(
+        train_features,
+        features_df,
+        context=f"numeric KS drift ({run_type.value})",
+    )
+
     pred_labels, pred_probs = predict_probs(
         features_df,
         model,
@@ -314,6 +324,12 @@ def run_predictions(
     grouped_contribs_df, grouped_features = group_shap_and_features(
         contribs_df, features_df
     )
+    display_grouped_features = modeling.h2o_ml.inference.apply_missing_display_values(
+        grouped_df=grouped_features,
+        raw_df=df_test,
+        feature_names=imp.input_feature_names or model_feature_names,
+        missing_flags_df=features_df,
+    )
 
     log_shap_plot(
         contribs_df,
@@ -324,7 +340,7 @@ def run_predictions(
 
     # ----- Tables -----
     top_features_result = inference.select_top_features_for_display(
-        features=grouped_features,
+        features=display_grouped_features,
         unique_ids=unique_ids,
         predicted_probabilities=list(pred_probs),
         shap_values=grouped_contribs_df.to_numpy(),
@@ -366,6 +382,7 @@ def run_predictions(
         top_features_result=top_features_result,
         shap_feature_importance=sfi,
         support_score_distribution=ssd,
+        feature_drift_report=feature_drift_report,
         grouped_features=grouped_features,
         grouped_contribs_df=grouped_contribs_df,
         unique_ids=unique_ids,

@@ -9,6 +9,7 @@ validation rules. Column names and checks align with the JSON spec and the
 DataKind cohort file requirements.
 """
 
+import functools as ft
 import typing as t
 
 import pandas as pd
@@ -34,7 +35,7 @@ from edvise.data_audit.schemas._edvise_shared import (
 
 PellYesNoField = pda.Field(nullable=True, isin=["Y", "Yes", "N", "No"])
 # When present, values should be >= 0 (ge=0.0). Enforced where supported by Pandera.
-CreditsEarnedField = pda.Field(nullable=True, ge=0.0)
+CreditsEarnedField = ft.partial(pda.Field, nullable=True, ge=0.0)
 
 
 class RawEdviseStudentDataSchema(pda.DataFrameModel):
@@ -115,9 +116,9 @@ class RawEdviseStudentDataSchema(pda.DataFrameModel):
     certificate1_date: t.Optional[pt.Series[pt.DateTime]] = pda.Field(nullable=True)
     certificate2_date: t.Optional[pt.Series[pt.DateTime]] = pda.Field(nullable=True)
     certificate3_date: t.Optional[pt.Series[pt.DateTime]] = pda.Field(nullable=True)
-    credits_earned_ap: t.Optional[pt.Series[pd.Float64Dtype]] = CreditsEarnedField
+    credits_earned_ap: t.Optional[pt.Series[pd.Float64Dtype]] = CreditsEarnedField()
     credits_earned_dual_enrollment: t.Optional[pt.Series[pd.Float64Dtype]] = (
-        CreditsEarnedField
+        CreditsEarnedField()
     )
 
     @classmethod

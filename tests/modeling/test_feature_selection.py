@@ -55,6 +55,39 @@ def test_drop_incomplete_features(df, threshold, exp_dropped_cols):
     assert df_result.shape[0] == df.shape[0]
 
 
+def test_select_features_caps_incomplete_threshold(df, caplog):
+    """Values above MAX_INCOMPLETE_THRESHOLD are capped before dropping incompletes."""
+    # partially_incomplete_feature is 40% null; incomplete_feature is 80% null.
+    # Cap at 0.2 => both drop. Without the cap (0.5), only incomplete_feature drops.
+    with caplog.at_level("WARNING"):
+        df_result = fs.select_features(
+            df,
+            non_feature_cols=["id"],
+            force_include_cols=["include_feature"],
+            incomplete_threshold=0.5,
+            low_variance_threshold=0.0,
+            collinear_threshold=None,
+        )
+    dropped = df.columns.difference(df_result.columns).tolist()
+    assert "incomplete_feature" in dropped
+    assert "partially_incomplete_feature" in dropped
+    assert any("capping for feature selection" in msg for msg in caplog.messages)
+
+
+def test_select_features_allows_stricter_incomplete_threshold(df):
+    df_result = fs.select_features(
+        df,
+        non_feature_cols=["id"],
+        force_include_cols=["include_feature"],
+        incomplete_threshold=0.1,
+        low_variance_threshold=0.0,
+        collinear_threshold=None,
+    )
+    dropped = df.columns.difference(df_result.columns).tolist()
+    assert "incomplete_feature" in dropped
+    assert "partially_incomplete_feature" in dropped
+
+
 @pytest.mark.parametrize(
     ["threshold", "exp_dropped_cols"],
     [

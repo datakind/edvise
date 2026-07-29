@@ -544,9 +544,29 @@ class FeatureSelectionConfig(pyd.BaseModel):
     """
 
     force_include_cols: t.Optional[list[str]] = None
-    incomplete_threshold: float = 0.5
+    incomplete_threshold: float = pyd.Field(
+        default=0.2,
+        description=(
+            "Max fraction of nulls allowed for a feature to be kept. "
+            "Config may set a stricter (lower) value; values above 0.2 are capped."
+        ),
+    )
     low_variance_threshold: float = 0.0
     collinear_threshold: t.Optional[float] = 10.0
+
+    @pyd.field_validator("incomplete_threshold", mode="after")
+    @classmethod
+    def _cap_incomplete_threshold(cls, value: float) -> float:
+        max_threshold = 0.2
+        if value > max_threshold:
+            warnings.warn(
+                f"incomplete_threshold={value} exceeds max {max_threshold}; "
+                "capping for feature selection",
+                UserWarning,
+                stacklevel=2,
+            )
+            return max_threshold
+        return value
 
 
 class TrainingConfig(pyd.BaseModel):

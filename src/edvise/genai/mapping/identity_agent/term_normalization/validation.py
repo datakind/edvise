@@ -29,6 +29,11 @@ from edvise.genai.mapping.identity_agent.term_normalization.schemas import (
     InstitutionTermContract,
     TermContract,
     TermOrderConfig,
+    season_map_chronology_error,
+)
+from edvise.genai.mapping.identity_agent.term_normalization.year_semantics_hitl import (
+    assert_term_year_semantics_hitl_coverage,
+    collect_term_year_semantics_hitl_coverage_errors,
 )
 
 _SEASON_WORDS = frozenset(
@@ -290,6 +295,9 @@ def collect_term_semantic_validation_errors(
         mismatch = _hook_extractor_drafts_mismatch_term_shape(cfg)
         if mismatch:
             errors.append(f"[{table}] {mismatch}")
+        chrono_err = season_map_chronology_error(cfg.season_map)
+        if chrono_err:
+            errors.append(f"[{table}] {chrono_err}")
         columns = _profile_columns_for_dataset(run_by_dataset, table)
         if columns is not None:
             split_err = _split_columns_required_from_profile(table, cfg, columns)
@@ -335,6 +343,7 @@ def build_parse_institution_term_contracts_with_semantic_checks(
         inst, items = parse_institution_term_contracts_with_hitl(raw)
         raise_term_semantic_validation_error_if_any(
             collect_term_semantic_validation_errors(inst, run_by_dataset)
+            + collect_term_year_semantics_hitl_coverage_errors(inst, items)
         )
         return inst, items
 
@@ -343,8 +352,10 @@ def build_parse_institution_term_contracts_with_semantic_checks(
 
 __all__ = [
     "assert_term_hook_groups_compatible",
+    "assert_term_year_semantics_hitl_coverage",
     "build_parse_institution_term_contracts_with_semantic_checks",
     "collect_term_semantic_validation_errors",
+    "collect_term_year_semantics_hitl_coverage_errors",
     "item_has_generate_hook_path",
     "raise_term_semantic_validation_error_if_any",
     "term_tables_for_hook_group",

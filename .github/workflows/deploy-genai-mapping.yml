@@ -1,4 +1,4 @@
-# GenAI mapping bundle: manual deploy to dev and/or staging (Databricks OAuth + job identities for GenAI).
+# GenAI mapping bundle: release deploy to dev and staging (Databricks OAuth + job identities for GenAI).
 #
 # Secrets — dev (host same as PDP dev: DATABRICKS_DEV_HOST):
 #   DATABRICKS_DEV_HOST, DATABRICKS_GENAI_MAPPING_DEV_CLIENT_ID, DATABRICKS_GENAI_MAPPING_DEV_CLIENT_SECRET
@@ -16,9 +16,10 @@
 name: deploy-genai-mapping
 
 on:
-  push:
-    tags:
-      - "v*"
+  # invoked by release-deploy.yml as part of a full release
+  workflow_call:
+  # escape hatch: run this component standalone against a tag ref
+  workflow_dispatch:
 concurrency:
   group: deploy-genai-mapping-${{ github.ref }}
   cancel-in-progress: true

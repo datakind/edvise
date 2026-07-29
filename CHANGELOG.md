@@ -1,3 +1,57 @@
+## 1.7.1 (2026-07-27)
+- docs: update README.md (#225)
+- fix(genai): wire materialized SMA transform hooks into field executor (#243)
+- docs: add CLAUDE.md (#244)
+
+## 1.7.0 (2026-07-27)
+- feat: inference pipeline version compatibility for PDP schools (#231)
+
+## 1.6.0 (2026-07-23)
+- fix: ensure imputed values display as "MISSING" in inference & advisor outputs (#221)
+- fix(genai): set SMA grain resolution task as Claude Haiku's (#234)
+- feat(genai): add Manifest Explorer page to HITL Streamlit app (#236)
+- fix: require opposite core terms for graduation label eligibility (#238)
+- fix(genai): allow rewriting rationale on manifest mapping overrides (#240)
+
+## 1.5.3 (2026-07-17)
+- fix: round ROC table scores and thresholds consistently (#223)
+
+## 1.5.2 (2026-07-17)
+- fix: allow for custom graduation outcome descriptions in legacy model cards (#226)
+- fix(genai): enforce term year_semantics HITL coverage using ValidationError with LLM retry (#227)
+- fix(release-automation): create one trigger for all deploy actions in our automated release process (#228)
+
+## 1.5.1 (2026-07-16)
+- fix(release-automation): patch dispatch of Finish Release step in release integration action (#218)
+- fix: adding level 9 courses to features table (#219)
+- fix: cap incomplete feature threshold at 20 percent (#220)
+
+## 1.5.0 (2026-07-15)
+- fix(release-automation): dispatch Finish Release from release CI (#213)
+- feat(genai): add post-gate SMA manifest mapping overrides (#214)
+- fix(genai): SMA prompt improvements with program type vs major column discrimination (#215)
+- fix: coerce both ES course credit columns to Float64 (#217)
+
+## 1.4.8 (2026-07-14)
+- fix: finish-release gh checkout + Start Release CI dispatch (#212)
+
+## 1.4.7 (2026-07-09)
+- fix(genai): ensure prompt asks for term year semantics HITL with hook generation (#205)
+
+## 1.4.6 (2026-07-09)
+- fix: ensuring we have LLM retry for Haiku model during column roles task (#200)
+- feat(release-automation): patch-gated release CI and fix finish-release PR creation (#201)
+- fix(genai): adding edge case & smarter fallback options for Haiku/column roles agent in prompt (#204)
+
+## 1.4.5 (2026-07-08)
+- fix(genai): adding in year_semantics into Term Config (#199)
+
+## 1.4.4 (2026-07-07)
+- fix: removing edvise dependency from genai HITL app due to deployment issue on databricks (#198)
+
+## 1.4.3 (2026-07-07)
+- feat: add numeric KS drift detection logging to shared H2O inference pipeline (#197)
+
 ## 1.4.2 (2026-07-01)
 - fix(genai): ensure execution cleaning applies frozen dtypes before dedupe (#196)
 

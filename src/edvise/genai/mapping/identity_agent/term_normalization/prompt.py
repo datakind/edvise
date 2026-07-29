@@ -30,7 +30,11 @@ from .schemas import (
     TermContract,
     get_term_contract_schema_context,
 )
-from .validation import assert_term_hook_groups_compatible
+from .validation import (
+    assert_term_hook_groups_compatible,
+    collect_term_year_semantics_hitl_coverage_errors,
+    raise_term_semantic_validation_error_if_any,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -177,13 +181,19 @@ artifacts like ``.0`` (suffix season match breaks); **opaque** codes without a c
 
 ### Step 3 — Build `season_map`
 
-From unique values, identify all distinct season tokens. List them in **chronological order within a calendar year** (not academic year order).
+From unique values, identify all distinct season tokens. `season_map` is **ALWAYS** ordered by
+**calendar-year chronology**: `SPRING → SUMMER → FALL → WINTER`. This ordering never changes — it
+is independent of the raw token's spelling, its numeric value, and `year_semantics`.
 
 Rules:
 
 - Canonical label must be one of: `FALL`, `SPRING`, `SUMMER`, `WINTER`
 - Multiple raw tokens may share the same canonical label (e.g. `S1` and `S2` → `SUMMER`) but must appear as **separate entries** to preserve distinct chronological positions
 - Position in the list determines `season_rank` (1-indexed) used for `_term_order`
+- **Order by the canonical season's place in the calendar year, NOT by the raw token.** Sort by
+  `SPRING(1) < SUMMER(2) < FALL(3) < WINTER(4)`, ignoring the raw value. Do **not** order by numeric
+  code (`10`→FALL must come *after* `20`→SPRING even though 10 < 20), alphabetically, by academic-year
+  start (Fall does **not** go first), or by how the source file lists them.
 - For **Season_YYYY** formats, raw tokens are the spelled words as they appear: `"Fall"`, `"Spring"`
 - For opaque numeric or date formats where season cannot be observed, set `season_map: []`
 
@@ -254,6 +264,42 @@ Set `hitl_flag`: `true` when:
 - `term_candidates` was empty and term column was inferred from `raw_table_profile`
 - Unique values contain unrecognized tokens that could not be mapped to a canonical season
 - Confidence in the term column selection is low (multiple ambiguous candidates)
+- The term uses a **coded year prefix** whose calendar year is ambiguous (see YEAR SEMANTICS) —
+  emit a `year_semantics` HITL item for the reviewer to confirm.
+
+### YEAR SEMANTICS (emit a HITL item; do not set the value yourself)
+
+`term_config.year_semantics` controls whether the extracted year is the **calendar year**
+(`calendar_literal`, default) or an **academic-year start** (`academic_year_prefix`, where
+SPRING/SUMMER roll forward one calendar year). This is about what the **year means**, NOT how the
+season is encoded — numeric period codes, letter suffixes, and spelled seasons are all handled by
+`season_map` / hooks and do not affect this choice. Leave `year_semantics`
+**null** in your output — you cannot disambiguate it from a single column, and guessing silently
+corrupts every downstream date. Instead flag it for HITL when the term uses a coded year prefix:
+
+- **YYYY + season suffix** — `2017SR`, `2018FA`, `2019SP` (the prefix could be the calendar year
+  *or* the academic-year start, e.g. `2017SR` = Spring 2017 vs Spring 2018)
+- **YYYY-NN period codes** — `2025-10`, `2025-20`
+- **YYYYPP compact period codes** — `202520`, `202430` (same ambiguity as `YYYY-NN`; year from
+  digits 1–4, period from digits 5–6 — confirming *how* to slice is hook HITL, confirming *what
+  the year means* is this item)
+- **Split year + season-code columns** — a numeric year column plus a short season/period code column
+
+Do **not** flag `year_semantics` for unambiguous shapes: spelled `Season YYYY` (`"Fall 2019"`),
+datetime term columns (``pd.to_datetime(term).year`` is already the calendar year), or **YYYYMM**
+month-fragment codes (`201308` — prefix is the calendar year of that month).
+
+The HITL item is a simple `reentry: "terminal"` choice (not hook generation). Offer exactly two
+options whose `resolution` sets `year_semantics`:
+
+- "Calendar year (e.g. 2017SR = Spring 2017, or 2025-20 = Spring 2025)" →
+  `{"year_semantics": "calendar_literal"}`
+- "Academic-year start (e.g. 2017SR = Spring 2018, or 2025-20 = Spring 2026)" →
+  `{"year_semantics": "academic_year_prefix"}`
+
+`year_semantics` is independent of `season_map` ordering. Order `season_map` **calendar-chronologically**
+regardless of semantics — SPRING before SUMMER before FALL. Do **not** rank by the numeric period
+code or by academic-year start: `20`→SPRING must precede `10`→FALL in the list even though 10 < 20.
 
 ### ACADEMIC YEAR CONVENTION (do not emit — for your reasoning only)
 
@@ -333,13 +379,19 @@ artifacts like ``.0`` (suffix season match breaks); **opaque** codes without a c
 
 ### Step 3 — Build `season_map`
 
-From unique values, identify all distinct season tokens. List them in **chronological order within a calendar year** (not academic year order).
+From unique values, identify all distinct season tokens. `season_map` is **ALWAYS** ordered by
+**calendar-year chronology**: `SPRING → SUMMER → FALL → WINTER`. This ordering never changes — it
+is independent of the raw token's spelling, its numeric value, and `year_semantics`.
 
 Rules:
 
 - Canonical label must be one of: `FALL`, `SPRING`, `SUMMER`, `WINTER`
 - Multiple raw tokens may share the same canonical label (e.g. `S1` and `S2` → `SUMMER`) but must appear as **separate entries** to preserve distinct chronological positions
 - Position in the list determines `season_rank` (1-indexed) used for `_term_order`
+- **Order by the canonical season's place in the calendar year, NOT by the raw token.** Sort by
+  `SPRING(1) < SUMMER(2) < FALL(3) < WINTER(4)`, ignoring the raw value. Do **not** order by numeric
+  code (`10`→FALL must come *after* `20`→SPRING even though 10 < 20), alphabetically, by academic-year
+  start (Fall does **not** go first), or by how the source file lists them.
 - For **Season_YYYY** formats, raw tokens are the spelled words as they appear: `"Fall"`, `"Spring"`
 - For opaque numeric or date formats where season cannot be observed, set `season_map: []`
 
@@ -421,6 +473,8 @@ Set `hitl_flag`: `true` and emit at least one `HITLItem` when any of the followi
 - `term_candidates` was empty and term column was inferred from `raw_table_profile`
 - Unique values contain unrecognized tokens that could not be mapped to a canonical season
 - Confidence in the term column selection is low (multiple ambiguous candidates)
+- The term uses a **coded year prefix** whose calendar year is ambiguous (see YEAR SEMANTICS) —
+  emit a `reentry: "terminal"` `year_semantics` HITL item for the reviewer to confirm.
 
 When `hitl_flag` is `true`, emit one `HITLItem` per distinct ambiguity in `hitl_items`.
 When `hitl_flag` is `false`, emit `hitl_items: []`.
@@ -442,6 +496,12 @@ Each HITLItem must have:
   `SUMMER`, `08`–`12` → `FALL`. State in `hitl_context` that the mapping is a draft for
   reviewer confirmation. The drafted `season_extractor` must return the **same raw strings** as the `raw`
   keys (e.g. `str(term)[4:6]` after normalizing `term` to a string without a trailing `.0`).
+  **Do not** emit a `year_semantics` item for YYYYMM — the prefix is the calendar year of that month.
+- For **YYYYPP / YYYY-NN period-code terms** (e.g. `202520`, `2025-20` — year from digits 1–4, period
+  code from digits 5–6 or after the hyphen): emit **two** top-level HITL items — (1) this hook-confirmation
+  item for extractors + `season_map_replace`, and (2) a separate **`reentry: "terminal"`** `year_semantics`
+  item (see YEAR SEMANTICS). Do **not** fold calendar vs academic-year-start into the hook question; confirming
+  ``int(str(term)[:4])`` only settles *where* the year is extracted, not *what it means*.
 - `hitl_context`: the raw values or samples that triggered the flag. Give the reviewer
   the evidence they need without requiring them to look at the data.
 - `options`: 2–5 options. Last option must always be `option_id: "custom"` with
@@ -483,6 +543,42 @@ Good `hitl_question` examples:
   samples. Please confirm the extraction rule before hook generation proceeds."
 - "`term_enrolled_date` parses as dates (e.g. '1-Sep-19'). Confirm Jan–Apr→Spring, May–Jul→Summer,
   Aug–Dec→Fall before hook generation proceeds."
+- "`semester` uses `2017SR`-style codes. The 4-digit prefix could be the calendar year (Spring 2017)
+  or the academic-year start (Spring 2018). Confirm which `year_semantics` applies."
+- "`academic_period` uses `202520`-style YYYYPP codes. Confirm period-code season mapping in one item;
+  confirm calendar vs academic-year-start for the 4-digit prefix in a **separate** terminal item."
+
+### YEAR SEMANTICS (emit a HITL item; do not set the value yourself)
+
+`term_config.year_semantics` controls whether the extracted year is the **calendar year**
+(`calendar_literal`, default) or an **academic-year start** (`academic_year_prefix`, where
+SPRING/SUMMER roll forward one calendar year). This is about what the **year means**, NOT how the
+season is encoded — numeric period codes, letter suffixes, and spelled seasons are all handled by
+`season_map` / hooks and do not affect this choice. Leave `year_semantics`
+**null** in your output — you cannot disambiguate it from a single column, and guessing silently
+corrupts every downstream date. Instead flag it for HITL when the term uses a coded year prefix:
+
+- **YYYY + season suffix** — `2017SR`, `2018FA`, `2019SP`
+- **YYYY-NN period codes** — `2025-10`, `2025-20`
+- **YYYYPP compact period codes** — `202520`, `202430` (hyphenless `YYYY-NN`; same ambiguity)
+- **Split year + season-code columns** — a numeric year column plus a short season/period code column
+
+Do **not** flag `year_semantics` for spelled `Season YYYY` (`"Fall 2019"`), datetime term columns
+(their year is already the calendar year), or **YYYYMM** month-fragment codes (`201308`).
+
+Emit a `reentry: "terminal"` HITLItem whose two options set `year_semantics` (not hook generation):
+
+- "Calendar year (e.g. 2017SR = Spring 2017, or 2025-20 = Spring 2025)" →
+  `{"year_semantics": "calendar_literal"}`
+- "Academic-year start (e.g. 2017SR = Spring 2018, or 2025-20 = Spring 2026)" →
+  `{"year_semantics": "academic_year_prefix"}`
+
+`year_semantics` is independent of `season_map` ordering. Order `season_map` **calendar-chronologically**
+regardless of semantics — SPRING before SUMMER before FALL. Do **not** rank by the numeric period
+code or by academic-year start: `20`→SPRING must precede `10`→FALL in the list even though 10 < 20.
+
+This item is independent of hook generation: a `hook_required` term column can also carry a
+`year_semantics` item when its year prefix is ambiguous.
 
 ### ACADEMIC YEAR CONVENTION (do not emit — for your reasoning only)
 
@@ -1221,6 +1317,10 @@ def parse_institution_term_contracts_with_hitl(
         inst = InstitutionTermContract.model_validate(d2)
         _assert_term_batch_hitl_items_match_flags(inst, items)
         assert_term_hook_groups_compatible(inst, items)
+        # ValidationError (not ValueError) so llm_complete_with_parse_retry can correct.
+        raise_term_semantic_validation_error_if_any(
+            collect_term_year_semantics_hitl_coverage_errors(inst, items)
+        )
         return inst, items
     except Exception:
         text = raw if isinstance(raw, str) else str(raw)[:500]

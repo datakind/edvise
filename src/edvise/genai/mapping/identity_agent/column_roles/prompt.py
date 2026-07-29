@@ -10,8 +10,8 @@ from edvise.genai.mapping.identity_agent.profiling.schemas import RawTableProfil
 from edvise.genai.mapping.shared.hitl import PIPELINE_HITL_CONFIDENCE_THRESHOLD
 from edvise.genai.mapping.shared.utilities import strip_json_fences
 
-from .file_kinds import FileKind, file_kind_prompt_section
-from .schemas import ColumnRoleAssignment, ColumnRolesResult
+from .file_kinds import file_kind_prompt_section
+from .schemas import ColumnRolesLLMResponse, ColumnRolesResult
 
 logger = logging.getLogger(__name__)
 
@@ -37,15 +37,18 @@ Return a single JSON object (no markdown fences) with:
 - `program` — degree program, program_at_graduation, intended_program, college
 - `major` — major, concentration, field of study
 - `cohort` — cohort year, entry term, admit term, class year
-- `measure` — numeric or coded outcomes: GPA, credits, grades, counts, rates, amounts
+- `measure` — numeric or coded outcomes: GPA, credits, grades, counts, rates, amounts;
+  developmental/remedial placement flags (`dev_engl`, `dev_math`, `dev_read`, gateway flags)
 - `index` — synthetic row index (Unnamed: 0, row_number)
 - `metadata` — descriptive text not part of identifiers (names, titles, descriptions)
-- `other` — none of the above
+- `other` — none of the above (use sparingly; most columns map to a specific role)
 
 ## Rules
 1. Choose `file_kind` from column names, dtypes, and sample values — **not** from the logical
    dataset label in the user message (institutions misname files).
-2. Assign exactly one role per column from the input list.
+2. Include every input column in `assignments` — the array length must equal
+   `expected_assignment_count`. Never omit a column; make your best semantic guess and use
+   `confidence` (and `low_confidence_columns`) when uncertain.
 3. Use column names **and** sample values; institutions use different naming (pidm vs student_id).
 4. Float columns with grade/credit/GPA names are usually `measure`, not `learner_id`.
 5. High-cardinality opaque IDs matching person patterns → `learner_id` even if not named student_id.
@@ -81,11 +84,13 @@ def build_column_roles_user_message(
     dataset: str,
     raw_table_profile: RawTableProfile,
 ) -> str:
+    columns = _column_summaries_for_prompt(raw_table_profile)
     payload = {
         "institution_id": institution_id,
         "dataset": dataset,
         "row_count": raw_table_profile.row_count,
-        "columns": _column_summaries_for_prompt(raw_table_profile),
+        "expected_assignment_count": len(columns),
+        "columns": columns,
     }
     return (
         "Classify the file kind, then classify each column by semantic role.\n\n"
@@ -99,43 +104,22 @@ def parse_column_roles_response(
     institution_id: str,
     dataset: str,
     expected_columns: list[str],
+    validate_completeness: bool = True,
 ) -> ColumnRolesResult:
     text = raw.decode("utf-8") if isinstance(raw, bytes) else raw
     data = cast(dict[str, Any], json.loads(strip_json_fences(text)))
 
-    file_kind_raw = data.get("file_kind")
-    if not isinstance(file_kind_raw, str) or not file_kind_raw.strip():
-        raise ValueError("file_kind must be a non-empty string")
-    file_kind = FileKind(file_kind_raw.strip().lower())
+    # Structural + completeness validation lives in the Pydantic model so that an
+    # incomplete ``assignments`` list (e.g. the LLM omitting a column) raises a
+    # ``ValidationError`` and is retried with a correction hint by
+    # ``call_with_retry`` instead of hard-failing on the first response.
+    context: dict[str, list[str]] | None = None
+    if validate_completeness:
+        context = {"expected_columns": list(expected_columns)}
+    response = ColumnRolesLLMResponse.model_validate(data, context=context)
 
-    file_kind_confidence = data.get("file_kind_confidence")
-    if not isinstance(file_kind_confidence, (int, float)):
-        raise ValueError("file_kind_confidence must be a number")
-    file_kind_rationale = str(data.get("file_kind_rationale") or "")
-
-    assignments_raw = data.get("assignments")
-    if not isinstance(assignments_raw, list):
-        raise ValueError("assignments must be a list")
-
-    assignments = [ColumnRoleAssignment.model_validate(x) for x in assignments_raw]
-    assigned_names = {a.column for a in assignments}
-    expected = list(expected_columns)
-    missing = [c for c in expected if c not in assigned_names]
-    if missing:
-        raise ValueError(f"Missing role assignments for columns: {missing}")
-
-    extra = assigned_names - set(expected)
-    if extra:
-        raise ValueError(f"Unexpected columns in assignments: {sorted(extra)}")
-
-    low_raw = data.get("low_confidence_columns", [])
-    if low_raw is None:
-        low_raw = []
-    if not isinstance(low_raw, list):
-        raise ValueError("low_confidence_columns must be a list or null")
-    low_confidence = [str(c) for c in low_raw]
-
-    for a in assignments:
+    low_confidence = list(response.low_confidence_columns)
+    for a in response.assignments:
         if (
             a.confidence < COLUMN_ROLES_CONFIDENCE_THRESHOLD
             and a.column not in low_confidence
@@ -145,9 +129,9 @@ def parse_column_roles_response(
     return ColumnRolesResult(
         institution_id=institution_id,
         dataset=dataset,
-        file_kind=file_kind,
-        file_kind_confidence=float(file_kind_confidence),
-        file_kind_rationale=file_kind_rationale,
-        assignments=assignments,
+        file_kind=response.file_kind,
+        file_kind_confidence=response.file_kind_confidence,
+        file_kind_rationale=response.file_kind_rationale,
+        assignments=response.assignments,
         low_confidence_columns=sorted(set(low_confidence)),
     )

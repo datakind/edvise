@@ -96,9 +96,13 @@ from edvise.genai.mapping.identity_agent.term_normalization.schemas import (
     InstitutionTermContract,
     SeasonMapEntry,
     TermContract,
+    season_map_chronology_error,
 )
 from edvise.genai.mapping.identity_agent.term_normalization.validation import (
     assert_term_hook_groups_compatible,
+)
+from edvise.genai.mapping.identity_agent.term_normalization.year_semantics_hitl import (
+    term_config_needs_year_semantics_review,
 )
 
 logger = logging.getLogger(__name__)
@@ -578,6 +582,34 @@ def validate_term_hook_hitl_covers_hook_required(
         )
     except ValueError as e:
         raise HITLValidationError(str(e)) from e
+
+
+def validate_term_year_semantics_resolved(
+    *,
+    term_contract_by_dataset: dict[str, TermContract],
+) -> None:
+    """
+    Ensure coded-year-prefix term configs have a resolved ``year_semantics`` value.
+
+    Call after :func:`resolve_items` on the term HITL envelope. Datetime hook columns
+    and ``YYYYMM`` month-fragment encodings are exempt (calendar year is unambiguous).
+    """
+    missing: list[str] = []
+    for dataset, tc in sorted(term_contract_by_dataset.items()):
+        if tc.term_config is None:
+            continue
+        cfg = tc.term_config.model_dump(mode="json")
+        if term_config_needs_year_semantics_review(cfg):
+            missing.append(dataset)
+    if missing:
+        miss = ", ".join(missing)
+        raise HITLValidationError(
+            "term_config for dataset(s) "
+            f"{{{miss}}} uses a coded year prefix (YYYY+suffix, YYYY-NN / YYYYPP period "
+            "codes, or split year + period-code columns) but year_semantics is unset. "
+            "Emit a separate terminal HITL item (reentry='terminal') with "
+            "calendar_literal vs academic_year_prefix — independent of hook generation."
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1060,14 +1092,22 @@ def _apply_term_resolution(
         for raw_entry in resolution.season_map_replace:
             entry = SeasonMapEntry.model_validate(raw_entry)
             new_map.append(entry.model_dump(mode="json"))
+        chrono_err = season_map_chronology_error(new_map)
+        if chrono_err:
+            raise ValueError(f"[{tbl}] {chrono_err}")
         term_cfg["season_map"] = new_map
         print(f"  → [{tbl}] season_map replaced ({len(new_map)} entries)")
 
     if resolution.season_map_append:
         existing = term_cfg.setdefault("season_map", [])
+        merged_map = list(existing)
         for raw_entry in resolution.season_map_append:
             entry = SeasonMapEntry.model_validate(raw_entry)
-            existing.append(entry.model_dump(mode="json"))
+            merged_map.append(entry.model_dump(mode="json"))
+        chrono_err = season_map_chronology_error(merged_map)
+        if chrono_err:
+            raise ValueError(f"[{tbl}] {chrono_err}")
+        term_cfg["season_map"] = merged_map
         print(f"  → [{tbl}] season_map extended: {resolution.season_map_append}")
 
     if resolution.term_col_override:
@@ -1075,6 +1115,10 @@ def _apply_term_resolution(
         term_cfg["year_col"] = None
         term_cfg["season_col"] = None
         print(f"  → [{tbl}] term_col overridden: {resolution.term_col_override}")
+
+    if resolution.year_semantics is not None:
+        term_cfg["year_semantics"] = resolution.year_semantics
+        print(f"  → [{tbl}] year_semantics set: {resolution.year_semantics}")
 
     if resolution.hook_spec is not None:
         _apply_term_hook_spec_dict(

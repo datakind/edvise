@@ -88,6 +88,49 @@ def test_term_col_override_clears_split_columns():
     assert tc["season_col"] is None
 
 
+def test_year_semantics_written_to_term_config():
+    cfg = {
+        "datasets": {
+            "t1": {
+                "term_config": {
+                    "term_col": "semester",
+                    "season_map": [
+                        {"raw": "SR", "canonical": "SPRING"},
+                        {"raw": "FR", "canonical": "FALL"},
+                    ],
+                    "term_extraction": "standard",
+                    "year_semantics": None,
+                }
+            }
+        }
+    }
+    res = TermResolution(year_semantics="academic_year_prefix")
+    _apply_term_resolution(cfg, _term_item(), res)
+    tc = cfg["datasets"]["t1"]["term_config"]
+    assert tc["year_semantics"] == "academic_year_prefix"
+    # Unrelated fields untouched.
+    assert tc["term_col"] == "semester"
+    assert tc["term_extraction"] == "standard"
+
+
+def test_year_semantics_absent_leaves_config_unchanged():
+    cfg = {
+        "datasets": {
+            "t1": {
+                "term_config": {
+                    "term_col": "term",
+                    "season_map": [{"raw": "FA", "canonical": "FALL"}],
+                    "term_extraction": "standard",
+                }
+            }
+        }
+    }
+    res = TermResolution(exclude_tokens=["Custom"])
+    _apply_term_resolution(cfg, _term_item(), res)
+    tc = cfg["datasets"]["t1"]["term_config"]
+    assert "year_semantics" not in tc
+
+
 def test_season_map_append_validates_entries():
     cfg = {
         "datasets": {
@@ -103,6 +146,45 @@ def test_season_map_append_validates_entries():
     }
     bad = TermResolution(season_map_append=[{"raw": "X", "canonical": "NOT_A_SEASON"}])
     with pytest.raises(ValidationError):
+        _apply_term_resolution(cfg, _term_item(), bad)
+
+
+def test_season_map_replace_rejects_non_chronological_order():
+    cfg = {
+        "datasets": {
+            "t1": {
+                "term_config": {
+                    "term_col": "semester",
+                    "season_map": [],
+                    "term_extraction": "hook_required",
+                }
+            }
+        }
+    }
+    bad = TermResolution(
+        season_map_replace=[
+            {"raw": "10", "canonical": "FALL"},
+            {"raw": "20", "canonical": "SPRING"},
+        ]
+    )
+    with pytest.raises(ValueError, match="calendar-chronological"):
+        _apply_term_resolution(cfg, _term_item(), bad)
+
+
+def test_season_map_append_rejects_non_chronological_merge():
+    cfg = {
+        "datasets": {
+            "t1": {
+                "term_config": {
+                    "term_col": "semester",
+                    "season_map": [{"raw": "10", "canonical": "FALL"}],
+                    "term_extraction": "hook_required",
+                }
+            }
+        }
+    }
+    bad = TermResolution(season_map_append=[{"raw": "20", "canonical": "SPRING"}])
+    with pytest.raises(ValueError, match="calendar-chronological"):
         _apply_term_resolution(cfg, _term_item(), bad)
 
 

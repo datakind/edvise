@@ -98,6 +98,10 @@ resources:
               - "{{job.parameters.pipeline_version}}"
               - --db_run_id
               - "{{job.parameters.db_run_id}}"
+              - --override_2a_manifest
+              - "{{job.parameters.override_2a_manifest}}"
+              - --overrides_json_path
+              - "{{job.parameters.overrides_json_path}}"
           job_cluster_key: edvise-genai-mapping-onboard-cluster
           libraries: *genai_mapping_libs
 
@@ -124,6 +128,10 @@ resources:
               - "{{job.parameters.pipeline_version}}"
               - --db_run_id
               - "{{job.parameters.db_run_id}}"
+              - --override_2a_manifest
+              - "{{job.parameters.override_2a_manifest}}"
+              - --overrides_json_path
+              - "{{job.parameters.overrides_json_path}}"
           job_cluster_key: edvise-genai-mapping-onboard-cluster
           libraries: *genai_mapping_libs
 
@@ -161,6 +169,10 @@ resources:
           default: ""
         - name: db_run_id
           default: "{{job.run_id}}"
+        - name: override_2a_manifest
+          default: "false"
+        - name: overrides_json_path
+          default: ""
 
       permissions:
         - group_name: ${var.datakind_group_to_manage_workflow}

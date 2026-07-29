@@ -4,12 +4,53 @@ import json
 import logging
 import re
 import subprocess
-from typing import Optional
+from typing import Literal, Optional
 
 import urllib.error
 import urllib.request
 
 LOGGER = logging.getLogger(__name__)
+
+ReleaseBumpType = Literal["initial", "patch", "minor", "major"]
+
+
+def parse_semver(version: str) -> tuple[int, int, int]:
+    """Parse a X.Y.Z version string into integer components."""
+    normalized = version.lstrip("v")
+    match = re.fullmatch(r"([0-9]+)\.([0-9]+)\.([0-9]+)", normalized)
+    if not match:
+        raise ValueError(f"Invalid semver: {version}")
+    return int(match.group(1)), int(match.group(2)), int(match.group(3))
+
+
+def classify_release_bump(
+    current_version: str, previous_version: Optional[str]
+) -> ReleaseBumpType:
+    """Classify how the current release version changed from the previous tag."""
+    if not previous_version:
+        return "initial"
+
+    current = parse_semver(current_version)
+    previous = parse_semver(previous_version)
+
+    if current[0] > previous[0]:
+        return "major"
+    if current[1] > previous[1]:
+        return "minor"
+    if current[2] > previous[2]:
+        return "patch"
+
+    raise ValueError(
+        f"Version {current_version} is not a forward semver bump from {previous_version}"
+    )
+
+
+def should_run_release_integration(
+    current_version: str, previous_version: Optional[str]
+) -> bool:
+    """Return True when release integration CI should run (major/minor/initial)."""
+    bump = classify_release_bump(current_version, previous_version)
+    return bump in {"initial", "minor", "major"}
 
 
 def get_last_version_tag() -> Optional[str]:

@@ -58,8 +58,8 @@ class ReviewStatus(str, Enum):
     corrected_by_hitl = "corrected_by_hitl"
     # Human reviewer made a correction at the HITL gate.
 
-    corrected_by_repair = "corrected_by_repair"
-    # Post-gate manifest repair (e.g. 2a) — see :mod:`edvise.genai.mapping.shared.hitl.run_log`.
+    corrected_by_override = "corrected_by_override"
+    # Post-gate manifest mapping override — see :mod:`edvise.genai.mapping.shared.hitl.run_log`.
 
 
 # =============================================================================
@@ -276,7 +276,7 @@ class FieldMappingRecord(StrictBaseModel):
             "Pipeline-assigned review outcome. Never set by the generating agent. "
             "Assigned after validation: auto_approved, refined_by_llm, "
             "refined_and_proposed_for_hitl, proposed_for_hitl, corrected_by_hitl, "
-            "or corrected_by_repair."
+            "or corrected_by_override."
         ),
     )
     reviewer_notes: Optional[str] = Field(

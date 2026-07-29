@@ -28,7 +28,7 @@ File layout per institution:
         sma_hitl.json           ← written by refinement+HITL LLM call
         sma_manifest_output.json ← refined manifest, updated in place by resolver
         run_log.json            ← append-only audit trail (shared with IdentityAgent)
-        repair_log.json         ← append-only 2a manifest repair audit (SMA)
+        mapping_override_log.json         ← append-only manifest mapping override audit (SMA)
 
 Scope: Schema Mapping Agent Step 2a manifest gate only.
 Step 2b hook / transformation HITL lives under

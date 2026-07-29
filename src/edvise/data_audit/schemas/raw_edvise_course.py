@@ -9,6 +9,7 @@ validation rules. Column names and checks align with the JSON spec and the
 DataKind course file requirements.
 """
 
+import functools as ft
 import typing as t
 
 import pandas as pd
@@ -64,7 +65,7 @@ ALLOWED_LETTER_GRADES = {
 }
 
 
-CreditsField = pda.Field(nullable=False, ge=0.0)
+CreditsField = ft.partial(pda.Field, nullable=False, ge=0.0)
 
 # Manifest + SMA execution: these target keys must map (ENTITY_GRAIN in
 # manifest.validation). ``course_section_id`` / ``source_term_key`` are optional
@@ -183,8 +184,8 @@ class RawEdviseCourseDataSchema(pda.DataFrameModel):
         description="Catalog section when available; optional when not provided by the institution.",
     )
     grade: pt.Series[pd.StringDtype] = pda.Field(nullable=False)
-    course_credits_attempted: pt.Series[pd.Float64Dtype] = CreditsField
-    course_credits_earned: pt.Series[pd.Float64Dtype] = CreditsField
+    course_credits_attempted: pt.Series[pd.Float64Dtype] = CreditsField()
+    course_credits_earned: pt.Series[pd.Float64Dtype] = CreditsField()
 
     # ------------------------------------------------------------------ #
     # Optional (column may be missing; when present, validated)

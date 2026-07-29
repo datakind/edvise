@@ -381,6 +381,7 @@ def run_onboard_gate_1(
         normalized_column_names_from_raw_headers,
         validate_hook,
         validate_term_hook_hitl_covers_hook_required,
+        validate_term_year_semantics_resolved,
     )
     from edvise.genai.mapping.identity_agent.hitl.hook_generation import (
         apply_term_hook_spec_names_from_item_id,
@@ -440,6 +441,9 @@ def run_onboard_gate_1(
     )
     validate_term_hook_hitl_covers_hook_required(
         term_hitl_path=paths.term_hitl,
+        term_contract_by_dataset=_term_after_resolve,
+    )
+    validate_term_year_semantics_resolved(
         term_contract_by_dataset=_term_after_resolve,
     )
 

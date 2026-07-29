@@ -12,7 +12,7 @@ from typing import Any
 
 import streamlit as st
 
-from edvise.utils.institution_naming import format_institution_display_name
+from hitl_reviewer.utils.institution_naming import format_institution_display_name
 from hitl_reviewer.persistence.silver_hitl_paths import silver_volume_path_session_tag
 from hitl_reviewer.ui._shared import (
     HITL_UC_GATE_SPINNER_LABEL,

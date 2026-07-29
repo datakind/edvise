@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import os
 from pathlib import Path
 import tomllib
 
@@ -30,20 +29,6 @@ def load_dependency_group(pyproject_path: Path, group_name: str) -> list[str]:
     return [str(dependency) for dependency in dependencies]
 
 
-def _edvise_requirement_line(*, app_dir: Path, repo_root: Path) -> str:
-    """
-    Prefer a wheel under ``./wheels/`` (CI / Databricks bundle); else editable install
-    of the parent repo for local ``streamlit run``.
-    """
-    wheels = sorted(app_dir.glob("wheels/edvise-*.whl"))
-    if wheels:
-        rel = wheels[0].relative_to(app_dir).as_posix()
-        return f"edvise @ file:./{rel}"
-
-    rel_repo = Path(os.path.relpath(repo_root.resolve(), app_dir.resolve())).as_posix()
-    return f"-e {rel_repo}"
-
-
 def write_requirements(output_path: Path, lines: list[str]) -> None:
     output_path.write_text("\n".join(lines) + "\n")
 
@@ -66,8 +51,7 @@ def main() -> None:
     output_path = args.output.resolve() if args.output else app_dir / "requirements.txt"
 
     dependencies = load_dependency_group(pyproject_path, DEPENDENCY_GROUP)
-    edvise_line = _edvise_requirement_line(app_dir=app_dir, repo_root=repo_root)
-    write_requirements(output_path, [*dependencies, edvise_line])
+    write_requirements(output_path, dependencies)
 
     print(output_path)
     print(output_path.read_text(), end="")

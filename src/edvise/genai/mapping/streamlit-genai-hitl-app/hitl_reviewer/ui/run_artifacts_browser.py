@@ -13,7 +13,7 @@ from typing import Any
 
 import streamlit as st
 
-from edvise.configs import genai as genai_cfg
+from hitl_reviewer.platform.volume_path_utils import silver_genai_mapping_root
 from hitl_reviewer.platform.unity_volume_files import read_unity_file_text
 
 _PREVIEW_CHAR_CAP = 120_000
@@ -32,7 +32,7 @@ def _ia_hook_module_relpath(institution_id: str, *, grain: bool) -> str:
 
 
 def genai_mapping_root_uc(institution_id: str, catalog: str) -> str:
-    return genai_cfg.silver_genai_mapping_root(
+    return silver_genai_mapping_root(
         str(institution_id).strip(), catalog=str(catalog).strip()
     )
 
@@ -92,7 +92,7 @@ def known_onboard_run_artifact_paths(
         ("course_transformation_hook_hitl.json", "Course transformation hook HITL"),
         ("transform_hooks.py", "transform_hooks.py"),
         ("run_log.json", "SMA run_log.json"),
-        ("repair_log.json", "SMA repair_log.json"),
+        ("mapping_override_log.json", "SMA mapping_override_log.json"),
         ("pandera_validation_errors.json", "Pandera validation errors"),
     ):
         add("Schema mapping agent (onboard run)", label, sma / fn)

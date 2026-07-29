@@ -46,3 +46,10 @@ STUDENT_ANCHOR_NAME_PATTERN = re.compile(
     r"member[_\s]?id|participant[_\s]?id)",
     re.IGNORECASE,
 )
+
+DEVELOPMENTAL_MEASURE_COLUMN_PATTERNS = re.compile(
+    r"(?:^dev[_\s]?(?:engl|english|math|read)|"
+    r"attempted[_\s]?dev|completed[_\s]?dev|"
+    r"gateway|placement[_\s]?flag|remedial)",
+    re.IGNORECASE,
+)

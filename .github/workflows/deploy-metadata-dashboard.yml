@@ -1,9 +1,10 @@
 name: deploy-metadata-dashboard
 
 on:
-  push:
-    tags:
-      - "v*"
+  # invoked by release-deploy.yml as part of a full release
+  workflow_call:
+  # escape hatch: run this component standalone against a tag ref
+  workflow_dispatch:
 
 concurrency:
   group: deploy-metadata-dashboard-${{ github.ref_name }}-${{ github.job }}

@@ -445,6 +445,50 @@ def create_calibration_curve_plot(
     return fig
 
 
+def build_roc_curve_table(
+    y_true: np.ndarray,
+    y_scores: np.ndarray,
+    *,
+    decimals: int = 4,
+) -> pd.DataFrame:
+    """
+    Build the training ROC curve table used by the webapp.
+
+    Scores and thresholds are rounded to the same precision before comparison so a
+    score cannot fail a threshold derived from itself (e.g. 0.12345 >= 0.1235).
+    """
+    y_true = np.asarray(y_true)
+    y_scores = np.round(np.asarray(y_scores, dtype=float), decimals)
+    thresholds = np.unique(y_scores)[::-1]
+
+    pos = y_true == 1
+    neg = y_true == 0
+    p_count = int(np.sum(pos))
+    n_count = int(np.sum(neg))
+
+    rows = []
+    for thresh in thresholds:
+        pred_pos = y_scores >= thresh
+        tp = int(np.sum(pred_pos & pos))
+        fp = int(np.sum(pred_pos & neg))
+        tn = int(np.sum(~pred_pos & neg))
+        fn = int(np.sum(~pred_pos & pos))
+        rows.append(
+            {
+                "threshold": float(thresh),
+                "true_positive_rate": round(tp / p_count, decimals) if p_count else 0.0,
+                "false_positive_rate": round(fp / n_count, decimals)
+                if n_count
+                else 0.0,
+                "true_positive": tp,
+                "false_positives": fp,
+                "true_negatives": tn,
+                "false_negatives": fn,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
 def log_roc_table(
     institution_id: str,
     *,
@@ -502,37 +546,7 @@ def log_roc_table(
             model=model,
         )
 
-        # Calculate ROC table manually and plot all thresholds.
-        # Down the line, we might want to specify a threshold to reduce plot density
-        thresholds = np.sort(np.unique(y_scores))[::-1]
-        rounded_thresholds = sorted(
-            set([round(t, 4) for t in thresholds]), reverse=True
-        )
-
-        P, N = np.sum(y_true == 1), np.sum(y_true == 0)
-
-        rows = []
-        for thresh in rounded_thresholds:
-            y_pred = (y_scores >= thresh).astype(int)
-            TP = np.sum((y_pred == 1) & (y_true == 1))
-            FP = np.sum((y_pred == 1) & (y_true == 0))
-            TN = np.sum((y_pred == 0) & (y_true == 0))
-            FN = np.sum((y_pred == 0) & (y_true == 1))
-            TPR = TP / P if P else 0
-            FPR = FP / N if N else 0
-            rows.append(
-                {
-                    "threshold": round(thresh, 4),
-                    "true_positive_rate": round(TPR, 4),
-                    "false_positive_rate": round(FPR, 4),
-                    "true_positive": int(TP),
-                    "false_positives": int(FP),
-                    "true_negatives": int(TN),
-                    "false_negatives": int(FN),
-                }
-            )
-
-        roc_df = pd.DataFrame(rows)
+        roc_df = build_roc_curve_table(y_true, y_scores)
         spark_df = spark.createDataFrame(roc_df)
         spark_df.write.mode("overwrite").saveAsTable(table_path)
         logging.info(

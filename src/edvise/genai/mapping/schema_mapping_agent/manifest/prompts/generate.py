@@ -48,12 +48,17 @@ _RAW_EDVISE_STUDENT_FIELD_SEMANTIC_NOTES: dict[str, str] = {
         "not term-level status."
     ),
     "intended_program_type": (
-        "Cohort entry snapshot: program or credential the student intended to pursue when "
-        "entering (aligned with entry_year/entry_term). Not the current/latest primary program."
+        "Cohort entry snapshot: credential / program TYPE at entry (certificate, associate, "
+        "bachelor's, etc.) — aligned with entry_year/entry_term. Prefer a degree/credential "
+        "code or short type label (e.g. AA, AS, AAS, Bachelor's, Certificate). NOT an academic "
+        "plan / major description, NOT a field-of-study name, and NOT the current/latest program. "
+        "Distinct from declared_major_at_entry (major / plan text)."
     ),
     "declared_major_at_entry": (
-        "Cohort entry snapshot: declared major (or primary field of study) at program entry. "
-        "Not the latest major row from longitudinal history or current major."
+        "Cohort entry snapshot: declared major (or primary field of study / academic plan) at "
+        "program entry. Prefer major, plan, or program-of-study description columns — NOT a "
+        "degree/credential type code used for intended_program_type. Not the latest major row "
+        "from longitudinal history or current major."
     ),
     "major_at_completion": (
         "Outcome: field of study at completion/exit — distinct from declared_major_at_entry."
@@ -109,13 +114,18 @@ _RAW_EDVISE_COURSE_FIELD_SEMANTIC_NOTES: dict[str, str] = {
         "an ordinal sort key. Use _term_order for chronological sorting."
     ),
     "term_degree": (
-        "Term snapshot: degree level the student is pursuing IN THIS TERM (e.g. UG / GR, "
-        "Associate / Bachelors). Not the credential conferred at exit (conferred_credential_type) "
-        "and not the cohort intended_program_type."
+        "Term snapshot: degree / credential LEVEL or TYPE the student is pursuing IN THIS TERM "
+        "(e.g. UG / GR, Associate / Bachelors, AA, AS, Certificate). Prefer a degree/credential "
+        "code or short level label. NOT an academic plan / major description and NOT academic "
+        "standing alone when a clearer degree-sought column exists. Not the credential conferred "
+        "at exit (conferred_credential_type), not cohort intended_program_type, and distinct from "
+        "term_declared_major (major / plan text this term)."
     ),
     "term_declared_major": (
-        "Term snapshot: declared major IN THIS TERM. Distinct from cohort "
-        "declared_major_at_entry (entry-time) and major_at_completion (outcome)."
+        "Term snapshot: declared major / field of study / academic plan IN THIS TERM. Prefer "
+        "major, plan, or program-of-study description columns — NOT a degree/credential type "
+        "code used for term_degree. Distinct from cohort declared_major_at_entry (entry-time) "
+        "and major_at_completion (outcome)."
     ),
     "term_pell_recipient": (
         "Term-level Pell receipt for THIS term enrollment. Distinct from cohort-level "
@@ -384,9 +394,64 @@ These fields describe the student **at cohort/program entry** (same conceptual m
 - Do **not** map these targets from **`major_at_completion`** sources or other completion/exit fields.
 - `major_at_completion` is outcome semantics and belongs only on that target.
 
-**(5) Unmappable**
+**(5) Credential TYPE vs major / plan (REQUIRED column-kind check)**
+These two targets are related but **not interchangeable**. Inspect column names **and**
+`unique_values` / `sample_values` before assigning either field.
+
+- **`intended_program_type`** = credential / program **type** (certificate vs associate vs
+  bachelor's, etc.). Prefer columns named or defined as **degree**, **credential**,
+  **award type**, **program type**, or **degree sought**, whose values are short type codes
+  or labels (e.g. `AA`, `AS`, `AAS`, `BA`, `BS`, `Certificate`, `Associate`, `Bachelor's`).
+- **`declared_major_at_entry`** = **field of study** (major, concentration, academic plan /
+  plan description, program-of-study name). Prefer columns named or defined as **major**,
+  **plan**, **acad_plan**, **program of study**, or similar, whose values name disciplines
+  or plans (e.g. `AS Biology - Health Sciences`, `AA Business`, `Nursing`).
+- **Do not** map an academic-plan / major-description column to `intended_program_type` when a
+  clearer degree/credential-type column exists on a usable table (even if plan text embeds
+  phrases like "Associate in Arts").
+- **Do not** map a pure degree/credential-type code column to `declared_major_at_entry` when a
+  major/plan description column exists.
+- Prefer **different** source columns for the two targets when both are present. Reusing one
+  column for both is allowed only when no better type-vs-major split exists — state that in
+  **validation_notes** and use **confidence ≤ {t}** with HITL.
+- Do **not** invent value remapping to "Edvise categories" in rationale: Step 2b preserves
+  institution source wording for these fields (`map_values` is forbidden).
+
+**(6) Unmappable**
 - Prefer unmappable (per UNMAPPABLE FIELDS) over forcing **latest** or **completion** data into
-  `intended_program_type` or `declared_major_at_entry`.
+  `intended_program_type` or `declared_major_at_entry`, and over forcing a major/plan column into
+  `intended_program_type` when no defensible degree/type source exists.
+"""
+
+
+def _step2a_course_term_degree_and_major_rules() -> str:
+    """Step 2a: term_degree vs term_declared_major — type/level vs field of study."""
+    t = PIPELINE_HITL_CONFIDENCE_THRESHOLD
+    return f"""
+COURSE term_degree AND term_declared_major — type/level vs field-of-study
+
+These course targets are **term snapshots** (value on the enrollment / course row for THIS term).
+They are related but **not interchangeable**. Inspect column names **and** `unique_values` /
+`sample_values` before assigning either field.
+
+- **`term_degree`** = degree / credential **level or type** pursued in this term (e.g. UG / GR,
+  Associate / Bachelors, `AA`, `AS`, `Certificate`). Prefer columns named or defined as
+  **degree**, **credential**, **award type**, **degree level**, or **program type**.
+- **`term_declared_major`** = **field of study** declared in this term (major, concentration,
+  academic plan / plan description). Prefer **major**, **plan**, **acad_plan**, or
+  program-of-study description columns.
+- **Do not** map an academic-plan / major-description column to `term_degree` when a clearer
+  degree/level/type column exists (even if plan text embeds "Associate…" / "Bachelor…").
+- **Do not** map a pure degree/credential-type code column to `term_declared_major` when a
+  major/plan description column exists.
+- Prefer **different** source columns when both targets are mapped. Reusing one column for
+  both is allowed only when no better split exists — state that in **validation_notes** and
+  use **confidence ≤ {t}** with HITL.
+- `term_degree` is **not** `conferred_credential_type` (exit award) and **not** cohort
+  `intended_program_type` (entry snapshot). `term_declared_major` is **not** cohort
+  `declared_major_at_entry` (entry) or `major_at_completion` (outcome).
+- Do **not** invent value remapping to canonical categories in rationale: Step 2b preserves
+  institution source wording for these fields (`map_values` is forbidden).
 """
 
 
@@ -488,9 +553,10 @@ def _step2a_rules_after_structure(
 ) -> str:
     """Shared rules (SOURCE COLUMNS → TARGET SCHEMA AUTHORITY) for all Step 2a prompt variants.
 
-    ``term_rules`` controls which term-field hierarchies are injected (cohort entry vs course academic):
-    ``cohort_and_course`` for single-pass prompts;     ``cohort_only`` / ``course_only`` for entity passes
-    so each pass only sees instructions for its entity.
+    ``term_rules`` controls which field hierarchies are injected:
+    ``cohort_and_course`` for single-pass / batched prompts (cohort entry + course academic +
+    type-vs-major rules for both entities); ``cohort_only`` / ``course_only`` for entity passes
+    so each pass only sees instructions for its entity (including the matching type-vs-major block).
     """
     pipeline_hitl_t = PIPELINE_HITL_CONFIDENCE_THRESHOLD
     alias_bullet = _column_aliases_scope_bullet(column_aliases_scope)
@@ -500,6 +566,7 @@ def _step2a_rules_after_structure(
             + _step2a_cohort_entry_program_and_major_rules()
             + _step2a_cohort_degree_conferral_datetime_rules()
             + _step2a_course_academic_term_rules()
+            + _step2a_course_term_degree_and_major_rules()
         )
     elif term_rules == "cohort_only":
         term_blocks = (
@@ -508,7 +575,11 @@ def _step2a_rules_after_structure(
             + _step2a_cohort_degree_conferral_datetime_rules()
         )
     else:
-        term_blocks = _step2a_course_academic_term_rules()
+        # course_only entity pass — do not inject cohort program/major rules
+        term_blocks = (
+            _step2a_course_academic_term_rules()
+            + _step2a_course_term_degree_and_major_rules()
+        )
 
     return f"""SOURCE COLUMNS
 - Use only source columns and tables present in the {institution_id} schema contract

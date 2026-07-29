@@ -146,33 +146,23 @@ def generate_ranked_feature_table(
 
         dtype = features[feature].dtype
 
-        # Check original_dtypes first to correctly identify boolean features
-        # that may have been converted to numeric during sklearn processing
+        # Prefer the pre-imputation dtype so display-only string sentinels do
+        # not change numeric or boolean features to "Categorical".
         orig_dtype_raw = original_dtypes.get(feature, None) if original_dtypes else None
-        is_bool_from_original = False
+        orig_dtype = None
         if orig_dtype_raw is not None:
-            # Handle string dtype values (as stored in JSON)
-            # Check for boolean dtypes: "bool", "boolean", or BooleanDtype objects
-            if isinstance(orig_dtype_raw, str):
-                # Normalize string to lowercase for comparison
-                dtype_str_lower = orig_dtype_raw.lower()
-                if dtype_str_lower in ("bool", "boolean"):
-                    is_bool_from_original = True
-            else:
-                # Handle dtype objects directly
-                try:
-                    orig_dtype = pd.api.types.pandas_dtype(orig_dtype_raw)
-                    is_bool_from_original = pd.api.types.is_bool_dtype(orig_dtype)
-                except Exception:
-                    pass
+            try:
+                orig_dtype = pd.api.types.pandas_dtype(orig_dtype_raw)
+            except (TypeError, ValueError):
+                pass
 
-        data_type = (
-            "Boolean"
-            if (pd.api.types.is_bool_dtype(dtype) or is_bool_from_original)
-            else "Continuous"
-            if pd.api.types.is_numeric_dtype(dtype)
-            else "Categorical"
-        )
+        type_source = orig_dtype if orig_dtype is not None else dtype
+        if pd.api.types.is_bool_dtype(type_source):
+            data_type = "Boolean"
+        elif pd.api.types.is_numeric_dtype(type_source):
+            data_type = "Continuous"
+        else:
+            data_type = "Categorical"
 
         avg_shap_magnitude_raw = np.mean(np.abs(shap_values[:, idx]))
 
