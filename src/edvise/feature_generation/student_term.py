@@ -1,5 +1,6 @@
 import functools as ft
 import logging
+import re
 import typing as t
 
 import numpy as np
@@ -691,6 +692,13 @@ def equal_cols_by_group(
     return df.assign(**dummy_cols).reindex(columns=grp_cols + list(dummy_cols.keys()))
 
 
+def _course_id_matches_catalog_key(ser: pd.Series, key: str) -> pd.Series:
+    """Match catalog ``course_id`` or suffixed variants (``{key}-{n}``) as the same course."""
+    k = str(key)
+    s = ser.astype("string")
+    return s.eq(k) | s.str.fullmatch(rf"{re.escape(k)}-\d+", na=False)
+
+
 def sum_val_equal_cols_by_group(
     df: pd.DataFrame,
     *,
@@ -698,13 +706,9 @@ def sum_val_equal_cols_by_group(
     agg_col_vals: list[tuple[str, t.Any]],
 ) -> pd.DataFrame:
     """
-    Compute equal to specified values for all ``agg_col_vals`` in ``df`` ,
-    then group by ``grp_cols`` and aggregate with a "sum".
+    Per-group sums of indicator columns for ``agg_col_vals`` (equals / is-in).
 
-    Args:
-        df
-        grp_cols
-        agg_col_vals
+    Scalar ``("course_id", catalog)`` also counts ``catalog-{{n}}`` as the same course.
     """
     temp_col_series = {}
     for col, val in agg_col_vals:
@@ -714,7 +718,10 @@ def sum_val_equal_cols_by_group(
             if isinstance(val, list)
             else f"{col}_{val}"
         )
-        temp_col_series[temp_col] = shared.compute_values_equal(df[col], val)
+        if col == "course_id" and not isinstance(val, list):
+            temp_col_series[temp_col] = _course_id_matches_catalog_key(df[col], val)
+        else:
+            temp_col_series[temp_col] = shared.compute_values_equal(df[col], val)
     return (
         df.assign(**temp_col_series)
         .reindex(columns=grp_cols + list(temp_col_series.keys()))
