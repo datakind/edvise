@@ -38,6 +38,7 @@ from edvise.dataio.genai_registry_paths import resolve_genai_pipeline_input_dir
 from edvise.data_audit.batch_dataset_paths import resolve_es_raw_dataset_paths
 from edvise.dataio.path_management import pick_existing_path
 from edvise.dataio.path_management import path_exists
+from edvise.dataio.es_course_converters import handle_missing_grades
 from edvise.dataio.read import (
     read_config,
     read_raw_es_cohort_data,
@@ -330,15 +331,29 @@ class ESDataAuditTask:
             " Reading and schema validating course data, handling any duplicates:"
         )
 
+        use_missing_grade = bool(self.cfg.use_missing_grade_func)
+        if use_missing_grade:
+            LOGGER.info(
+                "use_missing_grade_func=true: will run handle_missing_grades "
+                "after custom course converter (if any), before schema validation"
+            )
+
         def _course_converter_chain(df: pd.DataFrame) -> pd.DataFrame:
+            # Order: grade_map → custom converter → shared missing-grade handler.
             df = apply_raw_course_grade_map(df, course_grade_map)
             if self.course_converter_func is not None:
                 df = self.course_converter_func(df)
+            if use_missing_grade:
+                df = handle_missing_grades(df)
             return df
 
         course_converter = (
             _course_converter_chain
-            if course_grade_map is not None or self.course_converter_func is not None
+            if (
+                course_grade_map is not None
+                or self.course_converter_func is not None
+                or use_missing_grade
+            )
             else None
         )
 

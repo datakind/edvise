@@ -51,6 +51,14 @@ class ESProjectConfig(pyd.BaseModel):
             "(from SST API genai_id vs edvise_id)."
         ),
     )
+    use_missing_grade_func: bool = pyd.Field(
+        default=True,
+        description=(
+            "If True (default), ES data_audit runs the shared missing-grade handler "
+            "after any custom course converter and before schema validation. "
+            "Set False to skip (custom converters still run when present)."
+        ),
+    )
 
     # shared parameters
     student_id_col_pre_val: str = pyd.Field(
