@@ -12,6 +12,24 @@ from edvise.shared.utils import as_percent, validate_optional_column
 LOGGER = logging.getLogger(__name__)
 
 DEFAULT_BIAS_VARS = ["first_gen", "gender", "race", "ethnicity", "student_age"]
+DEFAULT_ES_BIAS_VARS = [
+    "first_generation_status",
+    "gender",
+    "race",
+    "ethnicity",
+    "learner_age",
+]
+
+# column name -> log label for cohort categorical percent breakdowns
+PDP_COHORT_PCT_BREAKDOWN_COLS: dict[str, str] = {
+    "credential_type_sought_year_1": "credential types",
+    "enrollment_type": "enrollment types",
+    "enrollment_intensity_first_term": "enrollment intensities",
+}
+ES_COHORT_PCT_BREAKDOWN_COLS: dict[str, str] = {
+    "enrollment_type": "enrollment types",
+    "intended_program_type": "intended program types",
+}
 
 
 def assess_unique_values(data: pd.DataFrame, cols: str | list[str]) -> dict[str, int]:
@@ -710,31 +728,40 @@ def pct_breakdown(series: pd.Series) -> pd.Series:
     return series.value_counts(dropna=False, normalize=True).map(as_percent)
 
 
-def print_credential_and_enrollment_types_and_intensities(
-    df_cohort: pd.DataFrame,
+def print_column_pct_breakdowns(
+    df: pd.DataFrame,
+    columns: t.Mapping[str, str],
 ) -> None:
-    pct_credentials = pct_breakdown(df_cohort["credential_type_sought_year_1"])
-
-    pct_enroll_types = pct_breakdown(df_cohort["enrollment_type"])
-
-    pct_enroll_intensity = pct_breakdown(df_cohort["enrollment_intensity_first_term"])
-
-    LOGGER.info(
-        "Percent breakdown for credential types:\n%s",
-        pct_credentials.to_string(),
-    )
-    LOGGER.info(
-        "Percent breakdown for enrollment types:\n%s",
-        pct_enroll_types.to_string(),
-    )
-    LOGGER.info(
-        "Percent breakdown for enrollment intensities:\n%s",
-        pct_enroll_intensity.to_string(),
-    )
+    """Log percent value breakdowns for ``columns`` (name -> log label)."""
+    for col, label in columns.items():
+        if col not in df.columns:
+            LOGGER.warning(
+                "⚠️ Skipping percent breakdown; column '%s' not found",
+                col,
+            )
+            continue
+        LOGGER.info(
+            "Percent breakdown for %s:\n%s",
+            label,
+            pct_breakdown(df[col]).to_string(),
+        )
 
 
-def print_retention(df_cohort: pd.DataFrame) -> None:
-    retention = df_cohort.groupby("cohort")["retention"].apply(pct_breakdown)
+def print_retention(
+    df_cohort: pd.DataFrame,
+    *,
+    cohort_col: str = "cohort",
+    retention_col: str = "retention",
+) -> None:
+    missing = [c for c in (cohort_col, retention_col) if c not in df_cohort.columns]
+    if missing:
+        LOGGER.warning(
+            "⚠️ Skipping retention breakdown; missing columns: %s",
+            missing,
+        )
+        return
+
+    retention = df_cohort.groupby(cohort_col)[retention_col].apply(pct_breakdown)
 
     LOGGER.warning(
         "⚠️ Breakdown for retention by cohort: "
@@ -744,18 +771,58 @@ def print_retention(df_cohort: pd.DataFrame) -> None:
     )
 
 
-def log_top_majors(df_cohort: pd.DataFrame) -> None:
-    """
-    Logs the top majors by program of study for the first term.
-    """
-    top_majors = (
-        df_cohort["program_of_study_term_1"]
-        .value_counts(dropna=False)
-        .sort_values(ascending=False)
-        .head(10)
-    )
+def warn_null_graduation_target_columns(
+    df: pd.DataFrame,
+    target_cfg: t.Any,
+) -> None:
+    """Warn if a graduation model's ``years_to_degree_col`` is missing or all-null."""
+    if target_cfg is None or getattr(target_cfg, "type_", None) != "graduation":
+        return
+
+    col = getattr(target_cfg, "years_to_degree_col", None)
+    if not col:
+        return
+
+    if col not in df.columns:
+        LOGGER.warning(
+            "⚠️ Graduation model: target column '%s' is missing from cohort data.",
+            col,
+        )
+        return
+
+    null_pct = float(df[col].isna().mean())
     LOGGER.info(
-        " Top majors: \n%s ",
+        "Graduation target column '%s' null rate: %s%%",
+        col,
+        as_percent(null_pct),
+    )
+    if null_pct >= 1.0:
+        LOGGER.warning(
+            "⚠️ Graduation model: target column '%s' is 100%% null. "
+            "Students with null years-to-degree are treated as never graduated "
+            "for labeling.",
+            col,
+        )
+
+
+def log_top_majors(
+    df_cohort: pd.DataFrame,
+    *,
+    major_col: str = "program_of_study_term_1",
+    n: int = 10,
+) -> None:
+    """Log the top-N values for a major / program-of-study column."""
+    if major_col not in df_cohort.columns:
+        LOGGER.warning(
+            "⚠️ Skipping top majors; column '%s' not found",
+            major_col,
+        )
+        return
+
+    top_majors = df_cohort[major_col].value_counts(dropna=False).head(n)
+    LOGGER.info(
+        " Top majors (%s): \n%s ",
+        major_col,
         top_majors.to_string(),
     )
 
