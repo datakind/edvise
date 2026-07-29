@@ -46,11 +46,17 @@ from edvise.dataio.read import (
 from edvise.dataio.write import write_parquet
 from edvise.configs.es import ESProjectConfig
 from edvise.data_audit.eda import (
+    DEFAULT_ES_BIAS_VARS,
+    ES_COHORT_PCT_BREAKDOWN_COLS,
+    check_bias_variables,
     log_grade_distribution,
     log_high_null_columns,
     log_record_drops,
+    log_top_majors,
     log_terms,
     log_misjoined_records,
+    print_column_pct_breakdowns,
+    warn_null_graduation_target_columns,
 )
 
 from edvise.shared.logger import init_file_logging, resolve_run_path
@@ -296,6 +302,10 @@ class ESDataAuditTask:
                 " Failed to parse cohort data with all known datetime formats (validated pass)."
             )
 
+        # Cohort exploratory EDA (pre-standardize; not part of column transforms)
+        print_column_pct_breakdowns(df_cohort_validated, ES_COHORT_PCT_BREAKDOWN_COLS)
+        log_top_majors(df_cohort_validated, major_col="declared_major_at_entry")
+        check_bias_variables(df_cohort_validated, bias_vars=DEFAULT_ES_BIAS_VARS)
         # Log high null columns
         log_high_null_columns(df_cohort_validated)
         # Standardize cohort data
@@ -304,6 +314,12 @@ class ESDataAuditTask:
         df_cohort_standardized = self.cohort_std.standardize(df_cohort_validated)
 
         LOGGER.info(" Cohort data standardized.")
+
+        # years_to_degree_col is derived for ES during standardize
+        warn_null_graduation_target_columns(
+            df_cohort_standardized,
+            getattr(getattr(self.cfg, "preprocessing", None), "target", None),
+        )
 
         student_id_col = getattr(self.cfg, "student_id_col", None) or "learner_id"
 
