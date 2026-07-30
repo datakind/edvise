@@ -586,49 +586,19 @@ def _omit_section_from_dup_key_if_unusable(
     """
     if "section_id" not in unique_cols:
         return unique_cols
-    if "section_id" not in df.columns:
-        LOGGER.warning("section_id missing; duplicate-key omits section.")
-        return [c for c in unique_cols if c != "section_id"]
-    n = len(df)
-    if n == 0:
-        return [c for c in unique_cols if c != "section_id"]
-    null_frac = float(df["section_id"].isna().sum()) / n
+    without = [c for c in unique_cols if c != "section_id"]
+    if "section_id" not in df.columns or len(df) == 0:
+        LOGGER.warning("section_id missing or empty; duplicate-key omits section.")
+        return without
+    null_frac = float(df["section_id"].isna().mean())
     if null_frac > MAX_SECTION_ID_NULL_FRACTION_FOR_DUP_KEY:
         LOGGER.warning(
             "section_id is %.1f%% null (threshold %.1f%%); duplicate-key omits section.",
             100.0 * null_frac,
             100.0 * MAX_SECTION_ID_NULL_FRACTION_FOR_DUP_KEY,
         )
-        return [c for c in unique_cols if c != "section_id"]
+        return without
     return unique_cols
-
-
-def _dup_group_field_varies(grp: pd.DataFrame, col: str | None) -> bool:
-    return bool(
-        col is not None and col in grp.columns and grp[col].nunique(dropna=False) > 1
-    )
-
-
-def _material_duplicate_group_differs(
-    grp: pd.DataFrame,
-    *,
-    course_type_col: str | None,
-    course_name_col: str | None,
-    credits_col: str | None,
-    credits_earned_col: str | None,
-    grade_col: str | None,
-) -> bool:
-    """
-    True when rows disagree on enrollment fields that warrant keeping all rows
-    (via course_number suffixing): type, name, credits, or grade.
-    """
-    return (
-        _dup_group_field_varies(grp, course_type_col)
-        or _dup_group_field_varies(grp, course_name_col)
-        or _dup_group_field_varies(grp, credits_col)
-        or _dup_group_field_varies(grp, credits_earned_col)
-        or _dup_group_field_varies(grp, grade_col)
-    )
 
 
 def _classify_duplicate_groups(
@@ -641,41 +611,66 @@ def _classify_duplicate_groups(
     grade_col: str | None = None,
     credits_earned_col: str | None = None,
 ) -> tuple[list[int], list[int], int, int]:
-    """Suffix when material fields differ; otherwise drop extras (keep first)."""
+    """
+    Suffix when material fields differ within a key; otherwise drop extras
+    (keep first by input order). Vectorized over groups.
+    """
     unique_cols = [c for c in unique_cols if c in duplicate_rows.columns]
-    suffix_groups = 0
-    drop_groups = 0
-    suffix_work_idx: list[int] = []
-    drop_idx: list[int] = []
-    section_in_key = "section_id" in unique_cols
+    if duplicate_rows.empty or not unique_cols:
+        return [], [], 0, 0
 
-    for _, grp in duplicate_rows.groupby(unique_cols, observed=True, dropna=False):
-        must_suffix = _material_duplicate_group_differs(
-            grp,
-            course_type_col=course_type_col,
-            course_name_col=course_name_col,
-            credits_col=credits_col,
-            credits_earned_col=credits_earned_col,
-            grade_col=grade_col,
+    keys = [duplicate_rows[c] for c in unique_cols]
+    g = duplicate_rows.groupby(keys, dropna=False, sort=False)
+    material_cols = [
+        c
+        for c in (
+            course_type_col,
+            course_name_col,
+            credits_col,
+            credits_earned_col,
+            grade_col,
         )
-        if must_suffix:
-            suffix_groups += 1
-            suffix_work_idx.extend(list(grp.index))
-            # Same non-null section + material disagreement is uncommon; keep rows
-            # but surface for data-quality review.
-            if section_in_key and "section_id" in grp.columns:
-                sec = grp["section_id"]
-                if sec.notna().all() and sec.nunique(dropna=False) == 1:
-                    LOGGER.warning(
-                        "Suffixing %s rows that share section_id=%s but differ on "
-                        "type/name/credits/grade; confirm source quality.",
-                        len(grp),
-                        sec.iloc[0],
-                    )
-        else:
-            drop_groups += 1
-            keep_one = grp.index[0]
-            drop_idx.extend(i for i in grp.index if i != keep_one)
+        if c is not None and c in duplicate_rows.columns
+    ]
+
+    # Group-level flag: any material column has >1 distinct value (NA counted).
+    must_suffix = pd.Series(False, index=duplicate_rows.index)
+    for col in material_cols:
+        codes = pd.factorize(duplicate_rows[col], use_na_sentinel=True)[0]
+        nunq = (
+            pd.Series(codes, index=duplicate_rows.index)
+            .groupby(keys, dropna=False, sort=False)
+            .transform("nunique")
+        )
+        must_suffix |= nunq.gt(1)
+
+    suffix_work_idx = duplicate_rows.index[must_suffix].tolist()
+    drop_idx = duplicate_rows.index[~must_suffix & g.cumcount().gt(0)].tolist()
+    grp_suffix = must_suffix.groupby(keys, dropna=False, sort=False).first()
+    suffix_groups = int(grp_suffix.sum())
+    drop_groups = int((~grp_suffix).sum())
+
+    # One summary when suffixing rows that share a single non-null section_id.
+    if (
+        "section_id" in unique_cols
+        and must_suffix.any()
+        and "section_id" in duplicate_rows.columns
+    ):
+        sec = duplicate_rows.loc[must_suffix, "section_id"]
+        sec_keys = [duplicate_rows.loc[must_suffix, c] for c in unique_cols]
+        sec_n = sec.groupby(sec_keys, dropna=False, sort=False).transform("nunique")
+        sec_nn = (
+            sec.notna().groupby(sec_keys, dropna=False, sort=False).transform("all")
+        )
+        n_warn = int(
+            (sec_n.eq(1) & sec_nn).groupby(sec_keys, dropna=False).first().sum()
+        )
+        if n_warn:
+            LOGGER.warning(
+                "Suffixing %d duplicate-key group(s) that share a single non-null "
+                "section_id but differ on type/name/credits/grade; confirm source quality.",
+                n_warn,
+            )
 
     return suffix_work_idx, drop_idx, suffix_groups, drop_groups
 
@@ -707,12 +702,13 @@ def _suffix_duplicates(
     unique_cols = [c for c in unique_cols if c in df.columns]
     if not unique_cols:
         raise ValueError("suffix_duplicates: none of unique_cols are present on df")
-
-    suffix_work_idx = [i for i in suffix_work_idx if i in df.index]
-    if not suffix_work_idx:
+    idx = [i for i in suffix_work_idx if i in df.index]
+    if not idx:
         return df
 
-    cols_to_show = [
+    work = dedupe_by_suffixing_courses(df.loc[idx].copy(), unique_cols=unique_cols)
+    df.loc[idx, "course_number"] = work["course_number"].astype("string")
+    show = [
         c
         for c in (
             "course_prefix",
@@ -724,22 +720,9 @@ def _suffix_duplicates(
         if c is not None and c in df.columns
     ]
     LOGGER.info(
-        "Suffixing duplicates (before) [showing up to 50 rows]:\n%s",
-        df.loc[suffix_work_idx, cols_to_show]
-        .sort_values(["course_prefix", "course_number"], kind="mergesort")
-        .head(50),
-    )
-
-    work = dedupe_by_suffixing_courses(
-        df.loc[suffix_work_idx].copy(), unique_cols=unique_cols
-    )
-    df.loc[suffix_work_idx, "course_number"] = work["course_number"].astype("string")
-
-    LOGGER.info(
-        "Suffixing duplicates (after) [showing up to 50 rows]:\n%s",
-        df.loc[suffix_work_idx, cols_to_show]
-        .sort_values(["course_prefix", "course_number"], kind="mergesort")
-        .head(50),
+        "Suffixing duplicates (%d rows); sample:\n%s",
+        len(idx),
+        df.loc[idx, show].head(50),
     )
     return df
 
