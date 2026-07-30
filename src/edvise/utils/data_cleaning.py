@@ -697,6 +697,7 @@ def _suffix_duplicates(
     credits_col: str | None = "number_of_credits_attempted",
     course_type_col: str | None = "course_type",
     course_name_col: str | None = "course_name",
+    credits_earned_col: str | None = "number_of_credits_earned",
 ) -> pd.DataFrame:
     """Suffix ``course_number`` within duplicate-key groups (first row unchanged)."""
     unique_cols = [c for c in unique_cols if c in df.columns]
@@ -713,7 +714,14 @@ def _suffix_duplicates(
     # Group on pre-suffix keys so pairs stay together; avoid DataFrame dumps.
     detail_cols = [
         c
-        for c in (course_type_col, course_name_col, credits_col, "grade", "section_id")
+        for c in (
+            course_type_col,
+            course_name_col,
+            credits_col,
+            credits_earned_col,
+            "grade",
+            "section_id",
+        )
         if c is not None and c in before.columns
     ]
     lines = [f"Suffixing duplicates ({len(idx)} rows); examples (up to 5 groups):"]
@@ -781,6 +789,7 @@ def _handle_pdp_duplicates(df: pd.DataFrame) -> pd.DataFrame:
         credits_attempted_col,
         course_type_col,
         course_name_col,
+        credits_earned_col=credits_earned_col,
     )
 
     sort_extra = (
