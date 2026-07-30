@@ -582,9 +582,12 @@ class TrainingTask:
         table). Falls back to the legacy hardcoded path for schools that don't configure it.
         """
         if self.spec.schema_type == "legacy":
-            gold_datasets = getattr(self.cfg.datasets, "gold", None) or {}
+            legacy_cfg = t.cast(configs.legacy.LegacyProjectConfig, self.cfg)
+            gold_datasets = legacy_cfg.datasets.gold or {}
             advisor_cfg = gold_datasets.get("advisor_output")
-            configured_path = getattr(advisor_cfg, "train_table_path", None) if advisor_cfg else None
+            configured_path: str | None = (
+                advisor_cfg.train_table_path if advisor_cfg else None
+            )
             if configured_path:
                 return configured_path
         return f"{self.args.gold_table_path}.advisor_output"
