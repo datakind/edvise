@@ -681,8 +681,8 @@ def _drop_true_duplicate_rows(df: pd.DataFrame, drop_idx: list[int]) -> pd.DataF
     if dropped_rows > 0:
         pct_dropped = (dropped_rows / len(df)) * 100 if len(df) else 0.0
         LOGGER.warning(
-            "⚠️ Dropping %s rows (%.2f%% of data) from duplicate-key groups "
-            "(keeping one row per key)",
+            "⚠️ Dropping %s TRUE duplicates (%.2f%% of data); all identifiers "
+            "matched within the duplicate key (keeping one row per key)",
             dropped_rows,
             pct_dropped,
         )
