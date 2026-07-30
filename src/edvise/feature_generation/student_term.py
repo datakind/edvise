@@ -699,6 +699,16 @@ def _course_id_matches_catalog_key(ser: pd.Series, key: str) -> pd.Series:
     return s.eq(k) | s.str.fullmatch(rf"{re.escape(k)}-\d+", na=False)
 
 
+def _course_id_matches_catalog_keys(ser: pd.Series, keys: str | list[str]) -> pd.Series:
+    """Like :func:`_course_id_matches_catalog_key` for one or more catalog keys."""
+    if isinstance(keys, list):
+        match = pd.Series(False, index=ser.index)
+        for key in keys:
+            match |= _course_id_matches_catalog_key(ser, key)
+        return match
+    return _course_id_matches_catalog_key(ser, keys)
+
+
 def sum_val_equal_cols_by_group(
     df: pd.DataFrame,
     *,
@@ -708,7 +718,8 @@ def sum_val_equal_cols_by_group(
     """
     Per-group sums of indicator columns for ``agg_col_vals`` (equals / is-in).
 
-    Scalar ``("course_id", catalog)`` also counts ``catalog-{{n}}`` as the same course.
+    ``("course_id", catalog)`` / ``("course_id", [catalog, ...])`` also count
+    suffixed ``{catalog}-{n}`` rows as the same course (PDP duplicate suffixing).
     """
     temp_col_series = {}
     for col, val in agg_col_vals:
@@ -718,8 +729,8 @@ def sum_val_equal_cols_by_group(
             if isinstance(val, list)
             else f"{col}_{val}"
         )
-        if col == "course_id" and not isinstance(val, list):
-            temp_col_series[temp_col] = _course_id_matches_catalog_key(df[col], val)
+        if col == "course_id":
+            temp_col_series[temp_col] = _course_id_matches_catalog_keys(df[col], val)
         else:
             temp_col_series[temp_col] = shared.compute_values_equal(df[col], val)
     return (
