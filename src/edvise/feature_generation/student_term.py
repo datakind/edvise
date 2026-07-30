@@ -1,6 +1,5 @@
 import functools as ft
 import logging
-import re
 import typing as t
 
 import numpy as np
@@ -692,23 +691,6 @@ def equal_cols_by_group(
     return df.assign(**dummy_cols).reindex(columns=grp_cols + list(dummy_cols.keys()))
 
 
-def _course_id_matches_catalog_key(ser: pd.Series, key: str) -> pd.Series:
-    """Match catalog ``course_id`` or suffixed variants (``{key}-{n}``) as the same course."""
-    k = str(key)
-    s = ser.astype("string")
-    return s.eq(k) | s.str.fullmatch(rf"{re.escape(k)}-\d+", na=False)
-
-
-def _course_id_matches_catalog_keys(ser: pd.Series, keys: str | list[str]) -> pd.Series:
-    """Like :func:`_course_id_matches_catalog_key` for one or more catalog keys."""
-    if isinstance(keys, list):
-        match = pd.Series(False, index=ser.index)
-        for key in keys:
-            match |= _course_id_matches_catalog_key(ser, key)
-        return match
-    return _course_id_matches_catalog_key(ser, keys)
-
-
 def sum_val_equal_cols_by_group(
     df: pd.DataFrame,
     *,
@@ -730,7 +712,9 @@ def sum_val_equal_cols_by_group(
             else f"{col}_{val}"
         )
         if col == "course_id":
-            temp_col_series[temp_col] = _course_id_matches_catalog_keys(df[col], val)
+            temp_col_series[temp_col] = shared.course_id_matches_catalog_keys(
+                df[col], val
+            )
         else:
             temp_col_series[temp_col] = shared.compute_values_equal(df[col], val)
     return (

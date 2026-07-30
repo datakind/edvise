@@ -176,6 +176,37 @@ def test_cumnum_unique_and_repeated_features(df_grped, cols, exp):
     assert pd.testing.assert_frame_equal(obs, exp, rtol=0.001) is None
 
 
+def test_cumnum_course_ids_treats_suffix_variants_as_catalog_id():
+    """Within-term ENG101 + ENG101-1 is one catalog course; cross-term retake repeats."""
+    df = pd.DataFrame(
+        {
+            "student_id": ["01", "01", "01"],
+            "academic_year": ["2020-21", "2020-21", "2021-22"],
+            "academic_term": ["FALL", "SPRING", "FALL"],
+            "course_ids": [
+                ["ENG101", "ENG101-1", "MATH201"],
+                ["ENG101"],
+                ["MATH201-2"],
+            ],
+            "course_subject_areas": [["01", "01", "02"], ["01"], ["02"]],
+        }
+    )
+    df_grped = df.groupby(by="student_id", as_index=True, observed=True, sort=False)
+    obs = cumulative.cumnum_unique_and_repeated_features(
+        df_grped, cols=["course_ids", "course_subject_areas"]
+    )
+    exp = pd.DataFrame(
+        {
+            "cumnum_unique_course_ids": [2, 2, 2],
+            "cumnum_unique_course_subject_areas": [2, 2, 2],
+            "cumnum_repeated_course_ids": [0, 1, 2],
+            "cumnum_repeated_course_subject_areas": [1, 2, 3],
+        },
+        dtype="Int16",
+    )
+    assert pd.testing.assert_frame_equal(obs, exp, rtol=0.001) is None
+
+
 @pytest.mark.parametrize(
     "exp_new",
     [
