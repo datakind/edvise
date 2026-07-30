@@ -571,6 +571,24 @@ class TrainingTask:
                 self.args.DB_workspace,
             )
 
+    def _resolve_advisor_output_table_path(self) -> str:
+        """
+        Resolve the gold table path to write training advisor output to.
+
+        Prefers an explicit ``datasets.gold.advisor_output.train_table_path`` from the
+        project config (needed when multiple legacy models share one institution's gold
+        schema, e.g. UNT freshmen vs. transfer, or JJC's per-checkpoint CUSP models —
+        otherwise they'd all collide on the same hardcoded ``{gold_table_path}.advisor_output``
+        table). Falls back to the legacy hardcoded path for schools that don't configure it.
+        """
+        if self.spec.schema_type == "legacy":
+            gold_datasets = getattr(self.cfg.datasets, "gold", None) or {}
+            advisor_cfg = gold_datasets.get("advisor_output")
+            configured_path = getattr(advisor_cfg, "train_table_path", None) if advisor_cfg else None
+            if configured_path:
+                return configured_path
+        return f"{self.args.gold_table_path}.advisor_output"
+
     def make_predictions(self, df_modeling: pd.DataFrame) -> None:
         if self.cfg.model is None:
             raise ValueError("cfg.model is required for predictions")
@@ -620,9 +638,10 @@ class TrainingTask:
             )
 
             # write gold artifacts
+            advisor_output_table_path = self._resolve_advisor_output_table_path()
             dataio.write.to_delta_table(
                 df=out.top_features_result,
-                table_path=f"{self.args.gold_table_path}.advisor_output",
+                table_path=advisor_output_table_path,
                 spark_session=self.spark_session,
             )
 
