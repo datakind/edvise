@@ -706,24 +706,31 @@ def _suffix_duplicates(
     if not idx:
         return df
 
-    work = dedupe_by_suffixing_courses(df.loc[idx].copy(), unique_cols=unique_cols)
+    before = df.loc[idx]
+    work = dedupe_by_suffixing_courses(before.copy(), unique_cols=unique_cols)
     df.loc[idx, "course_number"] = work["course_number"].astype("string")
-    show = [
+
+    # Group on pre-suffix keys so pairs stay together; avoid DataFrame dumps.
+    detail_cols = [
         c
-        for c in (
-            "course_prefix",
-            "course_number",
-            course_type_col,
-            course_name_col,
-            credits_col,
-        )
-        if c is not None and c in df.columns
+        for c in (course_type_col, course_name_col, credits_col, "grade", "section_id")
+        if c is not None and c in before.columns
     ]
-    LOGGER.info(
-        "Suffixing duplicates (%d rows); sample:\n%s",
-        len(idx),
-        df.loc[idx, show].head(50),
-    )
+    lines = [f"Suffixing duplicates ({len(idx)} rows); examples (up to 5 groups):"]
+    for g_i, (_, grp) in enumerate(
+        before.groupby(unique_cols, dropna=False, sort=False), start=1
+    ):
+        if g_i > 5:
+            break
+        key_bits = " ".join(f"{c}={grp.iloc[0][c]!s}" for c in unique_cols)
+        lines.append(f"  group {g_i}: {key_bits}")
+        for ridx, row in grp.iterrows():
+            extras = " | ".join(f"{c}={row[c]!s}" for c in detail_cols)
+            lines.append(
+                f"    course_number {row['course_number']!s} -> {work.at[ridx, 'course_number']!s}"
+                + (f" | {extras}" if extras else "")
+            )
+    LOGGER.info("\n".join(lines))
     return df
 
 
