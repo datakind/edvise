@@ -8,7 +8,8 @@ SMA refinement + HITL: prompts, orchestration, and post-parse safety nets (singl
 **Pass 2** — option generation: one LLM call per entity with all Pass 1 flags for
 that entity in a single ``items`` array (cohort + course = 2 Pass 2 calls per institution;
 4 gateway calls total per institution). Each TERMINAL option is checked with the same
-deterministic ``validate_manifest`` pass as post–Step 2a generate (scratch manifest);
+deterministic ``validate_manifest`` pass as post–Step 2a generate (scratch manifest),
+and all TERMINAL options within an item are checked for exact-duplicate sourcing;
 failures trigger :func:`~edvise.utils.llm_utils.llm_complete_with_parse_retry`.
 
 Also includes :func:`run_sma_refinement` (two-pass LLM calls) and
@@ -1182,6 +1183,7 @@ def _run_pass2_llm_call(
 ) -> dict[str, Any]:
     from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.option_validation import (
         raise_if_pass2_terminal_options_invalid,
+        raise_if_pass2_terminal_options_not_distinct,
     )
     from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.schemas import (
         SMAHITLItem,
@@ -1233,6 +1235,7 @@ def _run_pass2_llm_call(
         raise_if_pass2_terminal_options_invalid(
             refined_manifest, hitl_items, schema_contract
         )
+        raise_if_pass2_terminal_options_not_distinct(hitl_items)
         data["items"] = [i.model_dump(mode="json") for i in hitl_items]
         return data
 

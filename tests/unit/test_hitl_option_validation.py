@@ -7,8 +7,11 @@ from pydantic import ValidationError
 
 from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.option_validation import (
     build_scratch_manifest_for_terminal_option,
+    collect_pass2_duplicate_terminal_options,
     collect_pass2_terminal_option_validation_failures,
+    find_duplicate_terminal_options,
     raise_if_pass2_terminal_options_invalid,
+    raise_if_pass2_terminal_options_not_distinct,
 )
 from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.schemas import (
     SMAFailureMode,
@@ -437,3 +440,186 @@ def test_raise_if_pass2_terminal_options_invalid_raises():
     )
     with pytest.raises(ValidationError, match="item_id="):
         raise_if_pass2_terminal_options_invalid(refined, [item], contract)
+
+
+def _terminal_opt(
+    option_id: str,
+    field_mapping: FieldMappingRecord,
+    column_alias: ColumnAlias | None = None,
+) -> SMAHITLOption:
+    return SMAHITLOption(
+        option_id=option_id,
+        label=option_id,
+        description="d",
+        reentry=SMAReentryDepth.TERMINAL,
+        field_mapping=field_mapping,
+        column_alias=column_alias,
+    )
+
+
+def _direct_edit_opt() -> SMAHITLOption:
+    return SMAHITLOption(
+        option_id="direct_edit",
+        label="Edit",
+        description="E",
+        reentry=SMAReentryDepth.DIRECT_EDIT,
+        field_mapping=None,
+        column_alias=None,
+    )
+
+
+def _item_with_options(options: list[SMAHITLOption]) -> SMAHITLItem:
+    refined = _minimal_cohort_manifest()
+    return SMAHITLItem(
+        item_id="x_cohort_intended_program_type_low_confidence",
+        institution_id="x",
+        entity_type="cohort",
+        target_field="intended_program_type",
+        failure_mode=SMAFailureMode.LOW_CONFIDENCE,
+        hitl_question="q",
+        hitl_context=None,
+        current_field_mapping=refined.mappings[1],
+        validation_errors=[],
+        options=[*options, _direct_edit_opt()],
+    )
+
+
+def test_find_duplicate_terminal_options_flags_exact_duplicate():
+    """Two TERMINAL options differing only in confidence/rationale are still duplicates."""
+    fm_a = FieldMappingRecord(
+        target_field="intended_program_type",
+        source_column="active_degree",
+        source_table="student",
+        join=None,
+        row_selection=RowSelectionConfig(strategy=RowSelectionStrategy.any_row),
+        confidence=0.8,
+        rationale="model reasoning A",
+    )
+    fm_b = fm_a.model_copy(
+        update={"confidence": 0.6, "rationale": "different reasoning text"}
+    )
+    item = _item_with_options(
+        [_terminal_opt("opt_a", fm_a), _terminal_opt("opt_b", fm_b)]
+    )
+    dupes = find_duplicate_terminal_options(item)
+    assert dupes == [("opt_a", "opt_b")]
+
+
+def test_find_duplicate_terminal_options_ignores_distinct_sourcing():
+    fm_a = FieldMappingRecord(
+        target_field="intended_program_type",
+        source_column="active_degree",
+        source_table="student",
+        join=None,
+        row_selection=RowSelectionConfig(strategy=RowSelectionStrategy.any_row),
+        confidence=0.8,
+        rationale="",
+    )
+    fm_b = FieldMappingRecord(
+        target_field="intended_program_type",
+        source_column="declared_degree",
+        source_table="term",
+        join=JoinConfig(
+            base_table="student",
+            lookup_table="term",
+            join_keys=["learner_id", "term"],
+        ),
+        row_selection=RowSelectionConfig(
+            strategy=RowSelectionStrategy.where_not_null,
+            condition_col="declared_degree",
+        ),
+        confidence=0.7,
+        rationale="",
+    )
+    item = _item_with_options(
+        [_terminal_opt("opt_a", fm_a), _terminal_opt("opt_b", fm_b)]
+    )
+    assert find_duplicate_terminal_options(item) == []
+
+
+def test_find_duplicate_terminal_options_distinguishes_by_column_alias():
+    """Identical field_mapping but different column_alias is not (yet) a duplicate."""
+    fm = FieldMappingRecord(
+        target_field="intended_program_type",
+        source_column="declared_degree",
+        source_table="term",
+        join=JoinConfig(
+            base_table="student",
+            lookup_table="term",
+            join_keys=["learner_id", "term"],
+        ),
+        row_selection=RowSelectionConfig(strategy=RowSelectionStrategy.any_row),
+        confidence=0.7,
+        rationale="",
+    )
+    alias_a = ColumnAlias(
+        table="student", source_column="cohort_term", canonical_column="term"
+    )
+    alias_b = ColumnAlias(
+        table="student", source_column="starting_term", canonical_column="term"
+    )
+    item = _item_with_options(
+        [
+            _terminal_opt("opt_a", fm, alias_a),
+            _terminal_opt("opt_b", fm.model_copy(), alias_b),
+        ]
+    )
+    assert find_duplicate_terminal_options(item) == []
+
+
+def test_collect_pass2_duplicate_terminal_options_across_items():
+    fm = FieldMappingRecord(
+        target_field="intended_program_type",
+        source_column="active_degree",
+        source_table="student",
+        join=None,
+        row_selection=RowSelectionConfig(strategy=RowSelectionStrategy.any_row),
+        confidence=0.8,
+        rationale="",
+    )
+    dup_item = _item_with_options(
+        [
+            _terminal_opt("opt_a", fm.model_copy()),
+            _terminal_opt("opt_b", fm.model_copy(update={"confidence": 0.5})),
+        ]
+    )
+    clean_item = _item_with_options([_terminal_opt("only_opt", fm.model_copy())])
+    failures = collect_pass2_duplicate_terminal_options([dup_item, clean_item])
+    assert failures == [(dup_item.item_id, "opt_a", "opt_b")]
+
+
+def test_raise_if_pass2_terminal_options_not_distinct_raises():
+    fm = FieldMappingRecord(
+        target_field="intended_program_type",
+        source_column="active_degree",
+        source_table="student",
+        join=None,
+        row_selection=RowSelectionConfig(strategy=RowSelectionStrategy.any_row),
+        confidence=0.8,
+        rationale="",
+    )
+    item = _item_with_options(
+        [
+            _terminal_opt("opt_a", fm.model_copy()),
+            _terminal_opt("opt_b", fm.model_copy(update={"confidence": 0.5})),
+        ]
+    )
+    with pytest.raises(ValidationError, match="duplicates"):
+        raise_if_pass2_terminal_options_not_distinct([item])
+
+
+def test_raise_if_pass2_terminal_options_not_distinct_passes_when_distinct():
+    fm_a = FieldMappingRecord(
+        target_field="intended_program_type",
+        source_column="active_degree",
+        source_table="student",
+        join=None,
+        row_selection=RowSelectionConfig(strategy=RowSelectionStrategy.any_row),
+        confidence=0.8,
+        rationale="",
+    )
+    fm_b = fm_a.model_copy(update={"source_column": "other_degree_col"})
+    item = _item_with_options(
+        [_terminal_opt("opt_a", fm_a), _terminal_opt("opt_b", fm_b)]
+    )
+    raise_if_pass2_terminal_options_not_distinct([item])  # no raise
