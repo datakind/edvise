@@ -698,13 +698,10 @@ def sum_val_equal_cols_by_group(
     agg_col_vals: list[tuple[str, t.Any]],
 ) -> pd.DataFrame:
     """
-    Compute equal to specified values for all ``agg_col_vals`` in ``df`` ,
-    then group by ``grp_cols`` and aggregate with a "sum".
+    Per-group sums of indicator columns for ``agg_col_vals`` (equals / is-in).
 
-    Args:
-        df
-        grp_cols
-        agg_col_vals
+    ``("course_id", catalog)`` / ``("course_id", [catalog, ...])`` also count
+    suffixed ``{catalog}-{n}`` rows as the same course (PDP duplicate suffixing).
     """
     temp_col_series = {}
     for col, val in agg_col_vals:
@@ -714,7 +711,12 @@ def sum_val_equal_cols_by_group(
             if isinstance(val, list)
             else f"{col}_{val}"
         )
-        temp_col_series[temp_col] = shared.compute_values_equal(df[col], val)
+        if col == "course_id":
+            temp_col_series[temp_col] = shared.course_id_matches_catalog_keys(
+                df[col], val
+            )
+        else:
+            temp_col_series[temp_col] = shared.compute_values_equal(df[col], val)
     return (
         df.assign(**temp_col_series)
         .reindex(columns=grp_cols + list(temp_col_series.keys()))
