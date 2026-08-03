@@ -91,14 +91,9 @@ def load_model_and_features(
     return model, feat_names
 
 
-def extract_and_split_training_data(
-    experiment_id: str | None, split_col: str | None
+def _split_modeling_df(
+    df_all: pd.DataFrame, split_col: str | None
 ) -> t.Tuple[pd.DataFrame, pd.DataFrame]:
-    if not experiment_id:
-        raise ValueError(
-            "experiment_id is required to extract training data for background SHAP."
-        )
-    df_all = modeling.h2o_ml.evaluation.extract_training_data_from_model(experiment_id)
     if split_col:
         if split_col not in df_all.columns:
             raise ValueError(f"split_col='{split_col}' not in data.")
@@ -111,6 +106,17 @@ def extract_and_split_training_data(
     if df_train.empty or df_test.empty:
         raise ValueError("Empty train/test split.")
     return df_train, df_test
+
+
+def extract_and_split_training_data(
+    experiment_id: str | None, split_col: str | None
+) -> t.Tuple[pd.DataFrame, pd.DataFrame]:
+    if not experiment_id:
+        raise ValueError(
+            "experiment_id is required to extract training data for background SHAP."
+        )
+    df_all = modeling.h2o_ml.evaluation.extract_training_data_from_model(experiment_id)
+    return _split_modeling_df(df_all, split_col)
 
 
 def sample_rows(df: pd.DataFrame, n: int, seed: int, where: str) -> pd.DataFrame:
@@ -260,6 +266,7 @@ def run_predictions(
     *,
     run_type: RunType,
     df_inference: pd.DataFrame | None = None,
+    df_modeling: pd.DataFrame | None = None,
     test_sample_cap: int = 200,
 ) -> PredOutputs:
     ft = load_features_table(pred_paths.features_table_path)
@@ -269,9 +276,15 @@ def run_predictions(
 
     # ----- Build df_test (the rows to score) -----
     if run_type == RunType.TRAIN:
-        df_train, df_test_all = extract_and_split_training_data(
-            pred_cfg.experiment_id, pred_cfg.split_col
-        )
+        # Prefer in-memory modeling data (pre-imputation) over the MLflow
+        # full_dataset.parquet artifact, which is rebuilt via an H2O→pandas
+        # roundtrip and can drop columns the imputer still requires.
+        if df_modeling is not None:
+            df_train, df_test_all = _split_modeling_df(df_modeling, pred_cfg.split_col)
+        else:
+            df_train, df_test_all = extract_and_split_training_data(
+                pred_cfg.experiment_id, pred_cfg.split_col
+            )
         df_test = sample_rows(
             df_test_all,
             min(test_sample_cap, len(df_test_all)),
@@ -324,6 +337,12 @@ def run_predictions(
     grouped_contribs_df, grouped_features = group_shap_and_features(
         contribs_df, features_df
     )
+    display_grouped_features = modeling.h2o_ml.inference.apply_missing_display_values(
+        grouped_df=grouped_features,
+        raw_df=df_test,
+        feature_names=imp.input_feature_names or model_feature_names,
+        missing_flags_df=features_df,
+    )
 
     log_shap_plot(
         contribs_df,
@@ -334,7 +353,7 @@ def run_predictions(
 
     # ----- Tables -----
     top_features_result = inference.select_top_features_for_display(
-        features=grouped_features,
+        features=display_grouped_features,
         unique_ids=unique_ids,
         predicted_probabilities=list(pred_probs),
         shap_values=grouped_contribs_df.to_numpy(),

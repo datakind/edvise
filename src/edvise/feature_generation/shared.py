@@ -46,6 +46,49 @@ def compute_values_equal(ser: pd.Series, to: t.Any | list[t.Any]) -> pd.Series:
     return ser.isin(to) if isinstance(to, list) else ser.eq(to)
 
 
+# Trailing ``-{n}`` from PDP / GenAI duplicate suffixing (e.g. ENG101-1 → ENG101).
+_CATALOG_COURSE_ID_SUFFIX_RE = re.compile(r"-\d+$")
+
+
+def catalog_course_id(course_id: object) -> str:
+    """Strip a trailing numeric suffix from a course id for catalog-level matching."""
+    return _CATALOG_COURSE_ID_SUFFIX_RE.sub("", str(course_id))
+
+
+def course_id_matches_catalog_key(ser: pd.Series, key: str) -> pd.Series:
+    """True when ``ser`` equals catalog ``key`` or a suffixed variant ``{key}-{n}``."""
+    k = str(key)
+    s = ser.astype("string")
+    return s.eq(k) | s.str.fullmatch(rf"{re.escape(k)}-\d+", na=False)
+
+
+def course_id_matches_catalog_keys(ser: pd.Series, keys: str | list[str]) -> pd.Series:
+    """Like :func:`course_id_matches_catalog_key` for one or more catalog keys."""
+    if isinstance(keys, list):
+        match = pd.Series(False, index=ser.index)
+        for key in keys:
+            match |= course_id_matches_catalog_key(ser, key)
+        return match
+    return course_id_matches_catalog_key(ser, keys)
+
+
+def dedupe_catalog_course_ids(course_ids: t.Iterable[object] | None) -> list[str]:
+    """
+    Map term ``course_ids`` to catalog ids (strip ``-{n}``) and drop within-term
+    duplicates so lab/lecture suffix pairs do not count as a course repeat.
+    """
+    if course_ids is None:
+        return []
+    seen: set[str] = set()
+    out: list[str] = []
+    for cid in course_ids:
+        cat = catalog_course_id(cid)
+        if cat not in seen:
+            seen.add(cat)
+            out.append(cat)
+    return out
+
+
 def merge_many_dataframes(
     dfs: Sequence[pd.DataFrame],
     *,

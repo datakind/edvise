@@ -311,6 +311,27 @@ def test_generate_ranked_feature_table_original_dtypes():
     assert bool_feature_no_original.iloc[0]["data_type"] == "Continuous"
 
 
+def test_generate_ranked_feature_table_prefers_original_dtype_with_missing_sentinel():
+    features = pd.DataFrame(
+        {
+            "term_gpa": [4.0, "MISSING", 2.0],
+            "is_first_term": [True, "MISSING", False],
+        }
+    )
+    shap_values = np.array([[0.1, 0.2], [0.3, 0.1], [0.2, 0.4]])
+
+    result = generate_ranked_feature_table(
+        features=features,
+        shap_values=shap_values,
+        features_table=None,
+        metadata=False,
+        original_dtypes={"term_gpa": "float64", "is_first_term": "boolean"},
+    ).set_index("feature_name")
+
+    assert result.loc["term_gpa", "data_type"] == "Continuous"
+    assert result.loc["is_first_term", "data_type"] == "Boolean"
+
+
 # --- _get_mapped_feature_name tests ---
 
 

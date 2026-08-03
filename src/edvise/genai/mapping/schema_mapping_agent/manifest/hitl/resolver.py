@@ -132,15 +132,20 @@ def _merge_mapping_override(
     corrected: FieldMappingRecord,
     *,
     reviewer_notes: str | None,
+    rationale: str | None = None,
 ) -> FieldMappingRecord:
     """
     Apply a manifest mapping override: use ``corrected`` for structural mapping fields,
-    keep ``confidence`` and ``rationale`` from ``original``, set review telemetry.
+    keep ``confidence`` and ``rationale`` from ``original`` by default, set review telemetry.
+
+    ``rationale`` lets the caller explicitly rewrite the rationale to reflect *why* the
+    override was needed (e.g. the original agent's rationale describing a mapping that
+    turned out to be wrong) — omit to preserve ``original.rationale`` as before.
     """
     return corrected.model_copy(
         update={
             "confidence": original.confidence,
-            "rationale": original.rationale,
+            "rationale": rationale if rationale is not None else original.rationale,
             "review_status": ReviewStatus.corrected_by_override,
             "reviewer_notes": reviewer_notes,
         }
@@ -300,6 +305,7 @@ def apply_manifest_mapping_override(
     original_db_run_id: str,
     original_task_run_id: str | None = None,
     reviewer_notes: str | None = None,
+    rationale: str | None = None,
     override_task_run_id: str | None = None,
     institution_id: str | None = None,
 ) -> None:
@@ -307,8 +313,10 @@ def apply_manifest_mapping_override(
     Apply a post-gate manifest mapping override and append :class:`MappingOverrideEvent`.
 
     The written mapping row uses ``corrected_field_mapping`` for all fields except
-    ``confidence`` and ``rationale``, which are taken from the existing manifest entry.
-    Sets ``review_status`` to :attr:`ReviewStatus.corrected_by_override`.
+    ``confidence`` and ``rationale``, which are taken from the existing manifest entry
+    by default. Pass ``rationale`` to explicitly rewrite the rationale instead of
+    preserving the original agent's (now-outdated) explanation. Sets ``review_status``
+    to :attr:`ReviewStatus.corrected_by_override`.
 
     ``manifest_path`` may be a :class:`MappingManifestEnvelope` or a standalone
     :class:`FieldMappingManifest`; when standalone, pass ``institution_id`` (required).
@@ -340,7 +348,9 @@ def apply_manifest_mapping_override(
             f"override target {target_field!r}"
         )
 
-    merged = _merge_mapping_override(original, corrected, reviewer_notes=reviewer_notes)
+    merged = _merge_mapping_override(
+        original, corrected, reviewer_notes=reviewer_notes, rationale=rationale
+    )
     fm.mappings[idx] = merged
     _save_manifest_for_entity(manifest_path, env_wrapper, fm, entity_key)
 

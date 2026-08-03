@@ -274,7 +274,7 @@ resources:
         - name: datakind_notification_email
           default: ${var.datakind_notification_email}
         - name: DK_CC_EMAIL
-          default: ${var.datakind_notification_email}
+          default: ""
         - name: term_filter
           default: ""
       permissions:

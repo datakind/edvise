@@ -369,6 +369,7 @@ def log_h2o_experiment(
     calibrate: bool = False,
     imputer: t.Optional[imputation.SklearnImputerWrapper] = None,
     classification_threshold: float = 0.5,
+    full_dataset_df: t.Optional[pd.DataFrame] = None,
 ) -> pd.DataFrame:
     """
     Logs evaluation metrics, plots, and model artifacts for all models in an H2O AutoML leaderboard to MLflow.
@@ -385,6 +386,9 @@ def log_h2o_experiment(
         calibrate: Whether to calibrate probabilities.
         imputer: Optional sklearn imputer wrapper.
         classification_threshold: Classification threshold for converting probabilities to binary predictions. Default is 0.5.
+        full_dataset_df: Optional pre-imputation pandas modeling frame to persist as
+            ``inputs/full_dataset.parquet``. Prefer this over an H2O→pandas roundtrip,
+            which can drop columns the sklearn imputer still requires at predict time.
 
     Returns:
         results_df (pd.DataFrame): DataFrame with metrics and MLflow run IDs for all successfully logged models.
@@ -400,6 +404,7 @@ def log_h2o_experiment(
         valid=valid,
         test=test,
         target_col=target_col,
+        full_dataset_df=full_dataset_df,
     )
 
     # Capping # of models that we're logging to save some time
@@ -459,6 +464,7 @@ def log_h2o_experiment_summary(
     test: h2o.H2OFrame,
     target_col: str,
     run_name: str = "H2O AutoML Experiment Summary and Storage",
+    full_dataset_df: t.Optional[pd.DataFrame] = None,
 ) -> None:
     """
     Logs summary information about the H2O AutoML experiment to a dedicated MLflow run in
@@ -474,6 +480,9 @@ def log_h2o_experiment_summary(
         test (H2OFrame): test H2OFrame.
         target_col (str): Name of the target column.
         run_name (str): Name of the MLflow run. Defaults to "h2o_automl_experiment_summary".
+        full_dataset_df: Optional pre-imputation pandas modeling frame. When provided,
+            this is written to ``inputs/full_dataset.parquet`` instead of converting the
+            H2O train/valid/test frames back to pandas (which can drop columns).
     """
     if mlflow.active_run():
         mlflow.end_run()
@@ -498,11 +507,19 @@ def log_h2o_experiment_summary(
                     f.write(f"{feat}\n")
             mlflow.log_artifact(features_path, artifact_path="inputs")
 
-            # Log sampled training data
-            train_df = _to_pandas(train)
-            valid_df = _to_pandas(valid)
-            test_df = _to_pandas(test)
-            full_df = pd.concat([train_df, valid_df, test_df], axis=0)
+            # Prefer the original pandas modeling frame so downstream prediction /
+            # SHAP reload has the same columns the sklearn imputer was fit on.
+            if full_dataset_df is not None:
+                full_df = full_dataset_df.copy()
+            else:
+                LOGGER.warning(
+                    "full_dataset_df not provided; falling back to H2O→pandas "
+                    "roundtrip for inputs/full_dataset.parquet (may drop columns)."
+                )
+                train_df = _to_pandas(train)
+                valid_df = _to_pandas(valid)
+                test_df = _to_pandas(test)
+                full_df = pd.concat([train_df, valid_df, test_df], axis=0)
             df_parquet_path = os.path.join(tmpdir, "full_dataset.parquet")
             full_df.to_parquet(df_parquet_path, index=False)
             mlflow.log_artifact(df_parquet_path, artifact_path="inputs")

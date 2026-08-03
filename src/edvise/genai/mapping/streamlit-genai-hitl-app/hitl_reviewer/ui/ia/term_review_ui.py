@@ -33,8 +33,10 @@ from hitl_reviewer.persistence.hitl_json_batch_commit import (
 )
 from hitl_reviewer.persistence.silver_hitl_paths import (
     ia_term_season_map_session_key,
+    season_map_rows_chronology_error,
     set_item_choice,
     set_item_reviewer_note,
+    sort_season_map_dataframe_chronologically,
 )
 from hitl_reviewer.ui.ia.term_season_map_guess import build_season_map_seed_dataframe
 from hitl_reviewer.platform.unity_volume_files import (
@@ -334,6 +336,22 @@ def render_ia_term_hitl_cards(
                 )
                 st.session_state[smr_key] = edited_smr.copy()
                 st.session_state.setdefault(smr_store_key, {})[loc] = edited_smr.copy()
+
+                chrono_err = season_map_rows_chronology_error(
+                    edited_smr.to_dict("records")
+                )
+                if chrono_err:
+                    sorted_df = sort_season_map_dataframe_chronologically(edited_smr)
+                    st.session_state[smr_key] = sorted_df
+                    st.session_state.setdefault(smr_store_key, {})[loc] = (
+                        sorted_df.copy()
+                    )
+                    st.toast(
+                        "↕️ Season map rows were out of calendar order — "
+                        "auto-sorted into SPRING → SUMMER → FALL → WINTER.",
+                        icon="↕️",
+                    )
+                    st.rerun()
 
         opened_k, all_nav_seen = mark_hitl_nav_visit(
             store_key=f"ia-term-nav-visit-{sk}",

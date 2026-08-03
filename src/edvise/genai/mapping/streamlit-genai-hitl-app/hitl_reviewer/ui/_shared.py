@@ -166,6 +166,11 @@ p.hitl-opt-mark { display: block; height: 0; margin: 0 !important; padding: 0 !i
 .hitl-chip-row { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.25rem; }
 .hitl-chip { display: inline-block; padding: 0.08rem 0.45rem; border-radius: 999px; font-size: 0.72rem;
   background: rgba(111, 66, 193, 0.12); border: 1px solid rgba(111, 66, 193, 0.28); }
+/* Source value has leading/trailing whitespace in the raw data (e.g. fixed-width CHAR export) —
+   dashed border + monospace so padding (rendered as visible middle dots) is legible, not a display fix. */
+.hitl-chip-padded { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  border-style: dashed !important; background: rgba(217, 119, 6, 0.10) !important;
+  border-color: rgba(217, 119, 6, 0.4) !important; }
 .ia-domain-pill {
   display: inline-block; padding: 0.1rem 0.5rem; border-radius: 999px; font-size: 0.72rem; font-weight: 600;
   background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.35); color: rgb(6, 95, 70);
