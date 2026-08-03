@@ -1,69 +1,33 @@
-#!/usr/bin/env python3
-"""
-Databricks task 1: resolve ``pipeline_version`` and materialize the runtime bundle on UC volume.
-
-Fetches archived DAB YAML from GitHub at the resolved ref (Git SHA in dev, release tag in
-staging) into ``<release_base>/<pipeline_version>/databricks_bundle_snapshot/``.
-"""
+"""Task 1: resolve archived pipeline_version and materialize runtime bundle."""
 
 from __future__ import annotations
 
 import argparse
-import inspect
 import logging
 import sys
-from pathlib import Path
 
-
-def _setup_import_path() -> None:
-    try:
-        launcher = Path(__file__).resolve().parent
-    except NameError:
-        launcher = None
-        for frame_info in inspect.stack():
-            fn = frame_info.filename
-            if not fn or fn.startswith("<"):
-                continue
-            path = Path(fn).resolve()
-            if path.parent.name == "launchers" and path.parent.parent.name == "pdp":
-                launcher = path.parent
-                break
-        if launcher is None:
-            candidate = Path.cwd() / "pipelines" / "pdp" / "launchers"
-            if candidate.is_dir():
-                launcher = candidate.resolve()
-        if launcher is None:
-            msg = "Cannot locate pipelines/pdp/launchers (Databricks import bootstrap)"
-            raise RuntimeError(msg)
-    launcher_str = str(launcher.resolve())
-    if launcher_str not in sys.path:
-        sys.path.insert(0, launcher_str)
-    from _paths import ensure_repo_root_on_sys_path  # noqa: WPS433
-
-    ensure_repo_root_on_sys_path()
-
-
-_setup_import_path()
-
-from pipelines.pdp.launchers.bundle_materialize import (  # noqa: E402
+from edvise.runtime.versioned_inference.bundle.from_dab import inference_yml_path
+from edvise.runtime.versioned_inference.bundle.materialize import (
     DEFAULT_GITHUB_REPO,
-    inference_yml_in_bundle,
     materialize_runtime_bundle_dir,
 )
-from pipelines.pdp.launchers.launcher_cli import (  # noqa: E402
+from edvise.runtime.versioned_inference.cli import (
     add_model_resolution_args,
+    launcher_schema_type,
     optional_model_run_id,
 )
-from pipelines.pdp.launchers.launcher_run_metadata import (  # noqa: E402
-    resolve_launcher_run_id,
-    record_versioned_inference_launcher_event,
-)
-from pipelines.pdp.launchers.model_metadata import (  # noqa: E402
+from edvise.runtime.versioned_inference.dab_layout import resolve_dab_bundle_layout
+from edvise.runtime.versioned_inference.model_resolution import (
     get_spark_session,
     resolve_model_run_and_pipeline_version,
     resolve_release_dir,
 )
-from pipelines.pdp.launchers.pipeline_version_ref import git_ref_kind  # noqa: E402
+from edvise.runtime.versioned_inference.pipeline_version_ref import git_ref_kind
+from edvise.runtime.versioned_inference.release_config import resolve_release_base_path
+from edvise.runtime.versioned_inference.run_metadata import (
+    record_versioned_inference_launcher_event,
+    resolve_launcher_run_id,
+)
 
 LOGGER = logging.getLogger("materialize_runtime_bundle")
 
@@ -139,23 +103,24 @@ def main(argv: list[str] | None = None) -> int:
             logger=LOGGER,
         )
         return 1
-    model_run_id, pipeline_version = resolved
+    model_run_id, archived_pipeline_version = resolved
     LOGGER.info(
-        "Materializing bundle for model_run_id=%s pipeline_version=%s (git %s)",
+        "Materializing bundle for model_run_id=%s archived_pipeline_version=%s (git %s)",
         model_run_id,
-        pipeline_version,
-        git_ref_kind(pipeline_version),
+        archived_pipeline_version,
+        git_ref_kind(archived_pipeline_version),
     )
 
-    from pipelines.pdp.launchers.release_config import resolve_release_base_path
-
     release_base = resolve_release_base_path(db_ws, args.release_base_path)
-    release_dir = resolve_release_dir(release_base, pipeline_version)
+    release_dir = resolve_release_dir(release_base, archived_pipeline_version)
+    schema_type = launcher_schema_type(args)
+    layout = resolve_dab_bundle_layout(schema_type)
     try:
         materialize_runtime_bundle_dir(
             release_dir,
-            pipeline_version,
-            git_ref=pipeline_version,
+            archived_pipeline_version,
+            schema_type=schema_type,
+            git_ref=archived_pipeline_version,
             github_repo=args.github_repo.strip() or DEFAULT_GITHUB_REPO,
             skip_snapshot_if_present=args.skip_snapshot_if_present,
             logger=LOGGER,
@@ -168,14 +133,14 @@ def main(argv: list[str] | None = None) -> int:
             databricks_institution_name=inst,
             model_name=model,
             model_run_id=model_run_id,
-            pipeline_version=pipeline_version,
+            archived_pipeline_version=archived_pipeline_version,
             launcher_run_id=launcher_run_id,
             error_message=str(exc),
             logger=LOGGER,
         )
         return 1
 
-    marker = inference_yml_in_bundle(release_dir)
+    marker = inference_yml_path(release_dir, layout.inference_yml_snapshot_rel)
     if not marker.is_file():
         msg = f"DAB snapshot missing after materialize: {marker}"
         LOGGER.error(msg)
@@ -185,7 +150,7 @@ def main(argv: list[str] | None = None) -> int:
             databricks_institution_name=inst,
             model_name=model,
             model_run_id=model_run_id,
-            pipeline_version=pipeline_version,
+            archived_pipeline_version=archived_pipeline_version,
             launcher_run_id=launcher_run_id,
             error_message=msg,
             logger=LOGGER,
@@ -195,22 +160,17 @@ def main(argv: list[str] | None = None) -> int:
     LOGGER.info("Runtime bundle materialized at %s", release_dir)
     record_versioned_inference_launcher_event(
         catalog=db_ws,
-        event="started",
+        event="completed",
         databricks_institution_name=inst,
         model_name=model,
         model_run_id=model_run_id,
-        pipeline_version=pipeline_version,
+        archived_pipeline_version=archived_pipeline_version,
         launcher_run_id=launcher_run_id,
         payload={
             "bundle_materialized": str(release_dir),
             "task": "materialize_runtime_bundle",
+            "schema_type": layout.schema_type,
         },
         logger=LOGGER,
     )
     return 0
-
-
-if __name__ == "__main__":
-    _exit_code = main()
-    if _exit_code:
-        sys.exit(_exit_code)

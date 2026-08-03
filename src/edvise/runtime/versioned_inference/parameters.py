@@ -18,6 +18,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from edvise.runtime.versioned_inference.dab_layout import resolve_dab_bundle_layout
+
 LOGGER = logging.getLogger(__name__)
 
 PARAMETER_ALIASES_FILENAME = "parameter_aliases.json"
@@ -217,19 +219,6 @@ def build_parameter_contract(job: dict[str, Any]) -> list[ParameterSpec]:
     return specs
 
 
-def parameter_contract_as_dicts(contract: list[ParameterSpec]) -> list[dict[str, Any]]:
-    """Serialize contract for logging / release metadata."""
-    return [
-        {
-            "parameter_name": spec.name,
-            "default": spec.default,
-            "required": spec.required,
-            "referenced_by_tasks": list(spec.referenced_by_tasks),
-        }
-        for spec in contract
-    ]
-
-
 def merge_parameter_aliases(release_aliases: dict[str, str] | None) -> dict[str, str]:
     """Built-in stable mappings, overridden by release ``parameter_aliases.json``."""
     merged = dict(DEFAULT_STABLE_PARAMETER_ALIASES)
@@ -331,14 +320,6 @@ def validate_extra_overrides(
 
 def _normalize_param_token(value: str) -> str:
     return re.sub(r"[^a-z0-9]", "", value.lower())
-
-
-def _collect_alias_sources(merged_aliases: dict[str, str]) -> dict[str, set[str]]:
-    """Map each alias source string to archived param names that use it."""
-    by_source: dict[str, set[str]] = {}
-    for archived, source in merged_aliases.items():
-        by_source.setdefault(source, set()).add(archived)
-    return by_source
 
 
 def suggest_missing_parameter_mappings(
@@ -583,36 +564,12 @@ def _log_resolved_parameters(
     )
 
 
-def deep_merge_stable_dict(
-    base: dict[str, Any], overlay: dict[str, Any]
-) -> dict[str, Any]:
-    """Deep-merge ``overlay`` onto ``base`` (overlay wins for scalar values)."""
-    out: dict[str, Any] = dict(base)
-    for key, val in overlay.items():
-        if key in out and isinstance(out[key], dict) and isinstance(val, dict):
-            out[key] = deep_merge_stable_dict(out[key], val)
-        else:
-            out[key] = val
-    return out
-
-
-def parse_stable_trigger_json(raw: str | None) -> dict[str, Any]:
-    """Parse optional webapp ``stable_trigger_json`` (Layer 1 payload)."""
-    text = (raw or "").strip()
-    if not text:
-        return {}
-    data = json.loads(text)
-    if not isinstance(data, dict):
-        msg = "stable_trigger_json must be a JSON object"
-        raise TypeError(msg)
-    return data
-
-
 def build_stable_trigger_payload(
     *,
     institution: str,
     model_name: str,
     workspace: str,
+    schema_type: str = "pdp",
     cohort_dataset: str = "",
     course_dataset: str = "",
     output_bucket: str = "",
@@ -627,13 +584,14 @@ def build_stable_trigger_payload(
 
     Maps to archived names via built-in + release ``parameter_aliases.json`` stable paths.
     """
+    layout_schema = resolve_dab_bundle_layout(schema_type).inference_schema_type
     payload: dict[str, Any] = {
         "institution": institution.strip(),
         "model": model_name.strip(),
         "model_name": model_name.strip(),
         "workspace": workspace.strip(),
         "DB_workspace": workspace.strip(),
-        "schema_type": "pdp",
+        "schema_type": layout_schema,
         "datasets": {
             "cohort": cohort_dataset.strip(),
             "course": course_dataset.strip(),

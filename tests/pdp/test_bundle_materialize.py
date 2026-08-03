@@ -10,7 +10,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from pipelines.pdp.launchers.bundle_materialize import (  # noqa: E402
+from edvise.runtime.versioned_inference.bundle.materialize import (
     github_raw_url,
     materialize_dab_snapshot_from_github,
     materialize_runtime_bundle_dir,
@@ -40,7 +40,7 @@ def test_materialize_dab_snapshot_from_github(tmp_path: Path) -> None:
         return dab_bytes
 
     with patch(
-        "pipelines.pdp.launchers.bundle_materialize.fetch_github_file",
+        "edvise.runtime.versioned_inference.bundle.materialize.fetch_github_file",
         side_effect=fake_fetch,
     ):
         materialize_dab_snapshot_from_github(
@@ -60,33 +60,13 @@ def test_materialize_skips_when_snapshot_present(tmp_path: Path) -> None:
     inf.parent.mkdir(parents=True)
     inf.write_text("existing", encoding="utf-8")
 
-    with patch("pipelines.pdp.launchers.bundle_materialize.fetch_github_file") as fetch:
+    with patch("edvise.runtime.versioned_inference.bundle.materialize.fetch_github_file") as fetch:
         materialize_dab_snapshot_from_github(release_dir, "sha", skip_if_present=True)
         fetch.assert_not_called()
 
 
-def test_materialize_runtime_bundle_dir_local(tmp_path: Path) -> None:
-    repo = tmp_path / "repo"
-    repo.mkdir(parents=True)
-    (repo / "pipelines/pdp/resources").mkdir(parents=True)
-    (repo / "pipelines/pdp/databricks.yml").write_text("bundle: x\n", encoding="utf-8")
-    (repo / "pipelines/pdp/resources/github_pdp_inference.yml").write_text(
-        _FIXTURE_YML.read_text(encoding="utf-8"),
-        encoding="utf-8",
-    )
-    out = tmp_path / "release" / "sha1"
-    out.mkdir(parents=True)
+def test_materialize_runtime_bundle_dir_requires_git_ref(tmp_path: Path) -> None:
+    import pytest
 
-    materialize_runtime_bundle_dir(
-        out,
-        "sha1",
-        repo_root=repo,
-        skip_snapshot_if_present=False,
-    )
-
-    assert (
-        out / "databricks_bundle_snapshot/resources/github_pdp_inference.yml"
-    ).is_file()
-    assert not (out / "release.json").exists()
-    assert not (out / "pyproject.toml").exists()
-    assert not (out / "release_requirements.txt").exists()
+    with pytest.raises(ValueError, match="git_ref"):
+        materialize_runtime_bundle_dir(tmp_path / "release", "sha1")
