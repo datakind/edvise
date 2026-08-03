@@ -138,6 +138,69 @@ def test_log_h2o_experiment_summary_basic(
     )
 
     mock_start_run.assert_called_once()
+    # Fallback path converts H2O frames when full_dataset_df is omitted
+    train_mock.as_data_frame.assert_called()
+
+
+@mock.patch("edvise.modeling.h2o_ml.utils.mlflow.log_artifact")
+@mock.patch("edvise.modeling.h2o_ml.utils.mlflow.log_param")
+@mock.patch("edvise.modeling.h2o_ml.utils.mlflow.log_metric")
+@mock.patch("edvise.modeling.h2o_ml.utils.mlflow.start_run")
+def test_log_h2o_experiment_summary_prefers_full_dataset_df(
+    mock_start_run,
+    mock_log_metric,
+    mock_log_param,
+    mock_log_artifact,
+    tmp_path,
+):
+    mock_run = mock.MagicMock()
+    mock_run.__enter__.return_value = mock_run
+    mock_start_run.return_value = mock_run
+
+    aml_mock = mock.Mock()
+    aml_mock.leader.model_id = "best_model"
+    leaderboard_df = pd.DataFrame({"model_id": ["model_1"], "auc": [0.9]})
+
+    train_mock = mock.MagicMock()
+    train_mock.columns = ["feature_1", "target"]
+    train_mock.types = {"feature_1": "real", "target": "enum"}
+    target_col_mock = mock.Mock()
+    target_col_mock.table.return_value.as_data_frame.return_value = pd.DataFrame(
+        {"target": [0, 1], "Count": [1, 1]}
+    )
+    train_mock.__getitem__.return_value = target_col_mock
+
+    modeling_df = pd.DataFrame(
+        {
+            "feature_1": [0.1, 0.2],
+            "num_courses_diff_term_3_to_term_4": [1, -1],
+            "target": [0, 1],
+            "split": ["train", "test"],
+        }
+    )
+
+    with mock.patch(
+        "edvise.modeling.h2o_ml.utils.tempfile.TemporaryDirectory"
+    ) as mock_tmpdir:
+        mock_tmpdir.return_value.__enter__.return_value = str(tmp_path)
+        utils.log_h2o_experiment_summary(
+            aml=aml_mock,
+            leaderboard_df=leaderboard_df,
+            train=train_mock,
+            valid=mock.MagicMock(),
+            test=mock.MagicMock(),
+            target_col="target",
+            full_dataset_df=modeling_df,
+        )
+
+    # Must not fall back to H2O→pandas for the modeling artifact
+    train_mock.as_data_frame.assert_not_called()
+
+    parquet_path = tmp_path / "full_dataset.parquet"
+    assert parquet_path.exists()
+    written = pd.read_parquet(parquet_path)
+    assert "num_courses_diff_term_3_to_term_4" in written.columns
+    pd.testing.assert_frame_equal(written, modeling_df)
 
 
 @mock.patch("edvise.modeling.h2o_ml.utils.h2o.save_model")

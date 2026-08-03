@@ -120,6 +120,9 @@ def test_run_h2o_automl_success(
     actual_df = mock_imputer.fit.call_args[0][0]
     assert_frame_equal(actual_df, expected_df)
 
+    # Pre-imputation modeling frame must be persisted for prediction reload
+    assert mock_log_experiment.call_args.kwargs["full_dataset_df"] is sample_df
+
 
 @mock.patch("edvise.modeling.h2o_ml.training.h2o.H2OFrame")
 def test_run_h2o_automl_missing_logging_param(mock_h2oframe, sample_df):

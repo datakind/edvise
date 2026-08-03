@@ -5,13 +5,13 @@ import pandas as pd
 LOGGER = logging.getLogger(__name__)
 
 
-def dedupe_by_renumbering_courses(
+def dedupe_by_suffixing_courses(
     df: pd.DataFrame,
     *,
     unique_cols: list[str] | None = None,
 ) -> pd.DataFrame:
     """
-    Deduplicate rows in raw course data ``df`` by renumbering courses, such that
+    Deduplicate rows in raw course data ``df`` by suffixing course numbers, such that
     the data passes data schema uniqueness requirements.
 
     Args:
@@ -82,7 +82,7 @@ def dedupe_by_renumbering_courses(
         (len(deduped_course_numbers) / len(df)) * 100,
     )
 
-    # Convert to string so we can assign renumbered values like "380-1" (numeric dtypes fail)
+    # Convert to string so we can assign suffixed values like "380-1" (numeric dtypes fail)
     df["course_number"] = df["course_number"].astype("string")
     df.update(deduped_course_numbers, overwrite=True)
     return df
