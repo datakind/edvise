@@ -20,7 +20,7 @@ Workspace root defaults to
   Preprocessing code still loads from the SSI workspace mirror at
   ``<workspace_root>/<databricks_institution_name>/<model_name>/preprocessing.py``.
 
-``--config_file_path`` is required for ``run_type=predict`` (from ``legacy_inference_inputs``);
+``--config_file_path`` is required for ``run_type=predict`` (from ``data_ingestion``);
 ``run_type=train`` ignores it and uses the workspace paths above.
 
 For ``run_type=predict``, bronze ``predict_file_path`` values may be resolved at runtime

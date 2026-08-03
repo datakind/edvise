@@ -1,5 +1,5 @@
 """
-Legacy inference data ingestion: batch GCS landing (mirrors ES ``data_ingestion``).
+Legacy inference data ingestion: batch GCS landing (mirrors ES/PDP ``data_ingestion``).
 
 Legacy schools upload through the same signed-URL -> ``validated/`` GCS flow as ES/GenAI
 schools, but the legacy inference pipeline historically had no explicit batch ingest task:
@@ -11,8 +11,12 @@ This script closes that gap by running the same reuse-or-download batch ingest u
 ``legacy_preprocessing`` can search the batch-scoped dir first, falling back to the existing
 top-level keyword search when no batch was supplied (e.g. older/ manually-triggered runs).
 
-Unlike ES, legacy config/features-table resolution stays in ``legacy_inference_inputs.py``
-(separate task) since it is unrelated to GCS ingest.
+Like ES/PDP's ``data_ingestion``, this task also resolves the registered model's latest
+``run_id`` and, from its training run in the silver volume, the ``config_file_path`` and
+``features_table_path`` used to train it — publishing both as task values for downstream
+tasks (``legacy_preprocessing``, ``inference_h2o``). This folds in what was previously a
+separate ``inference_setup`` task (``legacy_inference_inputs.py``), for parity with
+ES/PDP where this resolution already lives in ``data_ingestion``.
 """
 
 from __future__ import annotations
@@ -47,6 +51,11 @@ from edvise.dataio.batch_gcs_inference_ingest import (
     set_batch_ingest_task_values,
     should_skip_batch_ingest,
 )
+from edvise.utils.databricks import (
+    find_file_in_run_folder,
+    get_dbutils_or_none,
+    get_latest_uc_model_run_id,
+)
 from edvise.utils.gcs import DEFAULT_GCS_PREFIX
 
 
@@ -61,6 +70,15 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--databricks_institution_name", required=True)
     parser.add_argument("--gcp_bucket_name", required=True)
     parser.add_argument("--db_run_id", required=True)
+    parser.add_argument(
+        "--model_name",
+        required=True,
+        help=(
+            "Registered model short name, or full UC three-level name "
+            "(catalog.institution_gold.<short>). Used to resolve the model's latest "
+            "run_id and, from it, config_file_path/features_table_path."
+        ),
+    )
     parser.add_argument(
         "--batch_id",
         default="",
@@ -112,6 +130,62 @@ def parse_arguments() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def resolve_model_config_and_features_table(
+    model_name: str,
+    db_workspace: str,
+    databricks_institution_name: str,
+) -> tuple[str, str]:
+    """
+    Look up the registered model's latest ``run_id`` in Unity Catalog and, from its
+    training run in the silver volume, resolve the ``config_file_path`` and
+    ``features_table_path`` used to train it. This ensures inference uses the exact
+    same configuration as the trained model.
+
+    Mirrors the former standalone ``inference_setup`` task (``legacy_inference_inputs.py``),
+    now folded into ``data_ingestion`` for parity with ES/PDP.
+    """
+    model_run_id = get_latest_uc_model_run_id(
+        model_name, db_workspace, databricks_institution_name
+    )
+    logging.info(
+        "Found latest run_id for model '%s.%s_gold.%s': %s",
+        db_workspace,
+        databricks_institution_name,
+        model_name,
+        model_run_id,
+    )
+
+    silver_run_root = (
+        f"/Volumes/{db_workspace}/"
+        f"{databricks_institution_name}_silver/silver_volume/{model_run_id}"
+    )
+    logging.info("Looking for training artifacts in: %s", silver_run_root)
+
+    config_file_path = find_file_in_run_folder(silver_run_root, keyword="config")
+    features_table_path = find_file_in_run_folder(
+        silver_run_root, keyword="features_table"
+    )
+    logging.info("Using config file: %s", config_file_path)
+    logging.info("Using features table: %s", features_table_path)
+    return config_file_path, features_table_path
+
+
+def set_model_config_task_values(
+    config_file_path: str, features_table_path: str
+) -> None:
+    """Publish resolved config/features_table paths to Databricks task values."""
+    dbutils = get_dbutils_or_none()
+    if not dbutils:
+        logging.warning(
+            "dbutils not available - config/features_table task values not set. "
+            "This is expected in local/testing environments."
+        )
+        return
+    dbutils.jobs.taskValues.set(key="config_file_path", value=config_file_path)
+    dbutils.jobs.taskValues.set(key="features_table_path", value=features_table_path)
+    logging.info("Config/features_table task values set for downstream tasks")
+
+
 def run_legacy_gcp_databricks_ingestion(
     args: argparse.Namespace,
 ) -> BatchIngestResult:
@@ -123,7 +197,7 @@ def run_legacy_gcp_databricks_ingestion(
             "Batch GCS inference ingest skipped (no validated blob paths); "
             "legacy_preprocessing will fall back to top-level gcs_uploads keyword search."
         )
-        skipped = BatchIngestResult(
+        result = BatchIngestResult(
             bronze_batch_dir="",
             cohort_dataset_validated_path=None,
             course_dataset_validated_path=None,
@@ -131,24 +205,33 @@ def run_legacy_gcp_databricks_ingestion(
             copied_count=0,
             skipped=True,
         )
-        set_batch_ingest_task_values(skipped)
-        return skipped
+    else:
+        result = run_batch_gcs_inference_ingest(
+            db_workspace=args.DB_workspace,
+            databricks_institution_name=args.databricks_institution_name,
+            gcp_bucket_name=args.gcp_bucket_name,
+            batch_id=args.batch_id,
+            validated_blob_paths_json=args.validated_blob_paths_json,
+            db_run_id=args.db_run_id,
+            gcs_source_prefix=args.gcs_source_prefix,
+            require_at_least_one_file=args.require_at_least_one_file,
+            max_objects=args.max_objects,
+            is_genai_institution=False,
+            bronze_sync_wait_seconds=args.bronze_sync_wait_seconds,
+            bronze_sync_poll_interval_seconds=args.bronze_sync_poll_interval_seconds,
+        )
+    set_batch_ingest_task_values(result)
 
-    result = run_batch_gcs_inference_ingest(
+    # Model/config resolution is independent of the GCS batch ingest above (and its
+    # skip status); it always runs so downstream tasks get config_file_path/
+    # features_table_path regardless of whether a batch was supplied.
+    config_file_path, features_table_path = resolve_model_config_and_features_table(
+        model_name=args.model_name,
         db_workspace=args.DB_workspace,
         databricks_institution_name=args.databricks_institution_name,
-        gcp_bucket_name=args.gcp_bucket_name,
-        batch_id=args.batch_id,
-        validated_blob_paths_json=args.validated_blob_paths_json,
-        db_run_id=args.db_run_id,
-        gcs_source_prefix=args.gcs_source_prefix,
-        require_at_least_one_file=args.require_at_least_one_file,
-        max_objects=args.max_objects,
-        is_genai_institution=False,
-        bronze_sync_wait_seconds=args.bronze_sync_wait_seconds,
-        bronze_sync_poll_interval_seconds=args.bronze_sync_poll_interval_seconds,
     )
-    set_batch_ingest_task_values(result)
+    set_model_config_task_values(config_file_path, features_table_path)
+
     return result
 
 

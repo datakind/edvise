@@ -15,6 +15,7 @@ def _args(**overrides: object) -> argparse.Namespace:
         "databricks_institution_name": "john_jay_col",
         "gcp_bucket_name": "bucket",
         "db_run_id": "run-1",
+        "model_name": "some_model",
         "batch_id": "batch1",
         "validated_blob_paths_json": '["validated/cohort.csv"]',
         "gcs_source_prefix": "validated/",
@@ -27,10 +28,20 @@ def _args(**overrides: object) -> argparse.Namespace:
     return argparse.Namespace(**defaults)
 
 
+def _mock_model_config_resolution():
+    return mock.patch.object(
+        script,
+        "resolve_model_config_and_features_table",
+        return_value=("config.toml", "features_table.toml"),
+    )
+
+
 def test_run_legacy_gcp_databricks_ingestion_skips_when_no_blob_paths() -> None:
     with (
         mock.patch.object(script, "set_batch_ingest_task_values") as set_batch,
         mock.patch.object(script, "run_batch_gcs_inference_ingest") as run_batch,
+        _mock_model_config_resolution() as resolve_model_config,
+        mock.patch.object(script, "set_model_config_task_values") as set_model_config,
     ):
         result = script.run_legacy_gcp_databricks_ingestion(
             _args(validated_blob_paths_json="[]")
@@ -40,6 +51,14 @@ def test_run_legacy_gcp_databricks_ingestion_skips_when_no_blob_paths() -> None:
     set_batch.assert_called_once()
     assert result.skipped is True
     assert result.bronze_batch_dir == ""
+
+    # Model/config resolution runs regardless of whether the batch ingest was skipped.
+    resolve_model_config.assert_called_once_with(
+        model_name="some_model",
+        db_workspace="dev_sst_02",
+        databricks_institution_name="john_jay_col",
+    )
+    set_model_config.assert_called_once_with("config.toml", "features_table.toml")
 
 
 def test_run_legacy_gcp_databricks_ingestion_runs_batch_ingest() -> None:
@@ -58,6 +77,8 @@ def test_run_legacy_gcp_databricks_ingestion_runs_batch_ingest() -> None:
             script, "run_batch_gcs_inference_ingest", return_value=batch_result
         ) as run_batch,
         mock.patch.object(script, "set_batch_ingest_task_values") as set_batch,
+        _mock_model_config_resolution() as resolve_model_config,
+        mock.patch.object(script, "set_model_config_task_values") as set_model_config,
     ):
         result = script.run_legacy_gcp_databricks_ingestion(_args())
 
@@ -66,3 +87,10 @@ def test_run_legacy_gcp_databricks_ingestion_runs_batch_ingest() -> None:
     assert run_batch.call_args.kwargs["batch_id"] == "batch1"
     set_batch.assert_called_once_with(batch_result)
     assert result == batch_result
+
+    resolve_model_config.assert_called_once_with(
+        model_name="some_model",
+        db_workspace="dev_sst_02",
+        databricks_institution_name="john_jay_col",
+    )
+    set_model_config.assert_called_once_with("config.toml", "features_table.toml")
