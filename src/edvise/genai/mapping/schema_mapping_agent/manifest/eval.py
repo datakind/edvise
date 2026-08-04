@@ -205,15 +205,22 @@ MODELS_WITH_PREFILL = {
 # ── inference ─────────────────────────────────────────────────────────────────
 def run_once(
     model: str,
-    prompt: str,
+    prompt: str | list[dict[str, Any]],
     client: OpenAI,
 ) -> dict[str, Any]:
+    """
+    ``prompt`` is normally the full ``role="user"`` message text, but callers that want
+    Anthropic/Databricks prompt caching (see
+    :func:`~edvise.genai.mapping.shared.databricks_ai_gateway.build_gateway_message_content`)
+    may instead pass a pre-built list of content blocks (with ``cache_control`` on the
+    static block); it is forwarded to the gateway unchanged either way.
+    """
     start = time.perf_counter()
     try:
         full_text = ""
 
         # Build messages - only add assistant prefill for models that support it
-        messages_list: list[dict[str, str]] = [{"role": "user", "content": prompt}]
+        messages_list: list[dict[str, Any]] = [{"role": "user", "content": prompt}]
         if model in MODELS_WITH_PREFILL:
             messages_list.append(
                 {"role": "assistant", "content": "{"}

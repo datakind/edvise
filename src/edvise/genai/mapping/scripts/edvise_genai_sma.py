@@ -43,6 +43,7 @@ import argparse
 import json
 import logging
 from dataclasses import dataclass
+from collections.abc import Callable
 from typing import Any, Literal, cast
 from pathlib import Path
 
@@ -74,7 +75,10 @@ from edvise.genai.mapping.shared.active_promotion import (
     promote_genai_mapping_to_active,
     update_genai_active_registry_execute,
 )
-from edvise.genai.mapping.shared.databricks_ai_gateway import resolve_gateway_model_id
+from edvise.genai.mapping.shared.databricks_ai_gateway import (
+    build_gateway_message_content,
+    resolve_gateway_model_id,
+)
 from edvise.genai.mapping.schema_mapping_agent.grain_resolution import (
     execute_transformation_map_for_sma_execute_mode,
     reload_field_manifest_entity,
@@ -355,10 +359,16 @@ def _build_openai_client(catalog: str) -> Any:
     )
 
 
-def _run_once(model_id: str, prompt: str, client: Any) -> dict[str, Any]:
+def _run_once(
+    model_id: str, prompt: str | list[dict[str, Any]], client: Any
+) -> dict[str, Any]:
     """
     Call :func:`~edvise.genai.mapping.schema_mapping_agent.manifest.eval.run_once` with
     retries for transient gateway / transport failures (same policy as IA ``llm_complete``).
+
+    ``prompt`` may be a plain string or a list of content blocks (see
+    :func:`~edvise.genai.mapping.shared.databricks_ai_gateway.build_gateway_message_content`)
+    when the caller wants Anthropic/Databricks prompt caching on a static block.
     """
     from edvise.genai.mapping.shared.databricks_ai_gateway import (
         gateway_run_once_error_text_is_retryable,
@@ -392,22 +402,37 @@ def _run_once(model_id: str, prompt: str, client: Any) -> dict[str, Any]:
     return last
 
 
-def _sma_llm_complete_run_once(client):
-    """``(system, user) -> text`` for :func:`llm_complete_with_parse_retry` (combines like refinement)."""
+def _sma_llm_complete_run_once(
+    client: Any,
+    *,
+    cache_system_prompt: bool = False,
+) -> Callable[[str, str], str]:
+    """
+    ``(system, user) -> text`` for :func:`llm_complete_with_parse_retry` (combines like refinement).
+
+    ``cache_system_prompt`` opts into Anthropic/Databricks prompt caching (see
+    :func:`~edvise.genai.mapping.shared.databricks_ai_gateway.build_gateway_message_content`)
+    on the ``system`` block whenever both ``system`` and ``user`` are non-empty and ``system``
+    is long enough to be cacheable. It's a safe no-op for callers that pass an empty
+    ``system`` (e.g. Step 2a/2b, which send the whole prompt as ``user``).
+    """
     model_id = resolve_gateway_model_id()
 
     def llm_complete(system: str, user: str) -> str:
         s = (system or "").strip()
         u = (user or "").strip()
+        content: str | list[dict[str, Any]]
         if s and u:
-            combined = f"{s}\n\n---\n\n{u}"
+            content = build_gateway_message_content(
+                s, u, cache_system_prompt=cache_system_prompt, cache_ttl="5m"
+            )
         elif u:
-            combined = u
+            content = u
         elif s:
-            combined = s
+            content = s
         else:
             raise RuntimeError("SMA LLM call has empty system and user prompts")
-        result = _run_once(model_id, combined, client)
+        result = _run_once(model_id, content, client)
         if not result.get("success"):
             raise RuntimeError(result.get("error") or "SMA LLM call failed")
         resp = result.get("response")
@@ -487,7 +512,11 @@ def run_onboard_start(
         course_schema_class=RawEdviseCourseDataSchema,
     )
 
-    llm_sma = _sma_llm_complete_run_once(client)
+    # cache_system_prompt is a no-op for the Step 2a call below (system="" there); it only
+    # activates for the refinement calls further down, which reuse this same llm_sma and send
+    # a static, ~2.5-3.4k token system prompt (build_refinement_pass1/2_system_prompt) across
+    # up to 4 calls per institution.
+    llm_sma = _sma_llm_complete_run_once(client, cache_system_prompt=True)
 
     def _parse_step2a_envelope(raw: str) -> MappingManifestEnvelope:
         manifest_dict = json.loads(raw)

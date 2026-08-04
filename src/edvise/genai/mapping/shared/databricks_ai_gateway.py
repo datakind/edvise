@@ -55,11 +55,11 @@ def llm_complete_combined_message_content(system: str, user: str) -> str:
     return system + LLM_COMPLETE_SYSTEM_USER_SEP + user
 
 
-def _build_gateway_content(
+def build_gateway_message_content(
     system: str, user: str, *, cache_system_prompt: bool, cache_ttl: CacheTTL
 ) -> str | list[dict[str, Any]]:
     """
-    Build the ``content`` payload for the single ``role="user"`` gateway message.
+    Build the ``content`` payload for a single ``role="user"`` gateway message.
 
     When ``cache_system_prompt`` is set and ``system`` is long enough to be
     cacheable, ``system`` is sent as its own text block with an Anthropic
@@ -70,6 +70,10 @@ def _build_gateway_content(
 
     Falls back to the plain concatenated string (previous behavior, still the
     default) when caching is disabled or ``system`` is too short to cache.
+
+    Public so callers that build their own ``role="user"`` messages outside of
+    :func:`make_databricks_gateway_llm_complete` (e.g. SMA's streaming
+    ``run_once`` path) can opt into the same caching behavior.
     """
     if not cache_system_prompt or len(system) < _CACHE_CONTROL_MIN_CHARS:
         return llm_complete_combined_message_content(system, user)
@@ -463,7 +467,7 @@ def make_databricks_gateway_llm_complete(
             [
                 {
                     "role": "user",
-                    "content": _build_gateway_content(
+                    "content": build_gateway_message_content(
                         system,
                         user,
                         cache_system_prompt=cache_system_prompt,

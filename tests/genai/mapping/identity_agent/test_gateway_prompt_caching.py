@@ -6,7 +6,7 @@ from typing import Any
 
 from edvise.genai.mapping.shared.databricks_ai_gateway import (
     _CACHE_CONTROL_MIN_CHARS,
-    _build_gateway_content,
+    build_gateway_message_content,
     llm_complete_combined_message_content,
     make_databricks_gateway_llm_complete,
 )
@@ -15,24 +15,24 @@ _LONG_SYSTEM = "x" * (_CACHE_CONTROL_MIN_CHARS + 1)
 _SHORT_SYSTEM = "short system prompt"
 
 
-def test_build_gateway_content_default_is_plain_string() -> None:
-    content = _build_gateway_content(
+def testbuild_gateway_message_content_default_is_plain_string() -> None:
+    content = build_gateway_message_content(
         _LONG_SYSTEM, "user text", cache_system_prompt=False, cache_ttl="5m"
     )
     assert content == llm_complete_combined_message_content(_LONG_SYSTEM, "user text")
     assert isinstance(content, str)
 
 
-def test_build_gateway_content_skips_caching_for_short_system() -> None:
-    content = _build_gateway_content(
+def testbuild_gateway_message_content_skips_caching_for_short_system() -> None:
+    content = build_gateway_message_content(
         _SHORT_SYSTEM, "user text", cache_system_prompt=True, cache_ttl="5m"
     )
     assert isinstance(content, str)
     assert content == llm_complete_combined_message_content(_SHORT_SYSTEM, "user text")
 
 
-def test_build_gateway_content_caches_long_system_with_default_ttl() -> None:
-    content = _build_gateway_content(
+def testbuild_gateway_message_content_caches_long_system_with_default_ttl() -> None:
+    content = build_gateway_message_content(
         _LONG_SYSTEM, "user text", cache_system_prompt=True, cache_ttl="5m"
     )
     assert isinstance(content, list)
@@ -43,8 +43,8 @@ def test_build_gateway_content_caches_long_system_with_default_ttl() -> None:
     assert "ttl" not in content[0]["cache_control"]
 
 
-def test_build_gateway_content_caches_long_system_with_1h_ttl() -> None:
-    content = _build_gateway_content(
+def testbuild_gateway_message_content_caches_long_system_with_1h_ttl() -> None:
+    content = build_gateway_message_content(
         _LONG_SYSTEM, "user text", cache_system_prompt=True, cache_ttl="1h"
     )
     assert isinstance(content, list)
