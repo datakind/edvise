@@ -29,17 +29,20 @@ Key design principles:
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import logging
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Optional, Type
+from typing import Any, Callable, Optional, Type, cast
 
 import pandas as pd
 
 from edvise.genai.mapping.shared.grain.dedup_execution import (
     apply_sma_grain_resolution_payload,
 )
+from edvise.genai.mapping.shared.hitl.hook_spec.paths import resolve_hook_module_path
+from edvise.genai.mapping.shared.hitl.hook_spec.schemas import HookSpec
 from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import (
     FieldMappingManifest,
     FieldMappingRecord,
@@ -921,6 +924,58 @@ def validate_source_columns_for_execute(
 
 
 # =============================================================================
+# Materialized hook loading (SMA transform hooks)
+# =============================================================================
+
+
+def _load_sma_transform_hook_function(
+    hook_spec: HookSpec,
+    *,
+    modules_root: str | Path,
+    module_cache: dict[Path, Any],
+) -> Callable[[pd.Series], pd.Series]:
+    """
+    Dynamically import the materialized ``transform_hooks.py`` module named by ``hook_spec.file``
+    and return the ``Series -> Series`` callable named by ``hook_spec.functions[0].name``.
+
+    Mirrors identity_agent.execution.contract_utilities._load_grain_dedup_hook_from_hook_spec
+    and identity_agent.hitl.resolver.validate_hook's dynamic-import pattern — SMA transform
+    hooks never had an execution-side loader until this was added; generation and materialization
+    (edvise.genai.mapping.schema_mapping_agent.transformation.hitl.hook_generation, reusing
+    identity_agent.hitl.hook_generation.materialize) already worked on their own.
+
+    ``module_cache`` avoids re-importing the same file for every field that shares one module.
+    """
+    if not hook_spec.file:
+        raise ExecutionError(
+            "hook_spec.file is required to load a materialized transform hook "
+            "(run materialize_hook_specs_to_file before execution)."
+        )
+    if not hook_spec.functions:
+        raise ExecutionError(
+            f"hook_spec for '{hook_spec.file}' has no functions to load"
+        )
+
+    path = resolve_hook_module_path(hook_spec.file, root=modules_root)
+    module = module_cache.get(path)
+    if module is None:
+        if not path.exists():
+            raise ExecutionError(f"Materialized hook module not found: {path}")
+        spec = importlib.util.spec_from_file_location("_sma_transform_hooks", path)
+        if spec is None or spec.loader is None:
+            raise ExecutionError(f"Could not load hook module spec for {path}")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        module_cache[path] = module
+
+    fn_name = hook_spec.functions[0].name
+    fn = getattr(module, fn_name, None)
+    if not callable(fn):
+        raise ExecutionError(f"Module {path} missing callable {fn_name!r}")
+    return cast(Callable[[pd.Series], pd.Series], fn)
+
+
+# =============================================================================
 # Transformation map execution
 # =============================================================================
 
@@ -939,6 +994,7 @@ def execute_transformation_map(
     ia_source_keys: list[str] | None = None,
     sma_grain_resolution_path: Path | None = None,
     sma_manifest_path: Path | None = None,
+    hook_modules_root: str | Path | None = None,
 ) -> ExecutionResult:
     """
     Execute a TransformationMap against resolved DataFrames.
@@ -970,6 +1026,11 @@ def execute_transformation_map(
             all grain mismatches are treated as within-grain multiplicity.
         sma_grain_resolution_path: Optional resolver output to shrink ``base_df`` before execution.
         sma_manifest_path: Optional path stored into SMA grain HITL metadata (tooling only).
+        hook_modules_root: Root directory to resolve ``FieldTransformationPlan.hook_spec.file``
+            under (the same ``repo_root`` passed to ``materialize_hook_specs_to_file``). When a
+            ``hook_required`` plan carries a populated ``hook_spec``, the executor dynamically
+            imports the materialized function and runs it instead of treating the field as a gap.
+            Omit to keep the previous gap-only behavior (e.g. hook not yet generated/approved).
 
     Returns:
         ExecutionResult with assembled target DataFrame and execution metadata
@@ -1053,6 +1114,7 @@ def execute_transformation_map(
     gaps: list[str] = []
     skipped: list[str] = []
     executed: list[str] = []
+    hook_module_cache: dict[Path, Any] = {}
 
     n_plans = len(transformation_map.plans)
     logger.info(
@@ -1070,7 +1132,10 @@ def execute_transformation_map(
             )
             continue
 
-        if plan.hook_required:
+        # A hook_required plan is only executable once a materialized hook has been
+        # attached (plan.hook_spec, set by the pipeline after hook generation +
+        # materialize_hook_specs_to_file). Without it, it's still an unresolved gap.
+        if plan.hook_required and (plan.hook_spec is None or hook_modules_root is None):
             msg = f"Field '{target}' — hook_required (no covering utility chain; see reviewer_notes)"
             logger.warning(f"[{i}/{n_plans}] {target} — {msg}")
             if raise_on_gap:
@@ -1078,7 +1143,7 @@ def execute_transformation_map(
             gaps.append(target)
             continue
 
-        if not plan.steps and not record.source_column:
+        if not plan.hook_required and not plan.steps and not record.source_column:
             logger.debug(f"[{i}/{n_plans}] {target} — unmappable, skipping")
             skipped.append(target)
             continue
@@ -1098,13 +1163,31 @@ def execute_transformation_map(
                     dtype="object",
                 )
 
-            # --- 2. Run transformation steps (pure Series → Series) ---
-            for j, step in enumerate(plan.steps, 1):
-                logger.debug(
-                    f"[{i}/{n_plans}] {target} — step {j}/{len(plan.steps)}: "
-                    f"{step.function_name}"
+            # --- 2. Run transformation steps, or the materialized hook ---
+            if plan.hook_required:
+                assert plan.hook_spec is not None and hook_modules_root is not None
+                hook_fn = _load_sma_transform_hook_function(
+                    plan.hook_spec,
+                    modules_root=hook_modules_root,
+                    module_cache=hook_module_cache,
                 )
-                s = _execute_step(step, s, base_df)
+                logger.debug(
+                    f"[{i}/{n_plans}] {target} — running materialized hook "
+                    f"{plan.hook_spec.functions[0].name}"
+                )
+                s = hook_fn(s)
+                if not isinstance(s, pd.Series):
+                    raise ExecutionError(
+                        f"Hook '{plan.hook_spec.functions[0].name}' for '{target}' must return "
+                        f"a pandas Series, got {type(s).__name__}"
+                    )
+            else:
+                for j, step in enumerate(plan.steps, 1):
+                    logger.debug(
+                        f"[{i}/{n_plans}] {target} — step {j}/{len(plan.steps)}: "
+                        f"{step.function_name}"
+                    )
+                    s = _execute_step(step, s, base_df)
 
             # --- 3. Reduce to one value per entity ---
             if record.row_selection is not None:
@@ -1116,7 +1199,8 @@ def execute_transformation_map(
 
             result_cols[target] = s
             executed.append(target)
-            logger.info(f"[{i}/{n_plans}] ✓ {target} — {len(s)} rows")
+            via = " (via materialized hook)" if plan.hook_required else ""
+            logger.info(f"[{i}/{n_plans}] ✓ {target} — {len(s)} rows{via}")
 
         except ExecutionGapError:
             gaps.append(target)

@@ -3,6 +3,7 @@
 from edvise.genai.mapping.schema_mapping_agent.transformation.hitl.hook_generation.generate import (
     generate_sma_transform_hook_preview_rows_for_entity,
     generate_sma_transform_hook_spec,
+    load_hook_spec_rows_from_sma_preview_path,
     load_hook_specs_from_sma_preview_path,
 )
 from edvise.genai.mapping.schema_mapping_agent.transformation.hitl.hook_generation.prompt import (
@@ -22,6 +23,7 @@ __all__ = [
     "generate_sma_transform_hook_preview_rows_for_entity",
     "generate_sma_transform_hook_spec",
     "is_manifest_record_unmapped",
+    "load_hook_spec_rows_from_sma_preview_path",
     "load_hook_specs_from_sma_preview_path",
     "manifest_mapping_for_target",
     "sma_transform_hook_item_id",

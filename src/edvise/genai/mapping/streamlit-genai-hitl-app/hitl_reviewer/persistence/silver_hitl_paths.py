@@ -104,6 +104,68 @@ def set_item_reviewer_note(
 
 _CANONICAL_SEASONS = frozenset({"FALL", "SPRING", "SUMMER", "WINTER"})
 
+# Mirrors edvise.genai.mapping.identity_agent.term_normalization.schemas.CALENDAR_CHRONOLOGY_RANK
+# (kept local/duplicated — this app has no runtime dependency on the ``edvise`` pipeline package).
+_CALENDAR_CHRONOLOGY_RANK: dict[str, int] = {
+    "SPRING": 1,
+    "SUMMER": 2,
+    "FALL": 3,
+    "WINTER": 4,
+}
+
+
+def season_map_rows_chronology_error(rows: list[dict[str, str]]) -> str | None:
+    """
+    Return an error message when ``rows`` canonicals are not calendar-chronological.
+
+    Same rule as the pipeline's ``season_map_chronology_error``: list position's canonical
+    calendar rank (SPRING → SUMMER → FALL → WINTER) must be non-decreasing top-to-bottom.
+    Duplicate canonicals are allowed. Kept in sync with
+    :func:`edvise.genai.mapping.identity_agent.term_normalization.schemas.season_map_chronology_error`
+    so the UI can flag the same violation before it reaches pipeline resolve.
+    """
+    prev_rank: int | None = None
+    prev_pos = 0
+    prev_canon = ""
+    for pos, row in enumerate(rows, start=1):
+        canonical = str(row.get("canonical", "")).strip().upper()
+        rank = _CALENDAR_CHRONOLOGY_RANK.get(canonical)
+        if rank is None:
+            continue
+        if prev_rank is not None and rank < prev_rank:
+            return (
+                "Season map must be calendar-chronological "
+                "(SPRING → SUMMER → FALL → WINTER): "
+                f"{prev_canon} (row {prev_pos}) precedes {canonical} (row {pos})."
+            )
+        prev_rank, prev_pos, prev_canon = rank, pos, canonical
+    return None
+
+
+def sort_season_map_dataframe_chronologically(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Reorder ``season_map`` rows into SPRING → SUMMER → FALL → WINTER calendar order.
+
+    Stable sort: rows sharing a canonical (e.g. two SUMMER raw tokens) keep their existing
+    relative order. Rows with a blank/unrecognized canonical (mid-edit, new blank row) sort
+    to the bottom rather than raising, since :func:`season_map_rows_chronology_error` /
+    ``validated_season_map_replace_from_dataframe`` still catch those at save time.
+    """
+    if df.empty:
+        return df.reset_index(drop=True)
+    unknown_rank = max(_CALENDAR_CHRONOLOGY_RANK.values()) + 1
+    rank_col = (
+        df["canonical"]
+        .astype(str)
+        .str.strip()
+        .str.upper()
+        .map(lambda c: _CALENDAR_CHRONOLOGY_RANK.get(c, unknown_rank))
+    )
+    sorted_df = df.assign(_chrono_rank=rank_col).sort_values(
+        "_chrono_rank", kind="stable"
+    )
+    return sorted_df.drop(columns="_chrono_rank").reset_index(drop=True)
+
 
 def validated_season_map_replace_from_dataframe(
     df: object,
@@ -138,6 +200,9 @@ def validated_season_map_replace_from_dataframe(
                 f"{sorted(_CANONICAL_SEASONS)}.",
             )
         rows_out.append({"raw": raw, "canonical": canonical})
+    chrono_err = season_map_rows_chronology_error(rows_out)
+    if chrono_err:
+        return None, chrono_err
     return rows_out, None
 
 

@@ -5,7 +5,6 @@ import typing as t
 import sys
 import pandas as pd
 import os
-from functools import partial
 
 # Go up 3 levels from the current file's directory to reach repo root
 script_dir = os.getcwd()
@@ -38,6 +37,7 @@ from edvise.dataio.read import (
 from edvise.dataio.write import write_parquet
 from edvise.configs.pdp import PDPProjectConfig
 from edvise.data_audit.eda import (
+    PDP_COHORT_PCT_BREAKDOWN_COLS,
     check_bias_variables,
     compute_gateway_course_ids_and_cips,
     log_grade_distribution,
@@ -46,8 +46,9 @@ from edvise.data_audit.eda import (
     log_top_majors,
     log_terms,
     log_misjoined_records,
-    print_credential_and_enrollment_types_and_intensities,
+    print_column_pct_breakdowns,
     print_retention,
+    warn_null_graduation_target_columns,
 )
 
 from edvise.utils.update_config import update_key_courses_and_cips
@@ -94,7 +95,7 @@ class PDPDataAuditTask:
         self.course_std = PDPCourseStandardizer()
         # Use default converter to handle duplicates if none provided
         self.course_converter_func: ConverterFunc = (
-            partial(handling_duplicates, schema_type="pdp")
+            handling_duplicates
             if course_converter_func is None
             else course_converter_func
         )
@@ -198,7 +199,7 @@ class PDPDataAuditTask:
         )
 
         # Cohort exploratory EDA (pre-standardize; not part of column transforms)
-        print_credential_and_enrollment_types_and_intensities(df_cohort_validated)
+        print_column_pct_breakdowns(df_cohort_validated, PDP_COHORT_PCT_BREAKDOWN_COLS)
         print_retention(df_cohort_validated)
         log_top_majors(df_cohort_validated)
         check_bias_variables(df_cohort_validated)
@@ -210,6 +211,11 @@ class PDPDataAuditTask:
         df_cohort_standardized = self.cohort_std.standardize(df_cohort_validated)
 
         LOGGER.info(" Cohort data standardized.")
+
+        warn_null_graduation_target_columns(
+            df_cohort_standardized,
+            getattr(getattr(self.cfg, "preprocessing", None), "target", None),
+        )
 
         student_id_col = getattr(self.cfg, "student_id_col", None) or "student_id"
 

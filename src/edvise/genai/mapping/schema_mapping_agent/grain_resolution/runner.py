@@ -197,6 +197,7 @@ def execute_transformation_map_for_sma_run(
     manifest_map_path: Path,
     grain_hitl_path: Path,
     active_grain_resolution_root: Path | None = None,
+    hook_modules_root: Path | None = None,
 ) -> Any:
     """Run SMA execution with grain paths (HITL, IA keys, optional ``sma_grain_resolution_*.json``).
 
@@ -246,6 +247,7 @@ def execute_transformation_map_for_sma_run(
             ia_source_keys=ia_keys,
             sma_grain_resolution_path=resolution_path,
             sma_manifest_path=manifest_map_path,
+            hook_modules_root=hook_modules_root,
         )
     except GrainReconciliationRequired as exc:
         run_grain_reconciliation_gate(
@@ -314,6 +316,7 @@ def run_onboard_gate_2_entity_with_grain_uc(
     grain_hitl_path: Path,
     poll_interval_seconds: int,
     timeout_seconds: int,
+    hook_modules_root: Path | None = None,
 ) -> tuple[Any, Any]:
     """Execute one entity map; on grain mismatch register ``sma_gate_2_grain``, poll UC, resolve.
 
@@ -342,6 +345,7 @@ def run_onboard_gate_2_entity_with_grain_uc(
                 enriched_contract=enriched_contract,
                 manifest_map_path=manifest_map_path,
                 grain_hitl_path=grain_hitl_path,
+                hook_modules_root=hook_modules_root,
             )
             return result, manifest_cur
         except SmaGrainHitlPending as pend:

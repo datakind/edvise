@@ -30,8 +30,11 @@ After Step 2b, ``gate_2`` registers ``sma_gate_2_transformation_review`` when pl
 ``sma_gate_2_hook_preview`` for ``HookSpec`` previews
 (``cohort_transformation_hook_preview.json`` / ``course_transformation_hook_preview.json``) for plans
 with ``hook_required: true`` (set in Step 2b or via transformation review option 3), then
-materializes ``transform_hooks.py`` after UC approval. When manifest grain is stricter than cleaned
-row count, ``sma_gate_2_grain`` gates ``cohort_sma_grain_hitl.json`` / ``course_sma_grain_hitl.json``
+materializes ``transform_hooks.py`` after UC approval and attaches each materialized
+``hook_spec`` back onto its plan (``attach_materialized_hook_specs_to_plans``) so Step 2c's
+executor can dynamically import and call the generated function instead of treating the field
+as a gap. When manifest grain is stricter than cleaned row count, ``sma_gate_2_grain`` gates
+``cohort_sma_grain_hitl.json`` / ``course_sma_grain_hitl.json``
 (see :mod:`edvise.genai.mapping.schema_mapping_agent.grain_resolution`).
 """
 
@@ -995,8 +998,12 @@ def run_onboard_gate_2(
     from edvise.genai.mapping.identity_agent.hitl.schemas import HITLDomain
     from edvise.genai.mapping.schema_mapping_agent.transformation.hitl.hook_generation import (
         generate_sma_transform_hook_preview_rows_for_entity,
+        load_hook_spec_rows_from_sma_preview_path,
         load_hook_specs_from_sma_preview_path,
         write_sma_transform_hook_preview_json,
+    )
+    from edvise.genai.mapping.schema_mapping_agent.transformation.hitl.hook_required_hitl import (
+        attach_materialized_hook_specs_to_plans,
     )
 
     LOGGER.info("[onboard/gate_2] Transform hook generation (preview)")
@@ -1064,6 +1071,34 @@ def run_onboard_gate_2(
             "[onboard/gate_2] Materialized transform_hooks.py (%d HookSpec(s))",
             len(preview_hook_specs),
         )
+        # Read back the (possibly reviewer-edited) preview rows and attach each hook_spec to
+        # its matching hook_required plan — without this, hook_required never clears/points
+        # anywhere and the executor treats the field as an unresolved gap even though the
+        # materialized function above is ready to run.
+        cohort_hook_rows = load_hook_spec_rows_from_sma_preview_path(
+            paths.cohort_transformation_hook_preview
+        )
+        course_hook_rows = load_hook_spec_rows_from_sma_preview_path(
+            paths.course_transformation_hook_preview
+        )
+        if cohort_hook_rows:
+            transformation_data = attach_materialized_hook_specs_to_plans(
+                transformation_data,
+                entity_type="cohort",
+                preview_rows=cohort_hook_rows,
+            )
+        if course_hook_rows:
+            transformation_data = attach_materialized_hook_specs_to_plans(
+                transformation_data,
+                entity_type="course",
+                preview_rows=course_hook_rows,
+            )
+        LOGGER.info(
+            "[onboard/gate_2] Attached hook_spec to %d plan(s) — cohort=%d course=%d",
+            len(cohort_hook_rows) + len(course_hook_rows),
+            len(cohort_hook_rows),
+            len(course_hook_rows),
+        )
 
     tmaps = transformation_data.get("transformation_maps") or {}
     for _entity in ("cohort", "course"):
@@ -1120,6 +1155,7 @@ def run_onboard_gate_2(
         grain_hitl_path=paths.run_root / "cohort_sma_grain_hitl.json",
         poll_interval_seconds=DEFAULT_HITL_POLL_INTERVAL_SECONDS,
         timeout_seconds=DEFAULT_HITL_POLL_TIMEOUT_SECONDS,
+        hook_modules_root=paths.run_root,
     )
     course_manifest = reload_field_manifest_entity(paths.manifest_map, "course")
     course_result, _ = run_onboard_gate_2_entity_with_grain_uc(
@@ -1139,6 +1175,7 @@ def run_onboard_gate_2(
         grain_hitl_path=paths.run_root / "course_sma_grain_hitl.json",
         poll_interval_seconds=DEFAULT_HITL_POLL_INTERVAL_SECONDS,
         timeout_seconds=DEFAULT_HITL_POLL_TIMEOUT_SECONDS,
+        hook_modules_root=paths.run_root,
     )
 
     # Step 2d — Pandera validation (report only, does not block)
@@ -1248,6 +1285,7 @@ def run_execute(
         manifest_map_path=paths.active_manifest_map,
         grain_hitl_path=paths.run_root / "cohort_sma_grain_hitl.json",
         active_grain_resolution_root=paths.active_root,
+        hook_modules_root=paths.active_root,
     )
     course_result = execute_transformation_map_for_sma_execute_mode(
         transformation_map=course_map,
@@ -1260,6 +1298,7 @@ def run_execute(
         manifest_map_path=paths.active_manifest_map,
         grain_hitl_path=paths.run_root / "course_sma_grain_hitl.json",
         active_grain_resolution_root=paths.active_root,
+        hook_modules_root=paths.active_root,
     )
 
     # Pandera validation (report only)

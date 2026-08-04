@@ -142,8 +142,26 @@ def load_hook_specs_from_sma_preview_path(path: str | Path) -> list[HookSpec]:
     return out
 
 
+def load_hook_spec_rows_from_sma_preview_path(path: str | Path) -> list[dict[str, Any]]:
+    """
+    Read a written preview JSON and return its raw ``specs`` rows (``item_id``, ``hook_spec``,
+    ``review_context``) — the post-HITL-approval source of truth, since reviewers may edit the
+    drafted function in Streamlit before ``sma_gate_2_hook_preview`` clears.
+
+    Use with :func:`~edvise.genai.mapping.schema_mapping_agent.transformation.hitl.hook_required_hitl.attach_materialized_hook_specs_to_plans`
+    to write each row's ``hook_spec`` back onto its matching ``FieldTransformationPlan``
+    (keyed by ``review_context.target_field``) after materialization, so the executor can call it.
+    """
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    specs_raw = data.get("specs")
+    if not isinstance(specs_raw, list):
+        return []
+    return [row for row in specs_raw if isinstance(row, dict)]
+
+
 __all__ = [
     "generate_sma_transform_hook_preview_rows_for_entity",
     "generate_sma_transform_hook_spec",
+    "load_hook_spec_rows_from_sma_preview_path",
     "load_hook_specs_from_sma_preview_path",
 ]
