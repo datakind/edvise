@@ -17,16 +17,19 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
-from pipelines.pdp.launchers.bundle_from_dab import (
+from edvise.runtime.versioned_inference.bundle.from_dab import (
     DEFAULT_INFERENCE_JOB_KEY,
     DEFAULT_INFERENCE_YML,
     inference_yml_path,
     load_inference_job_definition,
 )
-from pipelines.pdp.launchers.inference_parameters import (
+from edvise.runtime.versioned_inference.parameters import (
     resolve_versioned_job_parameters,
 )
-from pipelines.pdp.launchers.pipeline_version_ref import build_git_source, git_ref_kind
+from edvise.runtime.versioned_inference.pipeline_version_ref import (
+    build_git_source,
+    git_ref_kind,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -538,8 +541,12 @@ def build_submit_run_body(
         msg = f"Job {inference_job_key!r} has no job_clusters"
         raise ValueError(msg)
 
+    raw_parameters = job.get("parameters")
+    parameter_specs_input: list[Any] = (
+        raw_parameters if isinstance(raw_parameters, list) else []
+    )
     parameters = resolve_job_parameter_specs(
-        job.get("parameters") if isinstance(job.get("parameters"), list) else [],
+        parameter_specs_input,
         parameter_overrides,
     )
     parameter_values = job_parameter_values_from_specs(parameters, parameter_overrides)

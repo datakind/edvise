@@ -10,7 +10,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from pipelines.pdp.launchers import inference_trigger_contract as itc
+from edvise.runtime.versioned_inference import trigger_contract as itc
 
 
 def test_build_versioned_inference_job_parameters_flat() -> None:
@@ -18,12 +18,14 @@ def test_build_versioned_inference_job_parameters_flat() -> None:
         databricks_institution_name="miles_cc",
         model_name="retention_into_year_2_associates",
         db_workspace="dev_sst_02",
+        schema_type="pdp",
         cohort_file_name="cohort.csv",
         course_file_name="course.csv",
         gcp_bucket_name="my-bucket",
         release_base_path="/Volumes/dev_sst_02/default/edvise_releases",
     )
     assert params["databricks_institution_name"] == "miles_cc"
+    assert params["schema_type"] == "pdp"
     assert params["model_name"] == "retention_into_year_2_associates"
     assert params["cohort_file_name"] == "cohort.csv"
     assert "stable_trigger_json" not in params
