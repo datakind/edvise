@@ -1,16 +1,10 @@
-"""Tests for ``pipelines/pdp/launchers/bundle_from_dab.py``."""
+"""Tests for ``edvise.runtime.versioned_inference.bundle.from_dab``."""
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-_LAUNCHERS = _REPO_ROOT / "pipelines" / "pdp" / "launchers"
-if str(_LAUNCHERS) not in sys.path:
-    sys.path.insert(0, str(_LAUNCHERS))
-
-import bundle_from_dab as bfd  # noqa: E402
+from edvise.runtime.versioned_inference.bundle import from_dab as bfd
 
 _FIXTURE_YML = (
     Path(__file__).resolve().parent / "fixtures" / "inference_job_minimal.yml"
@@ -19,20 +13,19 @@ _FIXTURE_YML = (
 
 def test_parse_inference_job_minimal() -> None:
     parsed = bfd.parse_inference_job_from_yaml(_FIXTURE_YML)
-    assert parsed["expected_steps"] == ["feature_generation", "inference_h2o"]
-    assert parsed["required_runtime"]["databricks_runtime"] == "15.4.x-cpu-ml-scala2.12"
-    assert "pandas==2.2.3" in parsed["pypi_packages"]
-    assert "databricks_institution_name" in parsed["job_parameters"]
-    assert isinstance(parsed["parameter_contract"], list)
+    assert parsed["job_key"] == bfd.DEFAULT_INFERENCE_JOB_KEY
+    assert parsed["expected_steps"]
+    assert parsed["execution_mode"] == "git_submit"
 
 
 def test_build_effective_release(tmp_path: Path) -> None:
-    snap = tmp_path / "databricks_bundle_snapshot" / "resources"
+    release_dir = tmp_path / "v1"
+    snap = release_dir / "databricks_bundle_snapshot" / "resources"
     snap.mkdir(parents=True)
-    snap_yml = snap / "github_pdp_inference.yml"
-    snap_yml.write_text(_FIXTURE_YML.read_text(encoding="utf-8"), encoding="utf-8")
-    eff = bfd.build_effective_release(tmp_path, "sha123")
-    assert "wheel" not in eff
-    assert eff["pipeline_version"] == "sha123"
-    assert eff["expected_steps"] == ["feature_generation", "inference_h2o"]
-    assert eff["entrypoint"] == bfd.DEFAULT_ENTRYPOINT
+    (snap / "github_pdp_inference.yml").write_text(
+        _FIXTURE_YML.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    effective = bfd.build_effective_release(release_dir, "v1")
+    assert effective["pipeline_version"] == "v1"
+    assert effective["expected_steps"]

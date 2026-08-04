@@ -7,11 +7,12 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-from pipelines.pdp.launchers.inference_parameters import (
+from edvise.runtime.versioned_inference.dab_layout import resolve_dab_bundle_layout
+from edvise.runtime.versioned_inference.parameters import (
     build_stable_trigger_payload,
 )
-from pipelines.pdp.launchers.launcher_run_metadata import resolve_launcher_run_id
-from pipelines.pdp.launchers.release_config import resolve_release_base_path
+from edvise.runtime.versioned_inference.run_metadata import resolve_launcher_run_id
+from edvise.runtime.versioned_inference.release_config import resolve_release_base_path
 
 
 @dataclass(frozen=True)
@@ -23,6 +24,7 @@ class LauncherTriggerInputs:
     db_workspace: str
     release_base_path: str
     git_url: str
+    schema_type: str
     param_overrides: dict[str, str]
     extra_param_overrides: dict[str, str]
     stable_trigger: dict[str, Any]
@@ -58,6 +60,17 @@ def add_model_resolution_args(parser: argparse.ArgumentParser) -> None:
             "{{job.run_id}}. Used as child inference db_run_id (silver table suffix)."
         ),
     )
+    parser.add_argument(
+        "--schema_type",
+        default="pdp",
+        help=(
+            "Project schema (pdp, edvise/es, legacy); selects archived DAB bundle paths."
+        ),
+    )
+
+
+def launcher_schema_type(args: argparse.Namespace) -> str:
+    return (getattr(args, "schema_type", "") or "pdp").strip() or "pdp"
 
 
 def optional_model_run_id(args: argparse.Namespace) -> str | None:
@@ -99,10 +112,12 @@ def parse_extra_parameter_overrides(raw: str) -> dict[str, str]:
 
 
 def build_launcher_parameter_overrides(args: argparse.Namespace) -> dict[str, str]:
+    layout = resolve_dab_bundle_layout(launcher_schema_type(args))
     overrides: dict[str, str] = {
         "databricks_institution_name": args.databricks_institution_name.strip(),
         "model_name": args.model_name.strip(),
         "DB_workspace": args.DB_workspace.strip(),
+        "schema_type": layout.inference_schema_type,
     }
     for key in (
         "cohort_file_name",
@@ -134,6 +149,7 @@ def build_stable_trigger(args: argparse.Namespace) -> dict[str, Any]:
         institution=args.databricks_institution_name.strip(),
         model_name=args.model_name.strip(),
         workspace=args.DB_workspace.strip(),
+        schema_type=launcher_schema_type(args),
         cohort_dataset=args.cohort_file_name.strip(),
         course_dataset=args.course_file_name.strip(),
         output_bucket=args.gcp_bucket_name.strip(),
@@ -152,6 +168,7 @@ def build_launcher_trigger_inputs(
 ) -> LauncherTriggerInputs:
     db_ws = args.DB_workspace.strip()
     git_url = (_optional_arg(getattr(args, "git_url", "")) or default_git_url).strip()
+    schema = launcher_schema_type(args)
     return LauncherTriggerInputs(
         databricks_institution_name=args.databricks_institution_name.strip(),
         model_name=args.model_name.strip(),
@@ -160,6 +177,7 @@ def build_launcher_trigger_inputs(
             db_ws, getattr(args, "release_base_path", "")
         ),
         git_url=git_url,
+        schema_type=schema,
         param_overrides=build_launcher_parameter_overrides(args),
         extra_param_overrides=parse_extra_parameter_overrides(
             getattr(args, "inference_parameters_json", "")
