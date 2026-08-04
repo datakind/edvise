@@ -93,6 +93,29 @@ def test_resolve_legacy_bronze_predict_file_prefers_keyword_over_stale_explicit(
     ) == str(fresh)
 
 
+def test_resolve_legacy_bronze_predict_file_prefers_batch_dir_over_top_level(
+    tmp_path: Path,
+):
+    top_level_dir = tmp_path / "gcs_uploads"
+    top_level_dir.mkdir()
+    stale = top_level_dir / "transfer_advisement_old.csv"
+    stale.write_text("old", encoding="utf-8")
+
+    batch_dir = tmp_path / "gcs_uploads" / "batch123"
+    batch_dir.mkdir()
+    fresh = batch_dir / "transfer_advisement_batch.csv"
+    fresh.write_text("new", encoding="utf-8")
+
+    ds = {"predict_file_keyword": "transfer_advisement"}
+    assert resolve_legacy_bronze_predict_file(
+        ds,
+        dataset_key="raw_cuny_transfer",
+        db_workspace="dev_sst_02",
+        institution_id="john_jay_col",
+        bronze_batch_dir=str(batch_dir),
+    ) == str(fresh)
+
+
 def test_materialize_legacy_bronze_predict_paths_writes_temp(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):

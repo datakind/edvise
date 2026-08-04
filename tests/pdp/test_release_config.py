@@ -11,7 +11,7 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from pipelines.pdp.launchers import release_config as rc
+from edvise.runtime.versioned_inference import release_config as rc
 
 
 def test_default_release_base_path_known_workspaces() -> None:
