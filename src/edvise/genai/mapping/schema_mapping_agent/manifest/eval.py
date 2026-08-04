@@ -207,6 +207,8 @@ def run_once(
     model: str,
     prompt: str | list[dict[str, Any]],
     client: OpenAI,
+    *,
+    log_cache_usage: bool = False,
 ) -> dict[str, Any]:
     """
     ``prompt`` is normally the full ``role="user"`` message text, but callers that want
@@ -214,10 +216,20 @@ def run_once(
     :func:`~edvise.genai.mapping.shared.databricks_ai_gateway.build_gateway_message_content`)
     may instead pass a pre-built list of content blocks (with ``cache_control`` on the
     static block); it is forwarded to the gateway unchanged either way.
+
+    ``log_cache_usage`` requests a final usage-only chunk from the stream (via
+    ``stream_options={"include_usage": True}``) and logs any cache token fields on it (see
+    :func:`~edvise.genai.mapping.shared.databricks_ai_gateway.log_gateway_cache_usage_if_present`).
+    Only set this for calls that opted into caching via ``prompt``'s ``cache_control``.
     """
+    from edvise.genai.mapping.shared.databricks_ai_gateway import (
+        log_gateway_cache_usage_if_present,
+    )
+
     start = time.perf_counter()
     try:
         full_text = ""
+        final_usage: Any = None
 
         # Build messages - only add assistant prefill for models that support it
         messages_list: list[dict[str, Any]] = [{"role": "user", "content": prompt}]
@@ -233,12 +245,17 @@ def run_once(
             "max_tokens": 16000,
             "stream": True,
         }
+        if log_cache_usage:
+            create_kwargs["stream_options"] = {"include_usage": True}
         resp = client.chat.completions.create(**create_kwargs)
         for chunk in resp:
             # Safely extract content from chunk - handle cases where choices might be empty
             try:
                 if not isinstance(chunk, ChatCompletionChunk):
                     continue
+                chunk_usage = getattr(chunk, "usage", None)
+                if chunk_usage is not None:
+                    final_usage = chunk_usage
                 if not chunk.choices or len(chunk.choices) == 0:
                     continue
                 delta = chunk.choices[0].delta.content or ""
@@ -249,6 +266,9 @@ def run_once(
                 # Skip chunks with malformed structure - this can happen with some models
                 logger.debug(f"Skipping malformed chunk: {e}")
                 continue
+
+        if log_cache_usage:
+            log_gateway_cache_usage_if_present(final_usage, log=logger, model=model)
 
         latency_s = time.perf_counter() - start
 

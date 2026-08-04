@@ -28,43 +28,54 @@ class _FakeChunkChoice:
 
 
 class _FakeChunk:
-    def __init__(self, content: str) -> None:
-        self.choices = [_FakeChunkChoice(content)]
+    def __init__(self, content: str, usage: Any = None) -> None:
+        self.choices = [_FakeChunkChoice(content)] if content else []
+        self.usage = usage
 
 
-class _FakeStream:
-    def __init__(self, text: str) -> None:
-        self._text = text
+class _FakeUsage:
+    def __init__(self, cache_read_input_tokens: int) -> None:
+        self._cache_read_input_tokens = cache_read_input_tokens
 
-    def __iter__(self):
-        yield self._text
+    def model_dump(self) -> dict[str, Any]:
+        return {"cache_read_input_tokens": self._cache_read_input_tokens}
 
 
 class _FakeCompletions:
-    def __init__(self) -> None:
+    def __init__(self, *, usage_cache_read_tokens: int | None = None) -> None:
         self.last_kwargs: dict[str, Any] = {}
+        self._usage_cache_read_tokens = usage_cache_read_tokens
 
     def create(self, **kwargs: Any) -> Any:
         self.last_kwargs = kwargs
-        return _FakeStreamOfChunks('{"ok": true}')
+        chunks = [_FakeChunk('{"ok": true}')]
+        if kwargs.get("stream_options", {}).get("include_usage") and (
+            self._usage_cache_read_tokens is not None
+        ):
+            chunks.append(
+                _FakeChunk("", usage=_FakeUsage(self._usage_cache_read_tokens))
+            )
+        return _FakeStreamOfChunks(chunks)
 
 
 class _FakeStreamOfChunks:
-    def __init__(self, text: str) -> None:
-        self._text = text
+    def __init__(self, chunks: list[Any]) -> None:
+        self._chunks = chunks
 
     def __iter__(self):
-        return iter([_FakeChunk(self._text)])
+        return iter(self._chunks)
 
 
 class _FakeChat:
-    def __init__(self) -> None:
-        self.completions = _FakeCompletions()
+    def __init__(self, *, usage_cache_read_tokens: int | None = None) -> None:
+        self.completions = _FakeCompletions(
+            usage_cache_read_tokens=usage_cache_read_tokens
+        )
 
 
 class _FakeClient:
-    def __init__(self) -> None:
-        self.chat = _FakeChat()
+    def __init__(self, *, usage_cache_read_tokens: int | None = None) -> None:
+        self.chat = _FakeChat(usage_cache_read_tokens=usage_cache_read_tokens)
 
 
 def test_run_once_accepts_plain_string_prompt(monkeypatch) -> None:
@@ -151,3 +162,87 @@ def test_sma_llm_complete_run_once_skips_caching_for_short_system(monkeypatch) -
     assert result == '{"ok": true}'
     sent_content = client.chat.completions.last_kwargs["messages"][0]["content"]
     assert isinstance(sent_content, str)
+
+
+def test_run_once_requests_stream_usage_when_log_cache_usage_enabled(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "edvise.genai.mapping.schema_mapping_agent.manifest.eval.ChatCompletionChunk",
+        _FakeChunk,
+    )
+    client = _FakeClient(usage_cache_read_tokens=1234)
+    result = run_once(
+        "claude-sonnet-edvise-genai", "prompt", client, log_cache_usage=True
+    )
+    assert result["success"] is True
+    assert client.chat.completions.last_kwargs["stream_options"] == {
+        "include_usage": True
+    }
+
+
+def test_run_once_logs_cache_usage_at_info_when_enabled(monkeypatch, caplog) -> None:
+    monkeypatch.setattr(
+        "edvise.genai.mapping.schema_mapping_agent.manifest.eval.ChatCompletionChunk",
+        _FakeChunk,
+    )
+    client = _FakeClient(usage_cache_read_tokens=1234)
+    with caplog.at_level("INFO"):
+        result = run_once(
+            "claude-sonnet-edvise-genai", "prompt", client, log_cache_usage=True
+        )
+    assert result["success"] is True
+    assert any(
+        "AI Gateway cache usage" in record.getMessage()
+        and "cache_read_input_tokens=1234" in record.getMessage()
+        for record in caplog.records
+    )
+
+
+def test_run_once_does_not_request_stream_usage_by_default(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "edvise.genai.mapping.schema_mapping_agent.manifest.eval.ChatCompletionChunk",
+        _FakeChunk,
+    )
+    client = _FakeClient()
+    result = run_once("claude-sonnet-edvise-genai", "prompt", client)
+    assert result["success"] is True
+    assert "stream_options" not in client.chat.completions.last_kwargs
+
+
+def test_sma_llm_complete_run_once_logs_cache_usage_for_cached_call(
+    monkeypatch, caplog
+) -> None:
+    monkeypatch.setattr(
+        "edvise.genai.mapping.schema_mapping_agent.manifest.eval.ChatCompletionChunk",
+        _FakeChunk,
+    )
+    client = _FakeClient(usage_cache_read_tokens=5678)
+    complete = _sma_llm_complete_run_once(client, cache_system_prompt=True)
+    with caplog.at_level("INFO"):
+        result = complete(_LONG_SYSTEM, "user text")
+    assert result == '{"ok": true}'
+    assert any(
+        "AI Gateway cache usage" in record.getMessage()
+        and "cache_read_input_tokens=5678" in record.getMessage()
+        for record in caplog.records
+    )
+
+
+def test_sma_llm_complete_run_once_does_not_log_for_step2a_style_call(
+    monkeypatch, caplog
+) -> None:
+    """Step 2a/2b call with system="" must not request/log cache usage even when enabled."""
+    monkeypatch.setattr(
+        "edvise.genai.mapping.schema_mapping_agent.manifest.eval.ChatCompletionChunk",
+        _FakeChunk,
+    )
+    client = _FakeClient(usage_cache_read_tokens=999)
+    complete = _sma_llm_complete_run_once(client, cache_system_prompt=True)
+    with caplog.at_level("INFO"):
+        result = complete("", "user only prompt")
+    assert result == '{"ok": true}'
+    assert "stream_options" not in client.chat.completions.last_kwargs
+    assert not any(
+        "AI Gateway cache usage" in record.getMessage() for record in caplog.records
+    )

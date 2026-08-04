@@ -360,7 +360,11 @@ def _build_openai_client(catalog: str) -> Any:
 
 
 def _run_once(
-    model_id: str, prompt: str | list[dict[str, Any]], client: Any
+    model_id: str,
+    prompt: str | list[dict[str, Any]],
+    client: Any,
+    *,
+    log_cache_usage: bool = False,
 ) -> dict[str, Any]:
     """
     Call :func:`~edvise.genai.mapping.schema_mapping_agent.manifest.eval.run_once` with
@@ -380,7 +384,7 @@ def _run_once(
     max_backoff_s = 60.0
     last: dict[str, Any] = {}
     for attempt in range(max_attempts):
-        last = run_once(model_id, prompt, client)
+        last = run_once(model_id, prompt, client, log_cache_usage=log_cache_usage)
         if last.get("success"):
             return last
         if attempt >= max_attempts - 1:
@@ -432,7 +436,9 @@ def _sma_llm_complete_run_once(
             content = s
         else:
             raise RuntimeError("SMA LLM call has empty system and user prompts")
-        result = _run_once(model_id, content, client)
+        result = _run_once(
+            model_id, content, client, log_cache_usage=isinstance(content, list)
+        )
         if not result.get("success"):
             raise RuntimeError(result.get("error") or "SMA LLM call failed")
         resp = result.get("response")

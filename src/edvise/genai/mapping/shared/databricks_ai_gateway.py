@@ -482,7 +482,9 @@ def make_databricks_gateway_llm_complete(
             max_tokens=max_tokens,
         )
         if cache_system_prompt:
-            _log_cache_usage_if_present(resp, log=_LOG, model=resolved_model)
+            log_gateway_cache_usage_if_present(
+                getattr(resp, "usage", None), log=_LOG, model=resolved_model
+            )
         return _assistant_text_from_chat_completion_or_raise(
             resp, log=_LOG, default_model=resolved_model
         )
@@ -490,41 +492,42 @@ def make_databricks_gateway_llm_complete(
     return complete
 
 
-def _log_cache_usage_if_present(
-    resp: object, *, log: logging.Logger, model: str
+def log_gateway_cache_usage_if_present(
+    usage: Any, *, log: logging.Logger, model: str
 ) -> None:
     """
-    Best-effort debug log of Anthropic cache token fields on ``resp.usage``.
+    Log (at INFO) Anthropic/Unity AI Gateway cache token fields on ``usage``, when present.
 
-    The Unity AI Gateway usage payload (and MLflow AI Gateway pass-through) may expose
-    ``cache_read_input_tokens`` / ``cache_creation_input_tokens`` on ``usage`` or a nested
-    ``token_details``/``prompt_tokens_details``. Field names/shape aren't guaranteed across
-    gateway versions, so this only logs when present and never raises.
+    The gateway usage payload may expose ``cache_read_input_tokens`` /
+    ``cache_creation_input_tokens`` (Anthropic-native naming) or ``cached_tokens``
+    (OpenAI-style ``prompt_tokens_details``), either at the top level of ``usage`` or nested
+    under ``token_details`` / ``prompt_tokens_details``. Field names/shape aren't guaranteed
+    across gateway versions, so this only logs when a known field is present and never raises.
+    Logged at INFO (not DEBUG) since it's only emitted for calls that opted into
+    ``cache_system_prompt=True`` (or the streaming equivalent), so it isn't noisy for the rest
+    of the pipeline. Public so both :func:`make_databricks_gateway_llm_complete` and SMA's
+    streaming ``run_once`` path can share it.
     """
-    usage = getattr(resp, "usage", None)
     if usage is None:
         return
     try:
         udump = usage.model_dump() if hasattr(usage, "model_dump") else dict(usage)
     except Exception:
         return
-    cache_read = udump.get("cache_read_input_tokens")
-    cache_write = udump.get("cache_creation_input_tokens")
     details = udump.get("token_details") or udump.get("prompt_tokens_details") or {}
-    if isinstance(details, dict):
-        cache_read = (
-            cache_read
-            if cache_read is not None
-            else details.get("cache_read_input_tokens")
-        )
-        cache_write = (
-            cache_write
-            if cache_write is not None
-            else details.get("cache_creation_input_tokens")
-        )
+    if not isinstance(details, dict):
+        details = {}
+    cache_read = (
+        udump.get("cache_read_input_tokens")
+        or details.get("cache_read_input_tokens")
+        or details.get("cached_tokens")
+    )
+    cache_write = udump.get("cache_creation_input_tokens") or details.get(
+        "cache_creation_input_tokens"
+    )
     if cache_read is None and cache_write is None:
         return
-    log.debug(
+    log.info(
         "AI Gateway cache usage: model=%s cache_read_input_tokens=%r "
         "cache_creation_input_tokens=%r",
         model,
