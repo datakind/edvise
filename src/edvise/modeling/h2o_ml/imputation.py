@@ -35,12 +35,36 @@ class SklearnImputerWrapper:
     DEFAULT_SKEW_THRESHOLD = 0.5
     PIPELINE_FILENAME = "imputer_pipeline.joblib"
 
+    # Defaults for escalating newly-missing drift to a hard error. A single
+    # column crossing the rate threshold is common and often legitimate (e.g.
+    # a rare feature that happens to have zero support in a given batch), so
+    # we only raise once *multiple* columns are simultaneously affected at a
+    # meaningfully high rate -- that pattern is far more indicative of a
+    # systemic bug (e.g. a schema-alignment/casing bug silently NaN-ing dozens
+    # of columns) than of ordinary data drift. Every newly-missing column is
+    # still logged (and reported to MLflow) regardless of these thresholds --
+    # they only control whether ``on_new_missing="error"`` actually raises.
+    DEFAULT_NEW_MISSING_ERROR_COL_THRESHOLD = 3
+    DEFAULT_NEW_MISSING_ERROR_RATE_THRESHOLD = 0.5
+
     def __init__(
-        self, *, on_new_missing: str = "warn", log_drift_to_mlflow: bool = True
+        self,
+        *,
+        on_new_missing: str = "warn",
+        log_drift_to_mlflow: bool = True,
+        new_missing_error_col_threshold: int = DEFAULT_NEW_MISSING_ERROR_COL_THRESHOLD,
+        new_missing_error_rate_threshold: float = DEFAULT_NEW_MISSING_ERROR_RATE_THRESHOLD,
     ):
         """
-        on_new_missing: "error" (raise on newly-missing), or "warn" (log & continue)
+        on_new_missing: "error" (raise once the thresholds below are exceeded), or
+            "warn" (log & continue, never raise).
         log_drift_to_mlflow: if True, logs per-inference drift JSON artifacts when drift is detected
+        new_missing_error_col_threshold: minimum number of newly-missing columns
+            (at/above ``new_missing_error_rate_threshold``) required before raising,
+            when ``on_new_missing="error"``. Set to 1 to raise on any single column.
+        new_missing_error_rate_threshold: minimum inference-time missingness rate
+            (0-1) a newly-missing column must reach to count toward
+            ``new_missing_error_col_threshold``.
         """
         self.pipeline = None
         self.input_dtypes: t.Optional[dict[str, t.Any]] = None
@@ -49,6 +73,8 @@ class SklearnImputerWrapper:
         self.missing_flag_cols: list[str] = []
         self.on_new_missing = on_new_missing
         self.log_drift_to_mlflow = log_drift_to_mlflow
+        self.new_missing_error_col_threshold = new_missing_error_col_threshold
+        self.new_missing_error_rate_threshold = new_missing_error_rate_threshold
 
     # ---------------------------
     # Fit / Transform
@@ -356,14 +382,33 @@ class SklearnImputerWrapper:
         if not newly_missing:
             return
 
-        # Log prominently
+        # Every newly-missing column is reported regardless of thresholds --
+        # the thresholds below only decide whether this escalates to a raise.
         rates = {c: float(df_sklearn[c].isna().mean()) for c in newly_missing}
+        severe_cols = [
+            c
+            for c in newly_missing
+            if rates[c] >= self.new_missing_error_rate_threshold
+        ]
+        will_raise = (
+            self.on_new_missing == "error"
+            and len(severe_cols) >= self.new_missing_error_col_threshold
+        )
+
         msg = (
             f"New missingness at inference for columns that were clean at training: "
             f"{newly_missing} (rates={rates})"
         )
-        if self.on_new_missing == "error":
-            LOGGER.error(msg)
+        if will_raise:
+            LOGGER.error(
+                "%s severe (rate>=%s) of %s total newly-missing columns; "
+                "meets error threshold (%s cols). %s",
+                len(severe_cols),
+                self.new_missing_error_rate_threshold,
+                len(newly_missing),
+                self.new_missing_error_col_threshold,
+                msg,
+            )
         else:
             LOGGER.warning(msg)
 
@@ -375,13 +420,19 @@ class SklearnImputerWrapper:
                         "type": "new_missing_at_inference",
                         "columns": newly_missing,
                         "rates": rates,
+                        "severe_cols": severe_cols,
+                        "raised": will_raise,
                     }
                 )
             except Exception:
                 LOGGER.debug("Could not log new_missing_report artifact to MLflow.")
 
-        if self.on_new_missing == "error":
-            raise ValueError(msg)
+        if will_raise:
+            raise ValueError(
+                f"{len(severe_cols)} columns newly-missing at rate>="
+                f"{self.new_missing_error_rate_threshold} (>= error threshold of "
+                f"{self.new_missing_error_col_threshold} columns): {severe_cols}. {msg}"
+            )
 
     def _log_new_missing_report(self, payload: dict) -> None:
         """
@@ -410,12 +461,30 @@ class SklearnImputerWrapper:
     # ---------------------------
     @classmethod
     def load(
-        cls, run_id: str, artifact_path: str = "sklearn_imputer"
+        cls,
+        run_id: str,
+        artifact_path: str = "sklearn_imputer",
+        *,
+        on_new_missing: str = "warn",
+        log_drift_to_mlflow: bool = True,
+        new_missing_error_col_threshold: int = DEFAULT_NEW_MISSING_ERROR_COL_THRESHOLD,
+        new_missing_error_rate_threshold: float = DEFAULT_NEW_MISSING_ERROR_RATE_THRESHOLD,
     ) -> "SklearnImputerWrapper":
         """
         Load a trained imputer pipeline from MLflow. (No had_missing_at_fit file needed.)
+
+        The drift-detection settings (``on_new_missing`` and its thresholds) are not
+        persisted with the fitted pipeline -- they describe how *this* load/transform
+        call should react to drift, not a property of the fitted model, so callers
+        (e.g. an inference script) must pass them explicitly to get anything other
+        than the "warn, never raise" default.
         """
-        instance = cls()
+        instance = cls(
+            on_new_missing=on_new_missing,
+            log_drift_to_mlflow=log_drift_to_mlflow,
+            new_missing_error_col_threshold=new_missing_error_col_threshold,
+            new_missing_error_rate_threshold=new_missing_error_rate_threshold,
+        )
         LOGGER.info(f"Loading pipeline from MLflow run {run_id}...")
 
         # Load pipeline
@@ -488,11 +557,22 @@ class SklearnImputerWrapper:
         *,
         run_id: str,
         artifact_path: str = "sklearn_imputer",
+        on_new_missing: str = "warn",
+        log_drift_to_mlflow: bool = True,
+        new_missing_error_col_threshold: int = DEFAULT_NEW_MISSING_ERROR_COL_THRESHOLD,
+        new_missing_error_rate_threshold: float = DEFAULT_NEW_MISSING_ERROR_RATE_THRESHOLD,
     ) -> pd.DataFrame:
         """
         Load a trained imputer from MLflow and apply it to data.
         """
-        instance = cls.load(run_id=run_id, artifact_path=artifact_path)
+        instance = cls.load(
+            run_id=run_id,
+            artifact_path=artifact_path,
+            on_new_missing=on_new_missing,
+            log_drift_to_mlflow=log_drift_to_mlflow,
+            new_missing_error_col_threshold=new_missing_error_col_threshold,
+            new_missing_error_rate_threshold=new_missing_error_rate_threshold,
+        )
         transformed = instance.transform(df)
         if instance.output_feature_names is not None:
             instance.validate(transformed[instance.output_feature_names])
