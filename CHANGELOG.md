@@ -1,5 +1,4 @@
 ## 1.7.2 (2026-07-28)
-- refactor: move versioned inference launcher under `src/edvise/runtime/versioned_inference` with thin Databricks entrypoints
 - fix(genai): auto-sort non-chronological season_map in term HITL UI (#237)
 - docs: move CLAUDE.md content to AGENTS.md (#247)
 - fix: pin CI service principal CAN_MANAGE on GenAI HITL app permissions (#248)
