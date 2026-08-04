@@ -26,7 +26,10 @@ from edvise.runtime.versioned_inference.bundle.from_dab import (
 from edvise.runtime.versioned_inference.parameters import (
     resolve_versioned_job_parameters,
 )
-from edvise.runtime.versioned_inference.pipeline_version_ref import build_git_source, git_ref_kind
+from edvise.runtime.versioned_inference.pipeline_version_ref import (
+    build_git_source,
+    git_ref_kind,
+)
 
 LOGGER = logging.getLogger(__name__)
 

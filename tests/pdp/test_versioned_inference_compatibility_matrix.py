@@ -17,7 +17,9 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from edvise.runtime.versioned_inference.bundle.from_dab import load_inference_job_definition
+from edvise.runtime.versioned_inference.bundle.from_dab import (
+    load_inference_job_definition,
+)
 from edvise.runtime.versioned_inference.submit import build_submit_run_body
 from edvise.runtime.versioned_inference.parameters import (
     resolve_versioned_job_parameters,

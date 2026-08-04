@@ -166,7 +166,9 @@ def main(argv: list[str] | None = None) -> int:
         git_ref_kind(archived_pipeline_version),
     )
 
-    release_dir = resolve_release_dir(inputs.release_base_path, archived_pipeline_version)
+    release_dir = resolve_release_dir(
+        inputs.release_base_path, archived_pipeline_version
+    )
     if not release_dir.is_dir():
         return _fail(
             catalog=db_ws,

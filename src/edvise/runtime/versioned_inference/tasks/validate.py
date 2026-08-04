@@ -32,7 +32,9 @@ from edvise.runtime.versioned_inference.run_metadata import (
     record_versioned_inference_launcher_event,
     resolve_launcher_run_id,
 )
-from edvise.runtime.versioned_inference.runtime_compat import check_runtime_bundle_compatibility
+from edvise.runtime.versioned_inference.runtime_compat import (
+    check_runtime_bundle_compatibility,
+)
 
 LOGGER = logging.getLogger("versioned_inference_launcher")
 
@@ -136,7 +138,9 @@ def main(argv: list[str] | None = None) -> int:
     model_run_id, archived_pipeline_version = resolved
     layout = resolve_dab_bundle_layout(inputs.schema_type)
 
-    release_dir = resolve_release_dir(inputs.release_base_path, archived_pipeline_version)
+    release_dir = resolve_release_dir(
+        inputs.release_base_path, archived_pipeline_version
+    )
     LOGGER.info(
         "Release bundle directory: %s (archived_pipeline_version=%s, git %s)",
         release_dir,

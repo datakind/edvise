@@ -11,7 +11,9 @@ try:
 except ModuleNotFoundError:  # Python < 3.11
     import tomli as tomllib
 
-from edvise.runtime.versioned_inference.pipeline_version_ref import sanitize_release_dir_name
+from edvise.runtime.versioned_inference.pipeline_version_ref import (
+    sanitize_release_dir_name,
+)
 
 LOGGER = logging.getLogger(__name__)
 

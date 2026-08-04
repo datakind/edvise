@@ -11,6 +11,8 @@ _DAB_YML_SNAPSHOT = f"{_BUNDLE_SNAPSHOT_ROOT}/databricks.yml"
 def normalize_schema_type(raw: str) -> str:
     """Mirror :func:`edvise.configs.schema_type.normalize_schema_type` without heavy imports."""
     return raw.strip().lower()
+
+
 _DAB_YML_SNAPSHOT = f"{_BUNDLE_SNAPSHOT_ROOT}/databricks.yml"
 
 
