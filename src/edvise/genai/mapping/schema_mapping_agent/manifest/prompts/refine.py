@@ -1512,6 +1512,7 @@ def run_sma_refinement(
 
 __all__ = [
     "_enforce_review_status_contract",
+    "_revalidate_pass1_and_force_hitl",
     "apply_refinement_review_status_safety_net",
     "build_refinement_combined_pass1_system_prompt",
     "build_refinement_combined_pass1_user_prompt",
