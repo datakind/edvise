@@ -184,7 +184,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         run_id = submit_versioned_inference_from_bundle(
             release_dir,
-            archived_pipeline_version=archived_pipeline_version,
+            pipeline_version=archived_pipeline_version,
             parameter_overrides=inputs.param_overrides,
             extra_parameter_overrides=inputs.extra_param_overrides,
             stable_trigger=inputs.stable_trigger,
