@@ -386,7 +386,9 @@ class SklearnImputerWrapper:
         # the thresholds below only decide whether this escalates to a raise.
         rates = {c: float(df_sklearn[c].isna().mean()) for c in newly_missing}
         severe_cols = [
-            c for c in newly_missing if rates[c] >= self.new_missing_error_rate_threshold
+            c
+            for c in newly_missing
+            if rates[c] >= self.new_missing_error_rate_threshold
         ]
         will_raise = (
             self.on_new_missing == "error"

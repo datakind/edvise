@@ -152,14 +152,19 @@ def test_newly_missing_error_raises_and_logs_artifact(
     """
     With on_new_missing='error', newly-missing on a clean-at-fit column should:
     - log (attempt) an MLflow artifact with unique new_missing_report_*.json
-    - raise ValueError mentioning the column
+    - raise ValueError mentioning the column, once it crosses the configured
+      col/rate thresholds (here lowered to 1 col @ 20% so a single newly-missing
+      column at 25% counts as severe)
     """
     df_train = sample_df.copy()
     df_infer = sample_df.copy()
     df_infer.loc["s2", "complete_col"] = np.nan
 
     imputer = imputation.SklearnImputerWrapper(
-        on_new_missing="error", log_drift_to_mlflow=True
+        on_new_missing="error",
+        log_drift_to_mlflow=True,
+        new_missing_error_col_threshold=1,
+        new_missing_error_rate_threshold=0.2,
     )
     imputer.fit(df_train)
 
