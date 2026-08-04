@@ -13,7 +13,7 @@ Workspace root defaults to
 When ``[postprocessing].enabled`` is false or absent in the project config TOML, or the
 workspace file is missing, this script exits successfully without running school code.
 
-``run_type=predict``: ``--config_file_path`` from ``legacy_inference_inputs``;
+``run_type=predict``: ``--config_file_path`` from ``data_ingestion``;
 ``--job_root_dir`` must match ``inference_h2o`` (CSV under ``ext/inference_output``).
 
 ``run_type=train``: ``--config_file_path`` from ``training_h2o`` task values (updated
@@ -68,7 +68,7 @@ def resolve_postprocess_config_path(args: argparse.Namespace) -> str:
     """
     Resolve project config TOML for postprocessing.
 
-    Predict jobs pass ``--config_file_path`` from ``legacy_inference_inputs``.
+    Predict jobs pass ``--config_file_path`` from ``data_ingestion``.
     Train jobs prefer ``--config_file_path`` from ``training_h2o`` task values, then
     ``{silver_volume_path}/{model_run_id}/training/{config_file_name}``, then UC training_inputs.
     """
@@ -189,7 +189,7 @@ def main() -> None:
     parser.add_argument(
         "--config_file_path",
         default="",
-        help="Project config TOML (from inference_setup); controls [postprocessing].enabled.",
+        help="Project config TOML (from data_ingestion); controls [postprocessing].enabled.",
     )
     parser.add_argument(
         "--ssi_pipelines_workspace_root",

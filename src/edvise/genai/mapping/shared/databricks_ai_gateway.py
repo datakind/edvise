@@ -12,7 +12,7 @@ import os
 import random
 import time
 from collections.abc import Callable
-from typing import Any, Final, TypeVar, cast
+from typing import Any, Final, Literal, TypeVar, cast
 
 from openai import OpenAI
 from openai.types.chat.chat_completion_message_param import ChatCompletionMessageParam
@@ -27,8 +27,24 @@ DEFAULT_GATEWAY_CLAUDE_SONNET_MODEL_ID: str = "claude-sonnet-edvise-genai"
 DEFAULT_GATEWAY_CLAUDE_HAIKU_MODEL_ID: str = "claude-haiku-edvise-genai"
 
 # System + user are concatenated into one role=user message (IA / SMA).
+#
+# We keep everything under a single ``role="user"`` message on purpose: this
+# codebase previously hit issues sending a separate ``role="system"`` message
+# through the MLflow AI Gateway route, so the (system, user) pair is combined
+# here instead. Anthropic/Databricks prompt caching does *not* require a
+# ``role="system"`` message though - ``cache_control`` can be set on any text
+# block inside a ``role="user"`` message's ``content`` array. See
+# :func:`_build_gateway_content` / :data:`CacheTTL`.
 LLM_COMPLETE_SYSTEM_USER_SEP: Final[str] = "\n\n---\n\n"
 DEFAULT_GATEWAY_COMPLETION_MAX_TOKENS: Final[int] = 16_000
+
+CacheTTL = Literal["5m", "1h"]
+
+# Anthropic's minimum cacheable block size is 1024 tokens for Sonnet/Opus and
+# 2048 tokens for Haiku. Below that, Anthropic silently ignores cache_control
+# (no error, no benefit) — so skip adding it (and the write-premium risk) for
+# short system prompts. ~4 chars/token, use the more conservative Haiku floor.
+_CACHE_CONTROL_MIN_CHARS: Final[int] = 2048 * 4
 
 _LOG = logging.getLogger(__name__)
 _T = TypeVar("_T")
@@ -37,6 +53,46 @@ _T = TypeVar("_T")
 def llm_complete_combined_message_content(system: str, user: str) -> str:
     """Exact ``content`` string sent to the gateway for ``llm_complete(system, user)``."""
     return system + LLM_COMPLETE_SYSTEM_USER_SEP + user
+
+
+def build_gateway_message_content(
+    system: str, user: str, *, cache_system_prompt: bool, cache_ttl: CacheTTL
+) -> str | list[dict[str, Any]]:
+    """
+    Build the ``content`` payload for a single ``role="user"`` gateway message.
+
+    When ``cache_system_prompt`` is set and ``system`` is long enough to be
+    cacheable, ``system`` is sent as its own text block with an Anthropic
+    ``cache_control`` marker, followed by a second (uncached) block holding the
+    separator + ``user`` text. Databricks' Unity AI Gateway forwards
+    ``cache_control`` unchanged to Databricks-hosted Claude models, so this
+    only helps when the resolved model is a Claude gateway route.
+
+    Falls back to the plain concatenated string (previous behavior, still the
+    default) when caching is disabled or ``system`` is too short to cache.
+
+    Public so callers that build their own ``role="user"`` messages outside of
+    :func:`make_databricks_gateway_llm_complete` (e.g. SMA's streaming
+    ``run_once`` path) can opt into the same caching behavior.
+    """
+    if not cache_system_prompt or len(system) < _CACHE_CONTROL_MIN_CHARS:
+        return llm_complete_combined_message_content(system, user)
+
+    cache_control: dict[str, str] = {"type": "ephemeral"}
+    if cache_ttl != "5m":
+        cache_control["ttl"] = cache_ttl
+
+    return [
+        {
+            "type": "text",
+            "text": system,
+            "cache_control": cache_control,
+        },
+        {
+            "type": "text",
+            "text": LLM_COMPLETE_SYSTEM_USER_SEP + user,
+        },
+    ]
 
 
 def disable_mlflow_tracing_for_openai_gateway_client() -> None:
@@ -379,12 +435,29 @@ def make_databricks_gateway_llm_complete(
     *,
     model: str | None = None,
     max_tokens: int = DEFAULT_GATEWAY_COMPLETION_MAX_TOKENS,
+    cache_system_prompt: bool = False,
+    cache_ttl: CacheTTL = "5m",
 ) -> Callable[[str, str], str]:
     """
     Return ``llm_complete(system, user)``.
 
-    The gateway is called with a single user message: ``system``, a separator, then ``user``
-    (matches ``ia_dev`` / SMA notebook patterns).
+    The gateway is called with a single ``role="user"`` message: ``system``, a separator,
+    then ``user`` (matches ``ia_dev`` / SMA notebook patterns).
+
+    When ``cache_system_prompt=True`` and ``system`` is long/static (e.g. reused verbatim
+    across calls in a run, like a fixed refinement or grain-inference system prompt), the
+    message ``content`` is instead sent as two text blocks with an Anthropic
+    ``cache_control: {"type": "ephemeral", ...}`` marker on the ``system`` block. Databricks'
+    Unity AI Gateway forwards ``cache_control`` unchanged to Databricks-hosted Claude models
+    (docs: "Use foundation models" / "Prompt caching"), so repeated calls sharing the same
+    ``system`` text within the TTL window get a cached-read discount instead of paying full
+    input-token price. Short ``system`` prompts (below Anthropic's minimum cacheable size)
+    silently fall back to the plain concatenated string - see :data:`CacheTTL` /
+    :func:`_build_gateway_content`.
+
+    Caching is opt-in and off by default: only enable it for callers whose ``system`` text is
+    stable across calls, since the ``cache_control`` write incurs a small price premium
+    (1.25x for ``"5m"``, 2x for ``"1h"``) that only pays off on a cache hit.
     """
     resolved_model = model if model is not None else resolve_gateway_model_id()
 
@@ -394,7 +467,12 @@ def make_databricks_gateway_llm_complete(
             [
                 {
                     "role": "user",
-                    "content": llm_complete_combined_message_content(system, user),
+                    "content": build_gateway_message_content(
+                        system,
+                        user,
+                        cache_system_prompt=cache_system_prompt,
+                        cache_ttl=cache_ttl,
+                    ),
                 }
             ],
         )
@@ -403,11 +481,59 @@ def make_databricks_gateway_llm_complete(
             messages=messages,
             max_tokens=max_tokens,
         )
+        if cache_system_prompt:
+            log_gateway_cache_usage_if_present(
+                getattr(resp, "usage", None), log=_LOG, model=resolved_model
+            )
         return _assistant_text_from_chat_completion_or_raise(
             resp, log=_LOG, default_model=resolved_model
         )
 
     return complete
+
+
+def log_gateway_cache_usage_if_present(
+    usage: Any, *, log: logging.Logger, model: str
+) -> None:
+    """
+    Log (at INFO) Anthropic/Unity AI Gateway cache token fields on ``usage``, when present.
+
+    The gateway usage payload may expose ``cache_read_input_tokens`` /
+    ``cache_creation_input_tokens`` (Anthropic-native naming) or ``cached_tokens``
+    (OpenAI-style ``prompt_tokens_details``), either at the top level of ``usage`` or nested
+    under ``token_details`` / ``prompt_tokens_details``. Field names/shape aren't guaranteed
+    across gateway versions, so this only logs when a known field is present and never raises.
+    Logged at INFO (not DEBUG) since it's only emitted for calls that opted into
+    ``cache_system_prompt=True`` (or the streaming equivalent), so it isn't noisy for the rest
+    of the pipeline. Public so both :func:`make_databricks_gateway_llm_complete` and SMA's
+    streaming ``run_once`` path can share it.
+    """
+    if usage is None:
+        return
+    try:
+        udump = usage.model_dump() if hasattr(usage, "model_dump") else dict(usage)
+    except Exception:
+        return
+    details = udump.get("token_details") or udump.get("prompt_tokens_details") or {}
+    if not isinstance(details, dict):
+        details = {}
+    cache_read = (
+        udump.get("cache_read_input_tokens")
+        or details.get("cache_read_input_tokens")
+        or details.get("cached_tokens")
+    )
+    cache_write = udump.get("cache_creation_input_tokens") or details.get(
+        "cache_creation_input_tokens"
+    )
+    if cache_read is None and cache_write is None:
+        return
+    log.info(
+        "AI Gateway cache usage: model=%s cache_read_input_tokens=%r "
+        "cache_creation_input_tokens=%r",
+        model,
+        cache_read,
+        cache_write,
+    )
 
 
 def is_retryable_openai_gateway_error(exc: BaseException) -> bool:

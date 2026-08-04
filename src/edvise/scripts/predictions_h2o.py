@@ -127,7 +127,13 @@ def sample_rows(df: pd.DataFrame, n: int, seed: int, where: str) -> pd.DataFrame
 
 
 def imputer_for_run(run_id: str) -> modeling.h2o_ml.imputation.SklearnImputerWrapper:
-    return modeling.h2o_ml.imputation.SklearnImputerWrapper.load(run_id=run_id)
+    # on_new_missing="error" here is threshold-gated (see SklearnImputerWrapper
+    # defaults): it only raises once multiple columns are simultaneously and
+    # severely newly-missing vs. training, which is the systemic-bug signature
+    # (e.g. a silent schema-alignment issue), not an isolated rare feature.
+    return modeling.h2o_ml.imputation.SklearnImputerWrapper.load(
+        run_id=run_id, on_new_missing="error"
+    )
 
 
 def calibrator_for_run(
