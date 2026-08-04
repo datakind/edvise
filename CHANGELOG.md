@@ -1,3 +1,10 @@
+## 1.8.0 (2026-08-04)
+- feat: improve ES/genAI data audit logging parity with PDP (#254)
+- feat(pdp): section-aware PDP course duplicate cleaning (#255)
+- fix(genai): flag exact-duplicate SMA Pass 2 TERMINAL HITL options (#256)
+- fix(legacy): avoid advisor-output table collision for legacy multi-model institutions (#258)
+- refactor: versioned inference pipeline (#260)
+
 ## 1.7.2 (2026-07-28)
 - refactor: move versioned inference launcher under `src/edvise/runtime/versioned_inference` with thin Databricks entrypoints
 - fix(genai): auto-sort non-chronological season_map in term HITL UI (#237)
