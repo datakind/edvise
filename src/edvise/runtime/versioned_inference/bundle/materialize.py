@@ -42,7 +42,7 @@ def fetch_github_file(
     if token:
         req.add_header("Authorization", f"Bearer {token}")
     with urllib.request.urlopen(req, timeout=timeout_s) as resp:
-        return resp.read()
+        return bytes(resp.read())
 
 
 def materialize_dab_snapshot_from_github(

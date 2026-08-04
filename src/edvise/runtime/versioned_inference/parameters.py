@@ -177,10 +177,10 @@ def collect_referenced_job_parameters(tasks: list[Any]) -> dict[str, list[str]]:
 def build_parameter_contract(job: dict[str, Any]) -> list[ParameterSpec]:
     """Build parameter contract from an archived inference job definition."""
     raw_params = job.get("parameters")
-    param_list = raw_params if isinstance(raw_params, list) else []
-    referenced = collect_referenced_job_parameters(
-        job.get("tasks") if isinstance(job.get("tasks"), list) else []
-    )
+    param_list: list[Any] = raw_params if isinstance(raw_params, list) else []
+    raw_tasks = job.get("tasks")
+    tasks: list[Any] = raw_tasks if isinstance(raw_tasks, list) else []
+    referenced = collect_referenced_job_parameters(tasks)
 
     specs: list[ParameterSpec] = []
     seen: set[str] = set()

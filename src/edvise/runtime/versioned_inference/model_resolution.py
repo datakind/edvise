@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import logging
-import tomllib
 from pathlib import Path
 from typing import Any, Protocol
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python < 3.11
+    import tomli as tomllib
 
 from edvise.runtime.versioned_inference.pipeline_version_ref import sanitize_release_dir_name
 

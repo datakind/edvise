@@ -538,8 +538,12 @@ def build_submit_run_body(
         msg = f"Job {inference_job_key!r} has no job_clusters"
         raise ValueError(msg)
 
+    raw_parameters = job.get("parameters")
+    parameter_specs_input: list[Any] = (
+        raw_parameters if isinstance(raw_parameters, list) else []
+    )
     parameters = resolve_job_parameter_specs(
-        job.get("parameters") if isinstance(job.get("parameters"), list) else [],
+        parameter_specs_input,
         parameter_overrides,
     )
     parameter_values = job_parameter_values_from_specs(parameters, parameter_overrides)
