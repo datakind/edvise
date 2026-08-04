@@ -4,7 +4,6 @@
 - feat(genai): add Manifest Explorer page to HITL Streamlit app (#236)
 - fix: require opposite core terms for graduation label eligibility (#238)
 - fix(genai): allow rewriting rationale on manifest mapping overrides (#240)
-- feat(genai): add opt-in Anthropic prompt caching for SMA refinement (#261)
 
 ## 1.5.3 (2026-07-17)
 - fix: round ROC table scores and thresholds consistently (#223)
