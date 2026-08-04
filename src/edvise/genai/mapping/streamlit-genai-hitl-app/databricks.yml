@@ -1,6 +1,14 @@
 # Databricks Apps bundle — GenAI HITL reviewer (UC hitl_reviews).
 # Deploy: databricks bundle deploy --target dev
 # Requires variables: sql_warehouse_id, datakind_group_to_manage_workflow (see metadata app pattern).
+#
+# ci_service_principal_id must be set to the application ID of whichever identity CI deploys as for
+# the target (DATABRICKS_GENAI_MAPPING_DEV_CLIENT_ID / _STAGING_CLIENT_ID secret). This is required
+# on every deploy, including local ones, so that a one-off `bundle deploy` from your laptop (which
+# runs as your personal user) doesn't reset the app's permission rule set to only what's declared
+# here — which would drop the CI service principal's CAN_MANAGE and break the next CI-driven release
+# deploy with a `does not have apps.ruleSets/get` error. When deploying locally, pass
+# --var="ci_service_principal_id=<the dev/staging client id>" same as CI does.
 
 bundle:
   name: edvise_genai_hitl_app
@@ -23,6 +31,8 @@ variables:
     description: Group with permissions to manage the app
   genai_catalog:
     description: UC catalog containing genai_mapping.hitl_reviews
+  ci_service_principal_id:
+    description: Application ID of the CI service principal that deploys this bundle for the target
 
 targets:
   dev:
@@ -74,6 +84,8 @@ resources:
             value: "false"
       permissions:
         - group_name: ${var.datakind_group_to_manage_workflow}
+          level: CAN_MANAGE
+        - service_principal_name: ${var.ci_service_principal_id}
           level: CAN_MANAGE
         - group_name: users
           level: CAN_USE

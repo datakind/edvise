@@ -1,3 +1,24 @@
+## 1.8.0 (2026-08-04)
+- feat: improve ES/genAI data audit logging parity with PDP (#254)
+- feat(pdp): section-aware PDP course duplicate cleaning (#255)
+- fix(genai): flag exact-duplicate SMA Pass 2 TERMINAL HITL options (#256)
+- fix(legacy): avoid advisor-output table collision for legacy multi-model institutions (#258)
+- refactor: versioned inference pipeline (#260)
+
+## 1.7.2 (2026-07-28)
+- fix(genai): auto-sort non-chronological season_map in term HITL UI (#237)
+- docs: move CLAUDE.md content to AGENTS.md (#247)
+- fix: pin CI service principal CAN_MANAGE on GenAI HITL app permissions (#248)
+- fix: make DK_CC_EMAIL optional for inference/training kickoff emails (#251)
+
+## 1.7.1 (2026-07-27)
+- docs: update README.md (#225)
+- fix(genai): wire materialized SMA transform hooks into field executor (#243)
+- docs: add CLAUDE.md (#244)
+
+## 1.7.0 (2026-07-27)
+- feat: inference pipeline version compatibility for PDP schools (#231)
+
 ## 1.6.0 (2026-07-23)
 - fix: ensure imputed values display as "MISSING" in inference & advisor outputs (#221)
 - fix(genai): set SMA grain resolution task as Claude Haiku's (#234)

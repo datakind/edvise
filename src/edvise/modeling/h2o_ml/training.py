@@ -194,6 +194,9 @@ def run_h2o_automl_classification(
         sample_weight_col=sample_weight_col,
         pos_label=pos_label,
         classification_threshold=classification_threshold,
+        # Persist pre-imputation modeling data so prediction / SHAP reload has
+        # the same columns the sklearn imputer was fit on.
+        full_dataset_df=df,
     )
 
     return experiment_id, aml, train, valid, test

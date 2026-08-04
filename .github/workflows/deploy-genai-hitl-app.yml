@@ -66,11 +66,13 @@ jobs:
             --target=dev \
             --force-lock \
             --var="sql_warehouse_id=$SQL_WAREHOUSE_ID" \
-            --var="datakind_group_to_manage_workflow=$GROUP_TO_MANAGE"
+            --var="datakind_group_to_manage_workflow=$GROUP_TO_MANAGE" \
+            --var="ci_service_principal_id=$DATABRICKS_CLIENT_ID"
           databricks bundle run genai_hitl \
             --target=dev \
             --var="sql_warehouse_id=$SQL_WAREHOUSE_ID" \
-            --var="datakind_group_to_manage_workflow=$GROUP_TO_MANAGE"
+            --var="datakind_group_to_manage_workflow=$GROUP_TO_MANAGE" \
+            --var="ci_service_principal_id=$DATABRICKS_CLIENT_ID"
 
   deploy-staging:
     name: Deploy GenAI HITL app to staging (staging_sst_01)
@@ -122,8 +124,10 @@ jobs:
             --target=prod \
             --force-lock \
             --var="sql_warehouse_id=$SQL_WAREHOUSE_ID" \
-            --var="datakind_group_to_manage_workflow=$GROUP_TO_MANAGE"
+            --var="datakind_group_to_manage_workflow=$GROUP_TO_MANAGE" \
+            --var="ci_service_principal_id=$DATABRICKS_CLIENT_ID"
           databricks bundle run genai_hitl \
             --target=prod \
             --var="sql_warehouse_id=$SQL_WAREHOUSE_ID" \
-            --var="datakind_group_to_manage_workflow=$GROUP_TO_MANAGE"
+            --var="datakind_group_to_manage_workflow=$GROUP_TO_MANAGE" \
+            --var="ci_service_principal_id=$DATABRICKS_CLIENT_ID"

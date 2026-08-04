@@ -5,20 +5,39 @@ resources:
       max_concurrent_runs: 5
 
       tasks:
-        - task_key: inference_setup
+        # Mirrors ES/PDP's data_ingestion task: reuse upload-time bronze sync
+        # (gcs_uploads/{batch_id}/) or download validated GCS objects when not ready.
+        # Skips (no-op) when validated_blob_paths_json is empty, e.g. legacy runs
+        # without a batch_id; legacy_preprocessing then falls back to the existing
+        # top-level gcs_uploads keyword search.
+        #
+        # Also resolves the registered model's latest run_id and, from its training
+        # run in the silver volume, the config_file_path/features_table_path used to
+        # train it (folded in from the former standalone inference_setup task, for
+        # parity with ES/PDP where this resolution already lives in data_ingestion).
+        - task_key: data_ingestion
           spark_python_task:
-            python_file: src/edvise/scripts/legacy_inference_inputs.py
+            python_file: src/edvise/scripts/legacy_gcp_databricks_ingestion.py
             source: GIT
             parameters:
-              - --model_name
-              - "{{job.parameters.model_name}}"
               - --DB_workspace
               - "{{job.parameters.DB_workspace}}"
               - --databricks_institution_name
               - "{{job.parameters.databricks_institution_name}}"
+              - --gcp_bucket_name
+              - "{{job.parameters.gcp_bucket_name}}"
+              - --model_name
+              - "{{job.parameters.model_name}}"
+              - --batch_id
+              - "{{job.parameters.batch_id}}"
+              - --validated_blob_paths_json
+              - "{{job.parameters.validated_blob_paths_json}}"
+              - --db_run_id
+              - "{{job.parameters.db_run_id}}"
           job_cluster_key: edvise-legacy-inference-pipeline-cluster
           libraries:
-            # edvise.utils __init__ imports dataio.read (pandera, etc.)
+            - pypi:
+                package: google-cloud-storage==2.19.0
             - pypi:
                 package: pandera==0.23.0
             - pypi:
@@ -32,16 +51,16 @@ resources:
             - pypi:
                 package: mlflow~=2.22
 
-        # SSI workspace preprocessing.py; config from silver training artifacts (inference_setup).
+        # SSI workspace preprocessing.py; config from silver training artifacts (data_ingestion).
         - task_key: legacy_preprocessing
           depends_on:
-            - task_key: inference_setup
+            - task_key: data_ingestion
           spark_python_task:
             python_file: src/edvise/scripts/legacy_preprocessing.py
             source: GIT
             parameters:
               - --config_file_path
-              - "{{tasks.inference_setup.values.config_file_path}}"
+              - "{{tasks.data_ingestion.values.config_file_path}}"
               - --run_type
               - "predict"
               - --DB_workspace
@@ -54,6 +73,8 @@ resources:
               - "{{job.parameters.term_filter}}"
               - --ds_run_as
               - "{{job.parameters.ds_run_as}}"
+              - --bronze_batch_dir
+              - "{{tasks.data_ingestion.values.bronze_batch_dir}}"
           job_cluster_key: edvise-legacy-inference-pipeline-cluster
           libraries:
             - pypi:
@@ -101,7 +122,7 @@ resources:
               - --silver_volume_path
               - "/Volumes/{{job.parameters.DB_workspace}}/{{job.parameters.databricks_institution_name}}_silver/silver_volume"
               - --config_file_path
-              - "{{tasks.inference_setup.values.config_file_path}}"
+              - "{{tasks.data_ingestion.values.config_file_path}}"
               - --datakind_notification_email
               - "{{job.parameters.datakind_notification_email}}"
               - --DK_CC_EMAIL
@@ -113,7 +134,7 @@ resources:
               - --schema_type
               - "legacy"
               - --features_table_path
-              - "{{tasks.inference_setup.values.features_table_path}}"
+              - "{{tasks.data_ingestion.values.features_table_path}}"
           job_cluster_key: edvise-legacy-inference-pipeline-cluster
           libraries:
             - pypi:
@@ -152,7 +173,7 @@ resources:
             source: GIT
             parameters:
               - --config_file_path
-              - "{{tasks.inference_setup.values.config_file_path}}"
+              - "{{tasks.data_ingestion.values.config_file_path}}"
               - --run_type
               - "predict"
               - --DB_workspace
@@ -244,12 +265,16 @@ resources:
           default: ${var.ds_run_as}
         - name: gcp_bucket_name
           default: databricks-2052166062819251-unitycatalog
+        - name: batch_id
+          default: ""
+        - name: validated_blob_paths_json
+          default: "[]"
         - name: service_account_executer
           default: ${var.service_account_executer}
         - name: datakind_notification_email
           default: ${var.datakind_notification_email}
         - name: DK_CC_EMAIL
-          default: ${var.datakind_notification_email}
+          default: ""
         - name: term_filter
           default: ""
       permissions:

@@ -1,0 +1,31 @@
+resources:
+  jobs:
+    edvise_github_sourced_pdp_inference_pipeline:
+      name: edvise_github_sourced_pdp_inference_pipeline
+      tasks:
+        - task_key: feature_generation
+          spark_python_task:
+            python_file: src/edvise/scripts/pdp_feature_generation.py
+            source: GIT
+          job_cluster_key: edvise-pdp-inference-pipeline-cluster
+          libraries:
+            - pypi:
+                package: pandas==2.2.3
+        - task_key: inference_h2o
+          depends_on:
+            - task_key: feature_generation
+          spark_python_task:
+            python_file: src/edvise/scripts/inference_h2o.py
+            source: GIT
+          job_cluster_key: edvise-pdp-inference-pipeline-cluster
+      job_clusters:
+        - job_cluster_key: edvise-pdp-inference-pipeline-cluster
+          new_cluster:
+            spark_version: 15.4.x-cpu-ml-scala2.12
+      parameters:
+        - name: databricks_institution_name
+          default: miles_cc
+        - name: model_name
+          default: retention_into_year_2_associates
+        - name: DB_workspace
+          default: dev_sst_02
