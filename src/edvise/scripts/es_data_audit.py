@@ -344,7 +344,7 @@ class ESDataAuditTask:
             if self.course_converter_func is not None:
                 df = self.course_converter_func(df)
             if use_missing_grade:
-                df = handle_missing_grades(df)
+                df = handle_missing_grades(df, learner_id_col=student_id_col)
             return df
 
         course_converter = (

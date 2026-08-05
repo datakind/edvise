@@ -10,18 +10,23 @@ _MISSING = frozenset(
     {"", "NAN", "NONE", "NULL", "<NA>", "NAT", "N/A", "NA", "#N/A", ".", "-", "--"}
 )
 _HIGH_DROP = 100
-_KEY = ("learner_id", "course_prefix", "course_number")
 _TERM_PAIRS = (("entry_year", "entry_term"), ("academic_year", "academic_term"))
 
 
-def handle_missing_grades(df: pd.DataFrame) -> pd.DataFrame:
+def handle_missing_grades(
+    df: pd.DataFrame,
+    *,
+    learner_id_col: str = "learner_id",
+    course_prefix_col: str = "course_prefix",
+    course_number_col: str = "course_number",
+) -> pd.DataFrame:
     """
     Null grade handling for Edvise Schema course data.
 
-    Duplicate is defined as: same ``learner_id`` + ``course_id`` [where ``course_id`` is
-    ``course_prefix`` + ``course_number``]
+    Duplicate is defined as: same ``learner_id_col`` + course id
+    (``course_prefix_col`` + ``course_number_col``).
     Trailing suffix ``-{n}`` (ex. ENG101-1, ENG101-2) stripped for matching only
-    (stored ``course_number`` is unchanged); this is because GenAI may suffix before
+    (stored ``course_number_col`` is unchanged); this is because GenAI may suffix before
     we run this converter, so we ensure those rows aren't dropped / still count as
     repeats. Typically another term; term is not part of the key. But can also apply
     to a "retake" in the same term.
@@ -63,12 +68,13 @@ def handle_missing_grades(df: pd.DataFrame) -> pd.DataFrame:
     )
     ez = earned.isna() | earned.eq(0)
 
+    key_cols = (learner_id_col, course_prefix_col, course_number_col)
     catalog = keys = None
-    if all(c in df.columns for c in _KEY):
+    if all(c in df.columns for c in key_cols):
         catalog = (
-            df["course_number"].astype("string").str.replace(r"-\d+$", "", regex=True)
+            df[course_number_col].astype("string").str.replace(r"-\d+$", "", regex=True)
         )
-        keys = [df["learner_id"], df["course_prefix"], catalog]
+        keys = [df[learner_id_col], df[course_prefix_col], catalog]
         is_dup = pd.DataFrame(
             {"a": keys[0], "b": keys[1], "c": keys[2]}, index=df.index
         ).duplicated(keep=False)
@@ -146,15 +152,16 @@ def handle_missing_grades(df: pd.DataFrame) -> pd.DataFrame:
         for i, idx in enumerate(df.index[keep][:5], 1):
             a = df.loc[idx]
             same = (
-                (keys[0] == a["learner_id"])
-                & (keys[1] == a["course_prefix"])
+                (keys[0] == a[learner_id_col])
+                & (keys[1] == a[course_prefix_col])
                 & (keys[2] == catalog.loc[idx])
                 & (df.index != idx)
             )
             others = df.index[same]
             b = df.loc[others[0]] if len(others) else a
             lines += [
-                f"  ex{i}  {a['learner_id']}  {a['course_prefix']} {a['course_number']}",
+                f"  ex{i}  {a[learner_id_col]}  {a[course_prefix_col]} "
+                f"{a[course_number_col]}",
                 f"    incomplete  {a.get('academic_year', '')} {a.get('academic_term', '')}"
                 f"  grade={a['grade']!r}  attempted={a.get('course_credits_attempted', pd.NA)!r}"
                 f"  earned={a.get('course_credits_earned', pd.NA)!r}",

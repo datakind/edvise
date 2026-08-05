@@ -120,3 +120,25 @@ def test_high_unique_drop_without_entry_cols_still_logs_academic(monkeypatch, ca
     assert "contact the school" in caplog.text
     assert "Missing fields: 'entry_year' or 'entry_term'" in caplog.text
     assert "All academic_year / academic_term pairs with counts:" in caplog.text
+
+
+def test_custom_key_column_names():
+    df = pd.DataFrame(
+        {
+            "sid": ["1", "1"],
+            "prefix": ["ENG", "ENG"],
+            "number": ["101", "101-1"],
+            "grade": [pd.NA, "A"],
+            "course_credits_earned": [pd.NA, 3.0],
+            "course_credits_attempted": [pd.NA, 3.0],
+        }
+    )
+    out = handle_missing_grades(
+        df,
+        learner_id_col="sid",
+        course_prefix_col="prefix",
+        course_number_col="number",
+    )
+    assert list(out.index) == [0, 1]
+    assert out.loc[0, "grade"] == "M"
+    assert float(out.loc[0, "course_credits_earned"]) == 0.0
