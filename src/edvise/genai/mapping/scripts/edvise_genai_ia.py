@@ -1125,8 +1125,17 @@ def run(
 
         # LLM client only needed for onboard
         gateway_client = create_openai_client_for_databricks_gateway()
+        # cache_system_prompt=True caches the static IA grain-inference system prompt
+        # (~24k tokens, identical across every dataset in a run) and the static IA
+        # term-normalization system prompt, which both flow through this same
+        # llm_complete (see grain_inference/runner.py and the term_normalization call
+        # below). Anthropic/Databricks skip caching for prompts under
+        # _CACHE_CONTROL_MIN_CHARS, so this is a safe no-op for any other caller that
+        # might reuse this instance with a short/empty system prompt.
         llm_complete = wrap_llm_complete_with_retries(
-            make_databricks_gateway_llm_complete(gateway_client),
+            make_databricks_gateway_llm_complete(
+                gateway_client, cache_system_prompt=True
+            ),
             log=LOGGER,
         )
         column_roles_llm_complete = wrap_llm_complete_with_retries(

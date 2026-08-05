@@ -17,13 +17,15 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from pipelines.pdp.launchers.bundle_from_dab import load_inference_job_definition
-from pipelines.pdp.launchers.inference_job_submit import build_submit_run_body
-from pipelines.pdp.launchers.inference_parameters import (
+from edvise.runtime.versioned_inference.bundle.from_dab import (
+    load_inference_job_definition,
+)
+from edvise.runtime.versioned_inference.submit import build_submit_run_body
+from edvise.runtime.versioned_inference.parameters import (
     resolve_versioned_job_parameters,
 )
-from pipelines.pdp.launchers.model_metadata import resolve_release_dir
-from pipelines.pdp.launchers.pipeline_version_ref import build_git_source
+from edvise.runtime.versioned_inference.model_resolution import resolve_release_dir
+from edvise.runtime.versioned_inference.pipeline_version_ref import build_git_source
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "inference_job_parameter_contract.yml"
 

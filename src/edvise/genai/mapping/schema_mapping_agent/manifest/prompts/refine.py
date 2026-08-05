@@ -1142,9 +1142,16 @@ def _default_llm_complete() -> Callable[[str, str], str]:
         resolve_gateway_model_id,
     )
 
+    # Prompt-caching pilot: build_refinement_pass1_system_prompt() and
+    # build_refinement_pass2_system_prompt() take no args, so the same system text is
+    # sent verbatim across the up-to-4 refinement calls per institution (Pass 1 + Pass 2
+    # x cohort + course), plus any parse retries. Caching that prefix lets repeat calls
+    # within the TTL window hit a cached read instead of re-billing full input tokens.
     client = create_openai_client_for_databricks_gateway()
     return make_databricks_gateway_llm_complete(
-        client, model=resolve_gateway_model_id()
+        client,
+        model=resolve_gateway_model_id(),
+        cache_system_prompt=True,
     )
 
 
