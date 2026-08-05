@@ -43,7 +43,8 @@ def handle_missing_grades(
         If credits_attempted is null, set it to the credits_earned value.
 
     - If BOTH duplicates are missing grades, AND credits_earned is null OR 0 for both:
-        Keep only the first row (input order); drop the rest. Log count.
+        Keep only the first row (input order) with grade='M' (same credits
+        normalization as other kept null/0-earned dups); drop the rest. Log count.
 
     - Unique record, credits_earned null OR 0:
         Drop; log count; flag if count is high.
@@ -115,7 +116,7 @@ def handle_missing_grades(
         "  Duplicate found + credits_earned > 0 → "
         "Keep; grade='M': %d (%s%%)\n"
         "  BOTH duplicates missing grades, AND credits_earned is null OR 0 "
-        "for both → Keep first row; drop the rest: %d (%s%%)\n"
+        "for both → Keep first as grade='M'; drop the rest: %d (%s%%)\n"
         "  Unique record, credits_earned null OR 0 → Drop: %d (%s%%)\n"
         "  Unique record, credits_earned > 0 → Drop: %d (%s%%)\n"
         "  Total kept and recoded to grade='M': %d (%s%%)\n"

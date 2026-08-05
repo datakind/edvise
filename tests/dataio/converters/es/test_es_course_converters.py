@@ -62,6 +62,8 @@ def test_all_null_zero_earned_siblings_keep_first_only():
     out = handle_missing_grades(df)
     assert list(out.index) == [0]
     assert out.loc[0, "grade"] == "M"
+    assert float(out.loc[0, "course_credits_earned"]) == 0.0
+    assert float(out.loc[0, "course_credits_attempted"]) == 0.0
 
 
 def test_unique_null_grade_dropped():
