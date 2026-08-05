@@ -29,6 +29,7 @@ print("src_path:", src_path)
 print("sys.path:", sys.path)
 
 from edvise.configs.schema_type import project_config_class
+from edvise.data_audit.eda import compute_pairwise_associations
 from edvise.dataio.read import read_config, read_parquet
 from edvise.dataio.write import write_parquet
 from edvise.model_prep import cleanup_features as cleanup, training_params
@@ -48,6 +49,31 @@ logging.basicConfig(
 )
 logging.getLogger("py4j").setLevel(logging.WARNING)
 LOGGER = logging.getLogger(__name__)
+
+
+def _pick_ranked_features(
+    ranked: pd.Series,
+    *,
+    n: int,
+    exclude: set[str],
+    seen: set[str],
+) -> list[str]:
+    """Take up to ``n`` names from a ranked series, skipping overlaps and tied values."""
+    picked: list[str] = []
+    last_val: float | None = None
+    for name, val in ranked.items():
+        name_s = str(name)
+        if name_s in exclude or name_s in seen:
+            continue
+        val_f = float(val)
+        if last_val is not None and val_f == last_val:
+            continue
+        picked.append(name_s)
+        seen.add(name_s)
+        last_val = val_f
+        if len(picked) >= n:
+            break
+    return picked
 
 
 class ModelPrepTask:
@@ -172,6 +198,65 @@ class ModelPrepTask:
             df[sample_weight_col].value_counts(normalize=True),
         )
         return df
+
+    def log_target_feature_associations(self, pre: pd.DataFrame) -> None:
+        """Log target Spearman corrs / mixed-type associations; suggest force_include."""
+        target_col = self.cfg.target_col
+        if target_col not in pre.columns:
+            LOGGER.warning(
+                "Skipping target feature association logs; missing target column '%s'.",
+                target_col,
+            )
+            return
+
+        # Drop bias-group + weight/id/split up front (keeps target). Narrows the
+        # expensive pairwise pass and avoids high-cardinality id Cramer's V.
+        exclude = {
+            c
+            for c in (
+                *(self.cfg.student_group_cols or []),
+                self.cfg.sample_weight_col or "sample_weight",
+                self.cfg.student_id_col,
+                self.cfg.split_col or "split",
+            )
+            if c in pre.columns and c != target_col
+        }
+        feat = pre.drop(columns=exclude)
+        LOGGER.info("Target association excludes: %s", sorted(exclude))
+
+        corrs = (
+            feat.corrwith(feat[target_col], method="spearman", numeric_only=True)
+            .dropna()
+            .sort_values(ascending=False)
+        )
+        LOGGER.info(
+            "Spearman corrs vs '%s' (top/bottom 10):\n%s\n...\n%s",
+            target_col,
+            corrs.head(10).to_string(),
+            corrs.tail(10).to_string(),
+        )
+
+        assocs = (
+            compute_pairwise_associations(feat, ref_col=target_col)[target_col]
+            .dropna()
+            .sort_values(ascending=False)
+        )
+        LOGGER.info(
+            "Pairwise associations vs '%s' (top 10):\n%s",
+            target_col,
+            assocs.head(10).to_string(),
+        )
+
+        non_features = set(self.cfg.non_feature_cols)
+        seen: set[str] = set()
+        suggest = (
+            _pick_ranked_features(corrs, n=5, exclude=non_features, seen=seen)
+            + _pick_ranked_features(
+                corrs.iloc[::-1], n=5, exclude=non_features, seen=seen
+            )
+            + _pick_ranked_features(assocs, n=5, exclude=non_features, seen=seen)
+        )
+        LOGGER.info("suggest force including: %s", suggest)
 
     def run(self):
         # Ensure correct folder: training or inference
@@ -369,6 +454,7 @@ class ModelPrepTask:
             logging.info(
                 "Target breakdown (percents):\n%s", target_percents.to_string()
             )
+            self.log_target_feature_associations(df_preprocessed)
         else:
             # Unlabeled path (e.g., inference): merge only checkpoint + selected students, then cleanup
             student_id_col = self.cfg.student_id_col
