@@ -13,11 +13,7 @@ from dataclasses import dataclass
 from typing import Any, Iterable, Literal, Mapping, Optional
 
 FILE_STAMP_RE = re.compile(r"_(\d{14})(?:\.[^.]+)?$", re.IGNORECASE)
-
 FileSelectionMode = Literal["manual", "latest", "uningested"]
-
-# Manifest statuses that mean "do not auto-pick this file again".
-_INGESTED_STATUSES = frozenset({"BRONZE_WRITTEN"})
 
 
 @dataclass(frozen=True)
@@ -25,14 +21,11 @@ class FilePair:
     stamp: str
     cohort_file_name: str
     course_file_name: str
-    cohort_row: dict[str, Any]
-    course_row: dict[str, Any]
 
 
 def extract_file_stamp(file_name: str) -> str:
     """Return the 14-digit trailing stamp from a file name."""
-    base = os.path.basename(file_name)
-    m = FILE_STAMP_RE.search(base)
+    m = FILE_STAMP_RE.search(os.path.basename(file_name))
     if not m:
         raise ValueError(
             "Expected file name to end with a 14-digit file stamp, e.g. "
@@ -42,7 +35,6 @@ def extract_file_stamp(file_name: str) -> str:
 
 
 def try_extract_file_stamp(file_name: str) -> Optional[str]:
-    """Like extract_file_stamp but returns None when the stamp is missing."""
     try:
         return extract_file_stamp(file_name)
     except ValueError:
@@ -50,11 +42,6 @@ def try_extract_file_stamp(file_name: str) -> Optional[str]:
 
 
 def classify_pdp_file_role(file_name: str) -> Optional[Literal["cohort", "course"]]:
-    """
-    Classify an SFTP file as cohort or course from its basename.
-
-    Returns None when the name is ambiguous or does not match either role.
-    """
     base = os.path.basename(file_name).lower()
     has_cohort = "cohort" in base
     has_course = "course" in base
@@ -66,12 +53,8 @@ def classify_pdp_file_role(file_name: str) -> Optional[Literal["cohort", "course
 
 
 def discover_file_pairs(file_rows: Iterable[Mapping[str, Any]]) -> list[FilePair]:
-    """
-    Group SFTP listing rows into complete cohort+course pairs by stamp.
-
-    Incomplete pairs (missing cohort or course) are omitted.
-    """
-    by_stamp: dict[str, dict[str, dict[str, Any]]] = {}
+    """Group SFTP listing rows into complete cohort+course pairs by stamp."""
+    by_stamp: dict[str, dict[str, str]] = {}
     for row in file_rows:
         name = str(row.get("file_name") or "")
         stamp = try_extract_file_stamp(name)
@@ -80,39 +63,17 @@ def discover_file_pairs(file_rows: Iterable[Mapping[str, Any]]) -> list[FilePair
         role = classify_pdp_file_role(name)
         if role is None:
             continue
-        by_stamp.setdefault(stamp, {})[role] = dict(row)
+        by_stamp.setdefault(stamp, {})[role] = name
 
-    pairs: list[FilePair] = []
-    for stamp, roles in sorted(by_stamp.items(), key=lambda item: item[0]):
-        cohort_row = roles.get("cohort")
-        course_row = roles.get("course")
-        if not cohort_row or not course_row:
-            continue
-        pairs.append(
-            FilePair(
-                stamp=stamp,
-                cohort_file_name=str(cohort_row["file_name"]),
-                course_file_name=str(course_row["file_name"]),
-                cohort_row=cohort_row,
-                course_row=course_row,
-            )
+    return [
+        FilePair(
+            stamp=stamp,
+            cohort_file_name=roles["cohort"],
+            course_file_name=roles["course"],
         )
-    return pairs
-
-
-def _pair_is_fully_ingested(
-    pair: FilePair,
-    fingerprint_by_name: Mapping[str, str],
-    status_by_fingerprint: Mapping[str, str],
-) -> bool:
-    fps = [
-        fingerprint_by_name.get(pair.cohort_file_name),
-        fingerprint_by_name.get(pair.course_file_name),
+        for stamp, roles in sorted(by_stamp.items())
+        if "cohort" in roles and "course" in roles
     ]
-    if not all(fps):
-        return False
-    statuses = [status_by_fingerprint.get(fp, "") for fp in fps if fp]
-    return bool(statuses) and all(s in _INGESTED_STATUSES for s in statuses)
 
 
 def select_file_pair(
@@ -121,17 +82,14 @@ def select_file_pair(
     mode: str,
     cohort_file_name: str = "",
     course_file_name: str = "",
-    fingerprint_by_name: Optional[Mapping[str, str]] = None,
-    status_by_fingerprint: Optional[Mapping[str, str]] = None,
+    ingested_file_names: Optional[Iterable[str]] = None,
 ) -> tuple[str, str, str]:
     """
     Resolve cohort/course file names for an ingestion run.
 
-    Returns:
-        (cohort_file_name, course_file_name, selection_mode_used)
-
-    Raises:
-        ValueError / FileNotFoundError when selection cannot be resolved.
+    ``uningested`` skips pairs whose cohort and course names are both present in
+    ``ingested_file_names`` (typically BRONZE_WRITTEN file_name values). Stamp-based
+    NSC names make file_name a stable version key without Spark fingerprinting.
     """
     cohort_file_name = (cohort_file_name or "").strip()
     course_file_name = (course_file_name or "").strip()
@@ -152,7 +110,6 @@ def select_file_pair(
             "file_selection_mode=manual requires both cohort_file_name and "
             "course_file_name job parameters."
         )
-
     if mode_norm not in {"latest", "uningested"}:
         raise ValueError(
             f"Unsupported file_selection_mode={mode!r}. "
@@ -170,24 +127,18 @@ def select_file_pair(
             f"first 25={available[:25]}"
         )
 
-    if mode_norm == "uningested":
-        fingerprint_by_name = fingerprint_by_name or {}
-        status_by_fingerprint = status_by_fingerprint or {}
-        eligible = [
-            p
-            for p in pairs
-            if not _pair_is_fully_ingested(
-                p, fingerprint_by_name, status_by_fingerprint
-            )
-        ]
-        if not eligible:
-            stamps = [p.stamp for p in pairs]
-            raise FileNotFoundError(
-                "All discovered cohort/course pairs are already BRONZE_WRITTEN in "
-                f"ingestion_manifest. stamps={stamps}"
-            )
-        chosen = max(eligible, key=lambda p: p.stamp)
-    else:
+    if mode_norm == "latest":
         chosen = max(pairs, key=lambda p: p.stamp)
+        return chosen.cohort_file_name, chosen.course_file_name, mode_norm
 
+    done = set(ingested_file_names or ())
+    eligible = [
+        p for p in pairs if not ({p.cohort_file_name, p.course_file_name} <= done)
+    ]
+    if not eligible:
+        raise FileNotFoundError(
+            "All discovered cohort/course pairs are already BRONZE_WRITTEN in "
+            f"ingestion_manifest. stamps={[p.stamp for p in pairs]}"
+        )
+    chosen = max(eligible, key=lambda p: p.stamp)
     return chosen.cohort_file_name, chosen.course_file_name, mode_norm

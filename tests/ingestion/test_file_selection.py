@@ -74,21 +74,13 @@ def test_select_file_pair_uningested_skips_bronze_written():
         _row("B_Cohort_20240201101010.csv"),
         _row("B_Course_20240201101010.csv"),
     ]
-    fingerprint_by_name = {
-        "B_Cohort_20240201101010.csv": "fp_b_cohort",
-        "B_Course_20240201101010.csv": "fp_b_course",
-        "A_Cohort_20240115123045.csv": "fp_a_cohort",
-        "A_Course_20240115123045.csv": "fp_a_course",
-    }
-    status_by_fingerprint = {
-        "fp_b_cohort": "BRONZE_WRITTEN",
-        "fp_b_course": "BRONZE_WRITTEN",
-    }
     c, o, mode = select_file_pair(
         rows,
         mode="uningested",
-        fingerprint_by_name=fingerprint_by_name,
-        status_by_fingerprint=status_by_fingerprint,
+        ingested_file_names={
+            "B_Cohort_20240201101010.csv",
+            "B_Course_20240201101010.csv",
+        },
     )
     assert mode == "uningested"
     assert c == "A_Cohort_20240115123045.csv"
@@ -100,18 +92,12 @@ def test_select_file_pair_uningested_all_done_raises():
         _row("A_Cohort_20240115123045.csv"),
         _row("A_Course_20240115123045.csv"),
     ]
-    fingerprint_by_name = {
-        "A_Cohort_20240115123045.csv": "fp_a_cohort",
-        "A_Course_20240115123045.csv": "fp_a_course",
-    }
-    status_by_fingerprint = {
-        "fp_a_cohort": "BRONZE_WRITTEN",
-        "fp_a_course": "BRONZE_WRITTEN",
-    }
     with pytest.raises(FileNotFoundError, match="already BRONZE_WRITTEN"):
         select_file_pair(
             rows,
             mode="uningested",
-            fingerprint_by_name=fingerprint_by_name,
-            status_by_fingerprint=status_by_fingerprint,
+            ingested_file_names={
+                "A_Cohort_20240115123045.csv",
+                "A_Course_20240115123045.csv",
+            },
         )

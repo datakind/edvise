@@ -1,25 +1,16 @@
 """
-Consume institution_ingest_plan for manifest status=NEW; resolve institutions via SST API,
-write filtered CSVs to per-institution bronze volumes, and update ingestion_manifest.
-
-No SFTP — uses staged local paths from prior steps.
+Ingest NEW plan rows to per-institution bronze volumes; update ingestion_manifest.
 """
 
 from __future__ import annotations
 
-import logging
 import os
-import sys
+from collections import defaultdict
 
-from edvise.ingestion.nsc_sftp.constants import (
-    configure_nsc_catalog,
-    resolve_nsc_catalog,
-)
+from edvise.ingestion.nsc_sftp import runtime
 
-configure_nsc_catalog(resolve_nsc_catalog(sys.argv))
+runtime.bootstrap_catalog()
 
-import pandas as pd
-from databricks.connect import DatabricksSession
 from pyspark.sql import functions as F
 
 from edvise.ingestion.nsc_sftp.constants import (
@@ -33,418 +24,243 @@ from edvise.ingestion.nsc_sftp.constants import (
     SST_TOKEN_ENDPOINT,
 )
 from edvise.ingestion.nsc_sftp.helpers import (
+    load_staged_csv,
     process_and_save_file,
+    resolve_bronze_volume_dir,
+    summarize_file_metrics,
     update_manifest,
 )
-from edvise.utils.api_requests import (
-    EdviseAPIClient,
-    fetch_institution_by_pdp_id,
-)
-from edvise.utils.data_cleaning import convert_to_snake_case
-from edvise.utils.databricks import (
-    find_bronze_schema,
-    find_bronze_volume_name,
-)
+from edvise.utils.api_requests import EdviseAPIClient, fetch_institution_by_pdp_id
 from edvise.utils.institution_naming import databricksify_inst_name
 from edvise.utils.sftp import output_file_name_from_sftp
 
-try:
-    dbutils  # noqa: F821
-except NameError:
-    from unittest.mock import MagicMock
-
-    dbutils = MagicMock()
-
-try:
-    display  # noqa: F821
-except NameError:
-
-    def display(x):
-        return x
-
-
-spark = DatabricksSession.builder.getOrCreate()
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-)
-logger = logging.getLogger(__name__)
+dbutils = runtime.get_dbutils()
+spark = runtime.get_spark()
+logger = runtime.get_logger(__name__)
 
 asset_scope = "nsc-sftp-asset"
-SST_API_KEY = dbutils.secrets.get(scope=asset_scope, key=SST_API_KEY_SECRET_KEY).strip()
-if not SST_API_KEY:
+api_key = dbutils.secrets.get(scope=asset_scope, key=SST_API_KEY_SECRET_KEY).strip()
+if not api_key:
     raise RuntimeError(
-        f"Empty SST API key from secrets: scope={asset_scope} key={SST_API_KEY_SECRET_KEY}"
+        f"Empty SST API key: scope={asset_scope} key={SST_API_KEY_SECRET_KEY}"
     )
 
 api_client = EdviseAPIClient(
-    api_key=SST_API_KEY,
+    api_key=api_key,
     base_url=SST_BASE_URL,
     token_endpoint=SST_TOKEN_ENDPOINT,
     institution_lookup_path=INSTITUTION_LOOKUP_PATH,
 )
 
 
-def _get_workflow_run_id():
-    try:
-        ctx = dbutils.notebook.entry_point.getDbutils().notebook().getContext()
-        tags = ctx.tags()
-        for k in ("jobRunId", "runId"):
-            try:
-                v = tags.apply(k)
-                if v:
-                    return str(v)
-            except Exception:
-                pass
-        try:
-            v = ctx.currentRunId().get()
-            if v:
-                return str(v)
-        except Exception:
-            pass
-    except Exception:
-        pass
-    return None
+def _school_check_log(file_name: str, inst_id: str, filtered) -> None:
+    if {"cohort", "cohort_term"}.issubset(filtered.columns):
+        latest = filtered["cohort"].max()
+        terms = (
+            filtered.loc[filtered["cohort"] == latest, "cohort_term"]
+            .dropna()
+            .astype(str)
+            .unique()
+            .tolist()
+        )
+        logger.info(
+            "School check file=%s inst=%s rows=%s latest_cohort=%s terms=%s",
+            file_name,
+            inst_id,
+            len(filtered),
+            latest,
+            terms,
+        )
+    else:
+        logger.info(
+            "School check file=%s inst=%s rows=%s", file_name, inst_id, len(filtered)
+        )
 
 
 if not spark.catalog.tableExists(PLAN_TABLE_PATH):
-    logger.info(f"Plan table not found: {PLAN_TABLE_PATH}. Exiting (no-op).")
     dbutils.notebook.exit("NO_PLAN_TABLE")
-
 if not spark.catalog.tableExists(MANIFEST_TABLE_PATH):
     raise RuntimeError(f"Manifest table missing: {MANIFEST_TABLE_PATH}")
 
-plan_df = spark.table(PLAN_TABLE_PATH)
-if plan_df.limit(1).count() == 0:
-    logger.info("institution_ingest_plan is empty. Exiting (no-op).")
-    dbutils.notebook.exit("NO_WORK_ITEMS")
-
-manifest_df = spark.table(MANIFEST_TABLE_PATH).select("file_fingerprint", "status")
-plan_new_df = plan_df.join(manifest_df, on="file_fingerprint", how="inner").where(
-    F.col("status") == F.lit("NEW")
+plan_new_df = (
+    spark.table(PLAN_TABLE_PATH)
+    .join(
+        spark.table(MANIFEST_TABLE_PATH).select("file_fingerprint", "status"),
+        on="file_fingerprint",
+        how="inner",
+    )
+    .where(F.col("status") == F.lit("NEW"))
 )
 if plan_new_df.limit(1).count() == 0:
-    logger.info("No planned work items where manifest status=NEW. Exiting (no-op).")
     dbutils.notebook.exit("NO_NEW_TO_INGEST")
 
-plan_summary_df = (
-    plan_new_df.groupBy("file_name", "inst_col", "local_path")
-    .agg(F.countDistinct("institution_id").alias("institution_count"))
-    .orderBy("file_name")
-)
-logger.info("Planned work summary (manifest status=NEW):")
-display(plan_summary_df)
-
-file_groups = (
-    plan_new_df.select(
-        "file_fingerprint",
-        "file_name",
-        "local_path",
-        "inst_col",
-        "file_size",
-        "file_modified_time",
+# One collect: file metadata + institution ids grouped in Python.
+plan_rows = plan_new_df.select(
+    "file_fingerprint", "file_name", "local_path", "inst_col", "institution_id"
+).collect()
+by_file: dict[str, dict] = {}
+inst_ids_by_fp: dict[str, list[str]] = defaultdict(list)
+for row in plan_rows:
+    fp = row["file_fingerprint"]
+    inst_ids_by_fp[fp].append(row["institution_id"])
+    by_file.setdefault(
+        fp,
+        {
+            "file_name": row["file_name"],
+            "local_path": row["local_path"],
+            "inst_col": row["inst_col"],
+        },
     )
-    .distinct()
-    .collect()
-)
 
-logger.info(f"Preparing to ingest {len(file_groups)} NEW file(s).")
+run_id = runtime.workflow_run_id(dbutils)
+counts = defaultdict(int)
+bronze_dir_cache: dict[str, str] = {}
 
-workflow_run_id = _get_workflow_run_id()
-logger.info(f"Workflow run_id: {workflow_run_id}")
-
-processed_files = 0
-failed_files = 0
-skipped_files = 0
-institutions_written = 0
-institutions_skipped_existing = 0
-institutions_unresolved = 0
-institutions_no_bronze = 0
-institutions_empty = 0
-
-for fg in file_groups:
-    fp = fg["file_fingerprint"]
-    sftp_file_name = fg["file_name"]
-    local_path = fg["local_path"]
-    inst_col = fg["inst_col"]
+for fp, meta in by_file.items():
+    file_name = meta["file_name"]
+    local_path = meta["local_path"]
+    inst_col = meta["inst_col"]
+    inst_ids = sorted(set(inst_ids_by_fp[fp]))
 
     if not local_path or not os.path.exists(local_path):
-        err = f"Staged local file missing for fp={fp}: {local_path}"
-        logger.error(err)
         update_manifest(
             spark,
             MANIFEST_TABLE_PATH,
             fp,
             status="FAILED",
-            error_message=err[:8000],
-            run_id=workflow_run_id,
+            error_message=f"Staged local file missing: {local_path}"[:8000],
+            run_id=run_id,
         )
-        failed_files += 1
+        counts["failed_files"] += 1
         continue
 
     try:
-        header_cols = pd.read_csv(local_path, nrows=0).columns.tolist()
-        raw_inst_col = next(
-            (
-                c
-                for c in header_cols
-                if COLUMN_RENAMES.get(
-                    convert_to_snake_case(c), convert_to_snake_case(c)
-                )
-                == inst_col
-            ),
-            None,
-        )
-        dtype = {raw_inst_col: str} if raw_inst_col else None
-        df_full = pd.read_csv(local_path, on_bad_lines="warn", dtype=dtype)
-        df_full = df_full.rename(
-            columns={c: convert_to_snake_case(c) for c in df_full.columns}
-        )
-        df_full = df_full.rename(columns=COLUMN_RENAMES)
-
-        file_student_count = None
-        try:
-            student_col = next(
-                (
-                    c
-                    for c in ("student_id", "study_id", "student_guid")
-                    if c in df_full.columns
-                ),
-                None,
-            )
-            if student_col:
-                file_student_count = int(df_full[student_col].nunique(dropna=True))
-        except Exception:
-            file_student_count = None
-
-        file_cohort = None
-        try:
-            if "cohort" in df_full.columns:
-                vals = (
-                    df_full["cohort"]
-                    .dropna()
-                    .astype(str)
-                    .map(lambda x: x.strip())
-                    .tolist()
-                )
-                vals = [
-                    v for v in vals if v and v.lower() not in {"nan", "none", "null"}
-                ]
-                file_cohort = sorted(set(vals)) or None
-        except Exception:
-            file_cohort = None
-
-        file_cohort_term_pairs = None
-        try:
-            if {"cohort", "cohort_term"}.issubset(df_full.columns):
-                tmp = df_full[["cohort", "cohort_term"]].dropna()
-                tmp = tmp.assign(
-                    cohort=tmp["cohort"].astype(str).map(lambda x: x.strip()),
-                    cohort_term=tmp["cohort_term"]
-                    .astype(str)
-                    .map(lambda x: x.strip().upper()),
-                )
-                tmp = tmp[
-                    (tmp["cohort"] != "")
-                    & (tmp["cohort_term"] != "")
-                    & (~tmp["cohort"].str.lower().isin({"nan", "none", "null"}))
-                    & (~tmp["cohort_term"].str.lower().isin({"nan", "none", "null"}))
-                ]
-                tmp = tmp.drop_duplicates().sort_values(by=["cohort", "cohort_term"])
-                pairs = [
-                    {"cohort": r.cohort, "cohort_term": r.cohort_term}
-                    for r in tmp.itertuples(index=False)
-                ]
-                file_cohort_term_pairs = pairs or None
-        except Exception:
-            file_cohort_term_pairs = None
-
+        df_full = load_staged_csv(local_path, renames=COLUMN_RENAMES, inst_col=inst_col)
+        student_count, file_cohort, cohort_term_pairs = summarize_file_metrics(df_full)
         logger.info(
-            "file=%s fp=%s: student_count=%s cohort_count=%s",
-            sftp_file_name,
+            "file=%s fp=%s students=%s cohorts=%s institutions=%s",
+            file_name,
             fp,
-            file_student_count,
-            (len(file_cohort) if file_cohort else 0),
+            student_count,
+            len(file_cohort or []),
+            len(inst_ids),
         )
 
         if inst_col not in df_full.columns:
-            err = f"Expected institution column '{inst_col}' not found after normalization/renames for file={sftp_file_name} fp={fp}"
-            logger.error(err)
             update_manifest(
                 spark,
                 MANIFEST_TABLE_PATH,
                 fp,
                 status="FAILED",
-                error_message=err[:8000],
-                run_id=workflow_run_id,
+                error_message=f"Missing institution column '{inst_col}'"[:8000],
+                run_id=run_id,
                 cohort=file_cohort,
-                cohort_term_pairs=file_cohort_term_pairs,
-                student_count=file_student_count,
+                cohort_term_pairs=cohort_term_pairs,
+                student_count=student_count,
             )
-            failed_files += 1
+            counts["failed_files"] += 1
             continue
 
-        inst_ids = (
-            plan_new_df.where(F.col("file_fingerprint") == fp)
-            .select("institution_id")
-            .distinct()
-            .collect()
-        )
-        inst_ids = [r["institution_id"] for r in inst_ids]
-
         if not inst_ids:
-            logger.info(
-                f"No institution_ids in plan for file={sftp_file_name} fp={fp}. Marking BRONZE_WRITTEN (no-op)."
-            )
             update_manifest(
                 spark,
                 MANIFEST_TABLE_PATH,
                 fp,
                 status="BRONZE_WRITTEN",
                 error_message=None,
-                run_id=workflow_run_id,
+                run_id=run_id,
                 cohort=file_cohort,
-                cohort_term_pairs=file_cohort_term_pairs,
-                student_count=file_student_count,
+                cohort_term_pairs=cohort_term_pairs,
+                student_count=student_count,
             )
-            skipped_files += 1
+            counts["skipped_files"] += 1
             continue
 
-        preview_inst_ids = inst_ids[:10]
-        logger.info(
-            f"file={sftp_file_name} fp={fp}: ingesting {len(inst_ids)} institution(s) "
-            f"using inst_col='{inst_col}'. Preview first 10 IDs={preview_inst_ids}"
-        )
-
-        file_errors = []
+        # One pass over the frame instead of N equality filters.
+        grouped = {
+            str(k): g.reset_index(drop=True)
+            for k, g in df_full.groupby(inst_col, sort=False)
+            if str(k) in set(map(str, inst_ids))
+        }
+        file_errors: list[str] = []
+        out_name = output_file_name_from_sftp(file_name)
 
         for inst_id in inst_ids:
             try:
-                target_inst_id = str(inst_id)
-                filtered_df = df_full[df_full[inst_col] == target_inst_id].reset_index(
-                    drop=True
-                )
+                filtered = grouped.get(str(inst_id))
+                if filtered is None or filtered.empty:
+                    counts["institutions_empty"] += 1
+                    continue
 
-                if filtered_df.empty:
-                    institutions_empty += 1
+                _school_check_log(file_name, inst_id, filtered)
+
+                try:
+                    info = fetch_institution_by_pdp_id(api_client, inst_id)
+                except Exception as api_err:
+                    counts["institutions_unresolved"] += 1
+                    raise ValueError(f"SST API lookup failed: {api_err}") from api_err
+
+                inst_name = info.get("name")
+                if not inst_name:
+                    counts["institutions_unresolved"] += 1
+                    raise ValueError(f"SST API returned no name for pdp_id={inst_id}")
+
+                prefix = databricksify_inst_name(inst_name)
+                if prefix not in bronze_dir_cache:
+                    try:
+                        bronze_dir_cache[prefix] = resolve_bronze_volume_dir(
+                            spark, CATALOG, prefix
+                        )
+                    except ValueError as bronze_err:
+                        counts["institutions_no_bronze"] += 1
+                        raise ValueError(
+                            f"Bronze missing for {inst_name!r} ({prefix}): {bronze_err}"
+                        ) from bronze_err
+
+                volume_dir = bronze_dir_cache[prefix]
+                full_path = os.path.join(volume_dir, out_name)
+                if os.path.exists(full_path):
+                    counts["institutions_skipped_existing"] += 1
                     logger.info(
-                        f"file={sftp_file_name} fp={fp}: institution {inst_id} has 0 rows; skipping."
+                        "Skip existing file=%s inst=%s path=%s",
+                        file_name,
+                        inst_id,
+                        full_path,
                     )
                     continue
 
-                # Parity with interactive PIPELINE_pdp_to_databricks checks.
-                if {"cohort", "cohort_term"}.issubset(filtered_df.columns):
-                    latest_cohort = filtered_df["cohort"].max()
-                    latest_cohort_terms = (
-                        filtered_df.loc[
-                            filtered_df["cohort"] == latest_cohort, "cohort_term"
-                        ]
-                        .dropna()
-                        .astype(str)
-                        .unique()
-                        .tolist()
-                    )
-                    logger.info(
-                        "School check file=%s inst=%s rows=%s latest_cohort=%s "
-                        "latest_cohort_terms=%s",
-                        sftp_file_name,
-                        inst_id,
-                        len(filtered_df),
-                        latest_cohort,
-                        latest_cohort_terms,
-                    )
-                else:
-                    logger.info(
-                        "School check file=%s inst=%s rows=%s "
-                        "(no cohort/cohort_term columns)",
-                        sftp_file_name,
-                        inst_id,
-                        len(filtered_df),
-                    )
-
-                try:
-                    inst_info = fetch_institution_by_pdp_id(api_client, inst_id)
-                except Exception as api_err:
-                    institutions_unresolved += 1
-                    raise ValueError(
-                        f"SST API lookup failed for pdp_id={inst_id}: {api_err}"
-                    ) from api_err
-
-                inst_name = inst_info.get("name")
-                if not inst_name:
-                    institutions_unresolved += 1
-                    raise ValueError(
-                        f"SST API returned no 'name' for pdp_id={inst_id}. "
-                        f"Response={inst_info}"
-                    )
-
-                inst_prefix = databricksify_inst_name(inst_name)
                 logger.info(
-                    "Resolved school file=%s pdp_id=%s name=%r prefix=%s",
-                    sftp_file_name,
+                    "Write file=%s inst=%s name=%r -> %s/%s",
+                    file_name,
                     inst_id,
                     inst_name,
-                    inst_prefix,
-                )
-
-                try:
-                    bronze_schema = find_bronze_schema(spark, CATALOG, inst_prefix)
-                    bronze_volume_name = find_bronze_volume_name(
-                        spark, CATALOG, bronze_schema
-                    )
-                except ValueError as bronze_err:
-                    institutions_no_bronze += 1
-                    raise ValueError(
-                        f"Bronze not provisioned for pdp_id={inst_id} "
-                        f"name={inst_name!r} prefix={inst_prefix}: {bronze_err}"
-                    ) from bronze_err
-
-                volume_dir = f"/Volumes/{CATALOG}/{bronze_schema}/{bronze_volume_name}"
-
-                out_file_name = output_file_name_from_sftp(sftp_file_name)
-                full_path = os.path.join(volume_dir, out_file_name)
-
-                if os.path.exists(full_path):
-                    institutions_skipped_existing += 1
-                    logger.info(
-                        f"file={sftp_file_name} inst={inst_id}: already exists in "
-                        f"{volume_dir}; skipping write."
-                    )
-                    continue
-
-                logger.info(
-                    f"file={sftp_file_name} inst={inst_id}: writing to {volume_dir} "
-                    f"as {out_file_name}"
+                    volume_dir,
+                    out_name,
                 )
                 process_and_save_file(
-                    volume_dir=volume_dir, file_name=out_file_name, df=filtered_df
+                    volume_dir=volume_dir, file_name=out_name, df=filtered
                 )
-                institutions_written += 1
-                logger.info(f"file={sftp_file_name} inst={inst_id}: write complete.")
-
-            except Exception as e:
+                counts["institutions_written"] += 1
+            except Exception as exc:
                 msg = (
-                    f"inst_ingest_failed file={sftp_file_name} fp={fp} "
-                    f"inst={inst_id}: {e}"
+                    f"inst_ingest_failed file={file_name} fp={fp} inst={inst_id}: {exc}"
                 )
                 logger.exception(msg)
                 file_errors.append(msg)
 
         if file_errors:
-            err = " | ".join(file_errors)[:8000]
             update_manifest(
                 spark,
                 MANIFEST_TABLE_PATH,
                 fp,
                 status="FAILED",
-                error_message=err,
-                run_id=workflow_run_id,
+                error_message=" | ".join(file_errors)[:8000],
+                run_id=run_id,
                 cohort=file_cohort,
-                cohort_term_pairs=file_cohort_term_pairs,
-                student_count=file_student_count,
+                cohort_term_pairs=cohort_term_pairs,
+                student_count=student_count,
             )
-            failed_files += 1
+            counts["failed_files"] += 1
         else:
             update_manifest(
                 spark,
@@ -452,46 +268,30 @@ for fg in file_groups:
                 fp,
                 status="BRONZE_WRITTEN",
                 error_message=None,
-                run_id=workflow_run_id,
+                run_id=run_id,
                 cohort=file_cohort,
-                cohort_term_pairs=file_cohort_term_pairs,
-                student_count=file_student_count,
+                cohort_term_pairs=cohort_term_pairs,
+                student_count=student_count,
             )
-            processed_files += 1
+            counts["processed_files"] += 1
 
-    except Exception as e:
-        msg = f"fatal_file_error file={sftp_file_name} fp={fp}: {e}"
-        logger.exception(msg)
+    except Exception as exc:
+        logger.exception("fatal_file_error file=%s fp=%s: %s", file_name, fp, exc)
         update_manifest(
             spark,
             MANIFEST_TABLE_PATH,
             fp,
             status="FAILED",
-            error_message=msg[:8000],
-            run_id=workflow_run_id,
+            error_message=f"fatal_file_error file={file_name} fp={fp}: {exc}"[:8000],
+            run_id=run_id,
         )
-        failed_files += 1
+        counts["failed_files"] += 1
 
-logger.info(
-    "Done. processed_files=%s failed_files=%s skipped_files=%s "
-    "institutions_written=%s institutions_skipped_existing=%s "
-    "institutions_unresolved=%s institutions_no_bronze=%s institutions_empty=%s",
-    processed_files,
-    failed_files,
-    skipped_files,
-    institutions_written,
-    institutions_skipped_existing,
-    institutions_unresolved,
-    institutions_no_bronze,
-    institutions_empty,
-)
-if institutions_unresolved or institutions_no_bronze:
-    logger.warning(
-        "Some institutions were not fully ingestible (API unresolved or missing bronze). "
-        "See per-institution errors above; file-level manifest status reflects failures."
-    )
+logger.info("Done counts=%s", dict(counts))
 dbutils.notebook.exit(
-    f"PROCESSED={processed_files};FAILED={failed_files};SKIPPED={skipped_files};"
-    f"WRITTEN={institutions_written};EXISTING={institutions_skipped_existing};"
-    f"UNRESOLVED={institutions_unresolved};NO_BRONZE={institutions_no_bronze}"
+    "PROCESSED={processed_files};FAILED={failed_files};SKIPPED={skipped_files};"
+    "WRITTEN={institutions_written};EXISTING={institutions_skipped_existing};"
+    "UNRESOLVED={institutions_unresolved};NO_BRONZE={institutions_no_bronze}".format_map(
+        defaultdict(int, counts)
+    )
 )
