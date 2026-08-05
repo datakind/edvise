@@ -171,11 +171,27 @@ def read_resolved_parquet(path: str) -> pd.DataFrame:
     return read_parquet(resolved)
 
 
-def _read_and_prepare_data(
+def _load_from_source(
     *,
     file_path: t.Optional[str],
     table_path: t.Optional[str],
     spark_session: t.Optional[pyspark.sql.SparkSession],
+    **kwargs: object,
+) -> pd.DataFrame:
+    if not bool(table_path) ^ bool(file_path):
+        raise ValueError("exactly one of table_path or file_path must be specified")
+    if table_path and not spark_session:
+        raise ValueError("spark session must be given when reading data from table")
+    if file_path:
+        if str(file_path).lower().endswith(".parquet"):
+            return read_resolved_parquet(str(file_path))
+        return from_csv_file(file_path, spark_session, **kwargs)  # type: ignore
+    return from_delta_table(table_path, spark_session)  # type: ignore
+
+
+def _prepare_loaded_df(
+    df: pd.DataFrame,
+    *,
     schema: t.Optional[type[pda.DataFrameModel]],
     converter_func: t.Optional[t.Callable[[pd.DataFrame], pd.DataFrame]],
     dttm_format: t.Optional[str] = None,
@@ -183,21 +199,8 @@ def _read_and_prepare_data(
     datetime_cols: t.Sequence[str] = (),
     null_replacements: dict[str, str | list[str]] = {},
     bool_cols: t.Sequence[str] = (),
-    **kwargs: object,
 ) -> pd.DataFrame:
-    if not bool(table_path) ^ bool(file_path):
-        raise ValueError("exactly one of table_path or file_path must be specified")
-    elif table_path and not spark_session:
-        raise ValueError("spark session must be given when reading data from table")
-
-    if file_path:
-        if str(file_path).lower().endswith(".parquet"):
-            df = read_resolved_parquet(str(file_path))
-        else:
-            df = from_csv_file(file_path, spark_session, **kwargs)  # type: ignore
-    else:
-        df = from_delta_table(table_path, spark_session)  # type: ignore
-
+    df = df.copy()
     df = df.rename(columns=utils.data_cleaning.convert_to_snake_case)
 
     transformations: dict[str, pd.Series] = {}
@@ -230,12 +233,48 @@ def _read_and_prepare_data(
     return _maybe_convert_maybe_validate_data(df, converter_func, schema)
 
 
+def _read_and_prepare_data(
+    *,
+    file_path: t.Optional[str],
+    table_path: t.Optional[str],
+    spark_session: t.Optional[pyspark.sql.SparkSession],
+    schema: t.Optional[type[pda.DataFrameModel]],
+    converter_func: t.Optional[t.Callable[[pd.DataFrame], pd.DataFrame]],
+    dttm_format: t.Optional[str] = None,
+    string_cols_to_uppercase: t.Optional[t.Sequence[str]] = None,
+    datetime_cols: t.Sequence[str] = (),
+    null_replacements: dict[str, str | list[str]] = {},
+    bool_cols: t.Sequence[str] = (),
+    **kwargs: object,
+) -> pd.DataFrame:
+    loaded = _load_from_source(
+        file_path=file_path,
+        table_path=table_path,
+        spark_session=spark_session,
+        **kwargs,
+    )
+    return _prepare_loaded_df(
+        loaded,
+        schema=schema,
+        converter_func=converter_func,
+        dttm_format=dttm_format,
+        string_cols_to_uppercase=string_cols_to_uppercase,
+        datetime_cols=datetime_cols,
+        null_replacements=null_replacements,
+        bool_cols=bool_cols,
+    )
+
+
+# Accepted PDP course date formats (tried in order; none matching raises).
+PDP_COURSE_DTTM_FORMATS: t.Tuple[str, ...] = ("ISO8601", "%Y%m%d.0", "%Y%m%d")
+
+
 def read_raw_pdp_course_data(
     *,
     table_path: t.Optional[str] = None,
     file_path: t.Optional[str] = None,
     schema: t.Optional[type[pda.DataFrameModel]] = None,
-    dttm_format: str = "%Y%m%d",
+    dttm_format: t.Union[str, t.Sequence[str]] = PDP_COURSE_DTTM_FORMATS,
     converter_func: t.Optional[t.Callable[[pd.DataFrame], pd.DataFrame]] = None,
     spark_session: t.Optional[pyspark.sql.SparkSession] = None,
     **kwargs: object,
@@ -250,7 +289,9 @@ def read_raw_pdp_course_data(
         schema: "DataFrameModel", such as those specified in :mod:`schemas` ,
             used to parse and validate the raw data. If None, parsing/validation
             is skipped, and the raw data is returned as-is.
-        dttm_format: Datetime format for "Course Begin/End Date" columns.
+        dttm_format: Datetime format(s) for "Course Begin/End Date" columns.
+            A sequence tries each in order until one succeeds (default:
+            :data:`PDP_COURSE_DTTM_FORMATS`); none matching raises.
         converter_func: If the raw data is incompatible with ``schema`` ,
             provide a function that takes the raw dataframe as its sole input,
             performs whatever (minimal) transformations necessary to bring the data
@@ -274,17 +315,29 @@ def read_raw_pdp_course_data(
         - https://pandas.pydata.org/pandas-docs/stable/reference/api/pandas.read_csv.html
         - https://pandera.readthedocs.io/en/stable/reference/generated/pandera.api.dataframe.model.DataFrameModel.html#pandera.api.dataframe.model.DataFrameModel.validate
     """
-    return _read_and_prepare_data(
-        table_path=table_path,
+    formats = (dttm_format,) if isinstance(dttm_format, str) else tuple(dttm_format)
+    loaded = _load_from_source(
         file_path=file_path,
-        schema=schema,
+        table_path=table_path,
         spark_session=spark_session,
-        converter_func=converter_func,
-        dttm_format=dttm_format,
-        string_cols_to_uppercase=("academic_term",),
-        datetime_cols=("course_begin_date", "course_end_date"),
-        **kwargs,  # type: ignore
+        **kwargs,
     )
+    last_error: t.Optional[Exception] = None
+    for fmt in formats:
+        try:
+            return _prepare_loaded_df(
+                loaded,
+                schema=schema,
+                converter_func=converter_func,
+                dttm_format=fmt,
+                string_cols_to_uppercase=("academic_term",),
+                datetime_cols=("course_begin_date", "course_end_date"),
+            )
+        except ValueError as e:
+            last_error = e
+    if last_error is not None:
+        raise last_error
+    raise ValueError("No datetime formats provided for PDP course data.")
 
 
 def read_raw_pdp_cohort_data(
