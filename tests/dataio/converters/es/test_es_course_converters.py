@@ -1,6 +1,30 @@
+import logging
+
 import pandas as pd
 
+import edvise.dataio.es_course_converters as es_course_converters
 from edvise.dataio.es_course_converters import handle_missing_grades
+
+
+def _unique_nulls(n: int, *, entry: bool = True) -> pd.DataFrame:
+    years, terms = ("2020-21", "2021-22"), ("FALL", "SPRING")
+    df = pd.DataFrame(
+        {
+            "learner_id": [str(i) for i in range(n)],
+            "course_prefix": "ENG",
+            "course_number": [str(100 + i) for i in range(n)],
+            "academic_year": [years[i % 2] for i in range(n)],
+            "academic_term": [terms[i % 2] for i in range(n)],
+            "grade": pd.NA,
+            "course_credits_earned": 0.0,
+            "course_credits_attempted": 3.0,
+        }
+    )
+    if entry:
+        entry_years = ("2019-20", "2020-21")
+        df["entry_year"] = [entry_years[i % 2] for i in range(n)]
+        df["entry_term"] = [terms[i % 2] for i in range(n)]
+    return df
 
 
 def test_dup_null_earned_kept_as_m_fills_credits():
@@ -66,3 +90,33 @@ def test_reproducible_same_input_same_output():
         }
     )
     pd.testing.assert_frame_equal(handle_missing_grades(df), handle_missing_grades(df))
+
+
+def test_high_unique_drop_logs_error_and_term_breakdowns(monkeypatch, caplog):
+    monkeypatch.setattr(es_course_converters, "_HIGH_DROP", 2)
+    caplog.set_level(logging.INFO)
+    assert handle_missing_grades(_unique_nulls(3)).empty
+    assert "dropped 3 unique null-grade rows" in caplog.text
+    assert "contact the school" in caplog.text
+    assert "All entry_year / entry_term pairs with counts:" in caplog.text
+    assert "All academic_year / academic_term pairs with counts:" in caplog.text
+    assert "2019-20" in caplog.text and "FALL" in caplog.text
+    assert "2020-21" in caplog.text and "SPRING" in caplog.text
+
+
+def test_below_high_drop_skips_term_breakdown_logs(monkeypatch, caplog):
+    monkeypatch.setattr(es_course_converters, "_HIGH_DROP", 5)
+    caplog.set_level(logging.INFO)
+    assert handle_missing_grades(_unique_nulls(2)).empty
+    assert "contact the school" not in caplog.text
+    assert "All entry_year / entry_term pairs with counts:" not in caplog.text
+    assert "All academic_year / academic_term pairs with counts:" not in caplog.text
+
+
+def test_high_unique_drop_without_entry_cols_still_logs_academic(monkeypatch, caplog):
+    monkeypatch.setattr(es_course_converters, "_HIGH_DROP", 2)
+    caplog.set_level(logging.INFO)
+    assert handle_missing_grades(_unique_nulls(2, entry=False)).empty
+    assert "contact the school" in caplog.text
+    assert "Missing fields: 'entry_year' or 'entry_term'" in caplog.text
+    assert "All academic_year / academic_term pairs with counts:" in caplog.text

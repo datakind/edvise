@@ -9,6 +9,7 @@ _MISSING = frozenset(
 )
 _HIGH_DROP = 100
 _KEY = ("learner_id", "course_prefix", "course_number")
+_TERM_PAIRS = (("entry_year", "entry_term"), ("academic_year", "academic_term"))
 
 
 def handle_missing_grades(df: pd.DataFrame) -> pd.DataFrame:
@@ -131,11 +132,16 @@ def handle_missing_grades(df: pd.DataFrame) -> pd.DataFrame:
         _pct(n_earned_modified),
     )
     if n_unique >= _HIGH_DROP:
+        from edvise.data_audit.eda import log_terms
+
         LOGGER.error(
             "handle_missing_grades: dropped %d unique null-grade rows — "
             "count is high; contact the school.",
             n_unique,
         )
+        dropped = df.loc[drop_unique]
+        for year_col, term_col in _TERM_PAIRS:
+            log_terms(dropped, year_col, term_col)
     if keep.any() and keys is not None and catalog is not None:
         lines = ["handle_missing_grades: duplicate-match examples"]
         for i, idx in enumerate(df.index[keep][:5], 1):
