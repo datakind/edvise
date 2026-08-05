@@ -8,7 +8,7 @@ import pandas as pd
 from pandas.core.groupby import DataFrameGroupBy
 
 import edvise.utils as utils
-from . import constants
+from . import constants, shared
 from .column_names import CumulativeExpandingColumnSpec, CumulativeFeatureSpec
 
 LOGGER = logging.getLogger(__name__)
@@ -237,12 +237,25 @@ def cumnum_unique_and_repeated_features(
     Compute the cumulative number of repeated elements within each (student) group
     for a set of columns whose values are per-row lists of elements.
 
+    For ``course_ids``, values are normalized to catalog ids (strip trailing
+    ``-{n}``) and deduped within each term so PDP/GenAI suffix pairs do not
+    inflate unique/repeat counts; cross-term retakes still count as repeats.
+
     Args:
         df_grped
         cols
     """
     LOGGER.info("computing cumulative elements features ...")
-    df_accumulated_lists = df_grped[cols].transform(_expand_elements)
+    df_accumulated_lists = pd.DataFrame(
+        {
+            col: (
+                df_grped[col].transform(_expand_catalog_course_id_elements)
+                if col == "course_ids"
+                else df_grped[col].transform(_expand_elements)
+            )
+            for col in cols
+        }
+    )
     return df_accumulated_lists.assign(
         **{
             f"cumnum_unique_{col}": ft.partial(num_unique_elements, col=col)
@@ -267,8 +280,14 @@ def num_repeated_elements(df: pd.DataFrame, *, col: str) -> pd.Series:
     )
 
 
-def _expand_elements(x: list) -> list:
+def _expand_elements(x: Iterable) -> list:
     return list(itertools.accumulate(x, func=_concat_elements))
+
+
+def _expand_catalog_course_id_elements(x: Iterable) -> list:
+    """Like :func:`_expand_elements` after catalog-normalizing each term's ids."""
+    normalized = (shared.dedupe_catalog_course_ids(term_ids) for term_ids in x)
+    return list(itertools.accumulate(normalized, func=_concat_elements))
 
 
 def _concat_elements(*args: Iterable) -> list:

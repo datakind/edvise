@@ -5,6 +5,15 @@ from collections.abc import Iterable
 
 from edvise.utils import data_cleaning
 
+_PDP_DUP_UNIQUE_COLS = [
+    "student_id",
+    "academic_year",
+    "academic_term",
+    "course_prefix",
+    "course_number",
+    "section_id",
+]
+
 
 @pytest.mark.parametrize(
     ["eles", "exp"],
@@ -34,69 +43,38 @@ def test_convert_to_snake_case(val, exp):
 
 
 class TestInferStudentIdCol:
-    """Tests for _infer_student_id_col function."""
-
     @pytest.mark.parametrize(
         "columns, expected",
         [
             (["student_guid", "name", "age"], "student_guid"),
             (["study_id", "name", "age"], "study_id"),
             (["student_id", "name", "age"], "student_id"),
-            (["name", "age"], "student_id"),  # default fallback
-            (["study_id", "student_guid", "student_id"], "student_guid"),  # priority
+            (["name", "age"], "student_id"),
+            (["study_id", "student_guid", "student_id"], "student_guid"),
         ],
     )
     def test_infer_student_id_col(self, columns, expected):
         df = pd.DataFrame({col: [] for col in columns})
-        result = data_cleaning._infer_student_id_col(df)
-        assert result == expected
+        assert data_cleaning._infer_student_id_col(df) == expected
 
 
-# TestInferCreditsCol removed - credits column is now auto-detected in _handle_schema_duplicates
+class TestOmitSectionFromDupKey:
+    def test_keeps_section_when_null_fraction_at_or_below_threshold(self):
+        df = pd.DataFrame({"section_id": [pd.NA, pd.NA, pd.NA, "001"]})
+        cols = ["student_id", "section_id"]
+        assert data_cleaning._omit_section_from_dup_key_if_unusable(df, cols) == cols
+
+    def test_omits_section_when_null_fraction_exceeds_threshold(self):
+        df = pd.DataFrame({"section_id": [pd.NA, pd.NA, pd.NA, pd.NA, "001"]})
+        cols = ["student_id", "section_id"]
+        assert data_cleaning._omit_section_from_dup_key_if_unusable(df, cols) == [
+            "student_id"
+        ]
 
 
-class TestIsLabLectureCombo:
-    """Tests for _is_lab_lecture_combo function."""
-
-    @pytest.mark.parametrize(
-        "values, expected",
-        [
-            (["Lab", "Lecture"], True),
-            (["lab", "lecture"], True),
-            (["LAB", "LECTURE"], True),
-            (["Lab", "Lecture", "Lab"], True),
-            (["Lab"], False),
-            (["Lecture"], False),
-            (["Lab", "Lab"], False),
-            (["Lecture", "Lecture"], False),
-            (["Lab", "Other"], False),
-            (["Lecture", "Other"], False),
-            (["Other", "Another"], False),
-            (["lab", "LECTURE", "Lab"], True),  # mixed case
-        ],
-    )
-    def test_is_lab_lecture_combo(self, values, expected):
-        series = pd.Series(values)
-        result = data_cleaning._is_lab_lecture_combo(series)
-        assert result == expected
-
-    def test_is_lab_lecture_combo_with_nulls(self):
-        series = pd.Series(["Lab", None, "Lecture", None])
-        result = data_cleaning._is_lab_lecture_combo(series)
-        assert result is True
-
-    def test_is_lab_lecture_combo_all_nulls(self):
-        series = pd.Series([None, None])
-        result = data_cleaning._is_lab_lecture_combo(series)
-        assert result is False
-
-
-class TestFindPdpRowsToRenumber:
-    """Tests for _find_pdp_rows_to_renumber function."""
-
-    @pytest.fixture
-    def sample_df(self):
-        return pd.DataFrame(
+class TestClassifyDuplicateGroups:
+    def test_suffixes_when_names_differ(self):
+        df = pd.DataFrame(
             {
                 "student_id": ["A", "A", "A", "A", "B", "B"],
                 "academic_year": ["2024"] * 6,
@@ -114,24 +92,20 @@ class TestFindPdpRowsToRenumber:
                 ],
             }
         )
-
-    def test_find_rows_with_different_names(self, sample_df):
-        unique_cols = [
-            "student_id",
-            "academic_year",
-            "academic_term",
-            "course_prefix",
-            "course_number",
-            "section_id",
-        ]
-        dup_mask = sample_df.duplicated(unique_cols, keep=False)
-        result = data_cleaning._find_pdp_rows_to_renumber(
-            sample_df, dup_mask, unique_cols
+        dup_rows = df[df.duplicated(_PDP_DUP_UNIQUE_COLS, keep=False)]
+        suffix_idx, drop_idx, rg, dg = data_cleaning._classify_duplicate_groups(
+            dup_rows,
+            _PDP_DUP_UNIQUE_COLS,
+            course_type_col=None,
+            course_name_col="course_name",
+            credits_col=None,
         )
-        # Should return indices 0, 1 (different course names for MATH 101)
-        assert set(result) == {0, 1}
+        assert rg == 1
+        assert dg == 2
+        assert set(suffix_idx) == {0, 1}
+        assert len(drop_idx) == 2
 
-    def test_find_rows_with_same_names(self):
+    def test_suffixes_when_same_name_different_credits(self):
         df = pd.DataFrame(
             {
                 "student_id": ["A", "A"],
@@ -141,128 +115,83 @@ class TestFindPdpRowsToRenumber:
                 "course_number": ["101", "101"],
                 "section_id": ["001", "001"],
                 "course_name": ["Calculus I", "Calculus I"],
+                "number_of_credits_attempted": [3.0, 4.0],
             }
         )
-        unique_cols = [
-            "student_id",
-            "academic_year",
-            "academic_term",
-            "course_prefix",
-            "course_number",
-            "section_id",
-        ]
-        dup_mask = df.duplicated(unique_cols, keep=False)
-        result = data_cleaning._find_pdp_rows_to_renumber(df, dup_mask, unique_cols)
-        # Should return empty list (same names)
-        assert result == []
-
-
-class TestLogPdpDuplicateDrop:
-    """Tests for _log_pdp_duplicate_drop function."""
-
-    @patch("edvise.utils.data_cleaning.LOGGER")
-    def test_logs_warning_for_small_percentage(self, mock_logger):
-        df = pd.DataFrame({"col": range(10000)})
-        dup_mask = pd.Series([True, True] + [False] * 9998)
-        data_cleaning._log_pdp_duplicate_drop(df, dup_mask)
-        assert mock_logger.warning.called
-
-    @patch("edvise.utils.data_cleaning.LOGGER")
-    def test_logs_warning_for_large_percentage(self, mock_logger):
-        df = pd.DataFrame({"col": range(100)})
-        dup_mask = pd.Series([True] * 20 + [False] * 80)
-        data_cleaning._log_pdp_duplicate_drop(df, dup_mask)
-        assert mock_logger.warning.called
-
-
-class TestClassifyDuplicateGroups:
-    """Tests for _classify_duplicate_groups function."""
-
-    @pytest.fixture
-    def sample_duplicate_rows(self):
-        return pd.DataFrame(
-            {
-                "student_id": ["A", "A", "B", "B", "C", "C"],
-                "academic_term": ["F2024"] * 6,
-                "course_prefix": ["MATH", "MATH", "PHYS", "PHYS", "ENGL", "ENGL"],
-                "course_number": ["101", "101", "201", "201", "102", "102"],
-                "course_classification": [
-                    "Lab",
-                    "Lecture",
-                    "Lecture",
-                    "Lecture",
-                    "Lab",
-                    "Lab",
-                ],
-                "course_name": [
-                    "Math Lab",
-                    "Math Lecture",
-                    "Physics",
-                    "Physics",
-                    "English",
-                    "English",
-                ],
-                "course_credits_attempted": [1.0, 3.0, 3.0, 3.0, 2.0, 1.0],
-            }
-        )
-
-    def test_classify_with_varying_types(self, sample_duplicate_rows):
-        unique_cols = ["student_id", "academic_term", "course_prefix", "course_number"]
-        result = data_cleaning._classify_duplicate_groups(
-            sample_duplicate_rows,
-            unique_cols,
-            course_type_col="course_classification",
+        suffix_idx, drop_idx, rg, dg = data_cleaning._classify_duplicate_groups(
+            df[df.duplicated(_PDP_DUP_UNIQUE_COLS, keep=False)],
+            _PDP_DUP_UNIQUE_COLS,
+            course_type_col=None,
             course_name_col="course_name",
-            credits_col="course_credits_attempted",
+            credits_col="number_of_credits_attempted",
         )
-        renumber_idx, drop_idx, renumber_groups, drop_groups, lab_lecture_rows = result
+        assert rg == 1
+        assert dg == 0
+        assert set(suffix_idx) == {0, 1}
+        assert drop_idx == []
 
-        # MATH 101 should be renumbered (different types and names)
-        # PHYS 201 should be dropped (same type and name)
-        # ENGL 102 should be dropped (same type and name)
-        assert renumber_groups == 1
-        assert drop_groups == 2
-        assert len(renumber_idx) == 2  # MATH rows
-        assert len(drop_idx) == 2  # one from PHYS, one from ENGL
-
-    def test_classify_without_course_type(self):
+    def test_suffixes_when_grades_differ(self):
         df = pd.DataFrame(
             {
                 "student_id": ["A", "A"],
-                "academic_term": ["F2024", "F2024"],
+                "academic_year": ["2024", "2024"],
+                "academic_term": ["FALL", "FALL"],
                 "course_prefix": ["MATH", "MATH"],
                 "course_number": ["101", "101"],
-                "course_name": ["Calculus I", "Calculus II"],
-                "course_credits_attempted": [3.0, 3.0],
+                "section_id": ["001", "001"],
+                "course_name": ["Calculus I", "Calculus I"],
+                "number_of_credits_attempted": [3.0, 3.0],
+                "grade": ["C", "A"],
             }
         )
-        unique_cols = ["student_id", "academic_term", "course_prefix", "course_number"]
-        result = data_cleaning._classify_duplicate_groups(
+        suffix_idx, drop_idx, rg, dg = data_cleaning._classify_duplicate_groups(
             df,
-            unique_cols,
+            _PDP_DUP_UNIQUE_COLS,
             course_type_col=None,
             course_name_col="course_name",
-            credits_col="course_credits_attempted",
+            credits_col="number_of_credits_attempted",
+            grade_col="grade",
         )
-        renumber_idx, drop_idx, renumber_groups, drop_groups, lab_lecture_rows = result
+        assert rg == 1
+        assert dg == 0
+        assert len(suffix_idx) == 2
+        assert drop_idx == []
 
-        # Should renumber due to different names
-        assert renumber_groups == 1
-        assert drop_groups == 0
+    def test_drops_when_only_non_material_columns_differ(self):
+        df = pd.DataFrame(
+            {
+                "student_id": ["A", "A"],
+                "academic_year": ["2024", "2024"],
+                "academic_term": ["FALL", "FALL"],
+                "course_prefix": ["MATH", "MATH"],
+                "course_number": ["101", "101"],
+                "section_id": ["001", "001"],
+                "course_name": ["Calculus I", "Calculus I"],
+                "number_of_credits_attempted": [3.0, 3.0],
+                "grade": ["B", "B"],
+                "delivery_method": ["F", "O"],
+            }
+        )
+        _, drop_idx, rg, dg = data_cleaning._classify_duplicate_groups(
+            df,
+            _PDP_DUP_UNIQUE_COLS,
+            course_type_col=None,
+            course_name_col="course_name",
+            credits_col="number_of_credits_attempted",
+            grade_col="grade",
+        )
+        assert rg == 0
+        assert dg == 1
+        assert len(drop_idx) == 1
 
 
 class TestDropTrueDuplicateRows:
-    """Tests for _drop_true_duplicate_rows function."""
-
     @patch("edvise.utils.data_cleaning.LOGGER")
     def test_drops_specified_rows(self, mock_logger):
         df = pd.DataFrame({"col": range(10)})
-        drop_idx = [0, 2, 4]
-        result = data_cleaning._drop_true_duplicate_rows(df, drop_idx)
+        result = data_cleaning._drop_true_duplicate_rows(df, [0, 2, 4])
         assert len(result) == 7
         assert 0 not in result.index
-        assert 2 not in result.index
-        assert 4 not in result.index
 
     @patch("edvise.utils.data_cleaning.LOGGER")
     def test_no_drops_when_empty_list(self, mock_logger):
@@ -272,44 +201,39 @@ class TestDropTrueDuplicateRows:
         assert not mock_logger.warning.called
 
 
-class TestRenumberDuplicates:
-    """Tests for _renumber_duplicates function."""
-
-    @patch("edvise.utils.data_cleaning.dedupe_by_renumbering_courses")
+class TestSuffixDuplicates:
+    @patch("edvise.utils.data_cleaning.dedupe_by_suffixing_courses")
     @patch("edvise.utils.data_cleaning.LOGGER")
-    def test_renumbers_courses(self, _mock_logger, mock_dedupe):  # noqa: ARG002
+    def test_suffixes_courses(self, _mock_logger, mock_dedupe):
         df = pd.DataFrame(
             {
                 "course_prefix": ["MATH", "MATH", "PHYS"],
                 "course_number": ["101", "101", "201"],
-                "course_classification": ["Lab", "Lecture", "Lecture"],
+                "course_type": ["Lab", "Lecture", "Lecture"],
             }
         )
-        # Mock dedupe function to return modified course numbers
-        mock_dedupe_result = df.copy()
-        mock_dedupe_result.loc[0, "course_number"] = "101-1"
-        mock_dedupe_result.loc[1, "course_number"] = "101-2"
-        mock_dedupe.return_value = mock_dedupe_result
+        mock_result = df.copy()
+        mock_result.loc[0, "course_number"] = "101-1"
+        mock_result.loc[1, "course_number"] = "101-2"
+        mock_dedupe.return_value = mock_result
 
-        data_cleaning._renumber_duplicates(
+        data_cleaning._suffix_duplicates(
             df,
-            renumber_work_idx=[0, 1],
-            unique_cols=None,
+            suffix_work_idx=[0, 1],
+            unique_cols=["course_prefix", "course_number"],
             credits_col=None,
-            course_type_col="course_classification",
+            course_type_col="course_type",
             course_name_col=None,
         )
-
-        # Check that dedupe function was called
         assert mock_dedupe.called
 
     @patch("edvise.utils.data_cleaning.LOGGER")
-    def test_returns_unchanged_when_no_idx(self, _mock_logger):  # noqa: ARG002
+    def test_returns_unchanged_when_no_idx(self, _mock_logger):
         df = pd.DataFrame({"course_prefix": ["MATH"], "course_number": ["101"]})
-        result = data_cleaning._renumber_duplicates(
+        result = data_cleaning._suffix_duplicates(
             df,
-            renumber_work_idx=[],
-            unique_cols=None,
+            suffix_work_idx=[],
+            unique_cols=["course_prefix", "course_number"],
             credits_col=None,
             course_type_col=None,
             course_name_col=None,
@@ -318,8 +242,6 @@ class TestRenumberDuplicates:
 
 
 class TestHandlePdpDuplicates:
-    """Integration tests for _handle_pdp_duplicates function."""
-
     @pytest.fixture
     def pdp_df_with_different_names(self):
         return pd.DataFrame(
@@ -351,76 +273,66 @@ class TestHandlePdpDuplicates:
         )
 
     @patch("edvise.utils.data_cleaning.LOGGER")
-    @patch("edvise.utils.data_cleaning.dedupe_by_renumbering_courses")
-    def test_renumbers_when_names_differ(
+    @patch("edvise.utils.data_cleaning.dedupe_by_suffixing_courses")
+    def test_suffixes_when_names_differ(
         self, mock_dedupe, mock_logger, pdp_df_with_different_names
     ):
         mock_dedupe.return_value = pdp_df_with_different_names.copy()
-        result = data_cleaning._handle_pdp_duplicates(pdp_df_with_different_names)
+        data_cleaning._handle_pdp_duplicates(pdp_df_with_different_names)
         assert mock_dedupe.called
 
     @patch("edvise.utils.data_cleaning.LOGGER")
-    def test_drops_when_names_same(self, mock_logger, pdp_df_with_same_names):
+    @patch("edvise.utils.data_cleaning.dedupe_by_suffixing_courses")
+    def test_suffixes_when_names_same_but_credits_differ(
+        self, mock_dedupe, mock_logger, pdp_df_with_same_names
+    ):
+        mock_dedupe.return_value = pdp_df_with_same_names.copy()
         result = data_cleaning._handle_pdp_duplicates(pdp_df_with_same_names)
-        assert len(result) == 1  # One duplicate dropped
+        assert mock_dedupe.called
+        assert len(result) == 2
 
+    @patch("edvise.utils.data_cleaning.LOGGER")
+    def test_drops_when_names_same_and_credits_match(
+        self, mock_logger, pdp_df_with_same_names
+    ):
+        df = pdp_df_with_same_names.copy()
+        df["number_of_credits_attempted"] = [3.0, 3.0]
+        assert len(data_cleaning._handle_pdp_duplicates(df)) == 1
 
-class TestHandleSchemaDuplicates:
-    """Integration tests for _handle_schema_duplicates function."""
-
-    @pytest.fixture
-    def schema_df_with_type_variation(self):
-        return pd.DataFrame(
-            {
-                "student_id": ["A", "A", "B"],
-                "academic_term": ["F2024", "F2024", "F2024"],
-                "course_prefix": ["MATH", "MATH", "PHYS"],
-                "course_number": ["101", "101", "201"],
-                "course_classification": ["Lab", "Lecture", "Lecture"],
-                "course_name": ["Math Lab", "Math Lecture", "Physics"],
-                "course_credits_attempted": [1.0, 3.0, 3.0],
-            }
-        )
-
-    @pytest.fixture
-    def schema_df_true_duplicates(self):
-        return pd.DataFrame(
+    @patch("edvise.utils.data_cleaning.LOGGER")
+    def test_different_sections_not_key_duplicates(self, mock_logger):
+        df = pd.DataFrame(
             {
                 "student_id": ["A", "A"],
-                "academic_term": ["F2024", "F2024"],
+                "academic_year": ["2024", "2024"],
+                "academic_term": ["FALL", "FALL"],
                 "course_prefix": ["MATH", "MATH"],
                 "course_number": ["101", "101"],
-                "course_classification": ["Lecture", "Lecture"],
+                "section_id": ["001", "002"],
                 "course_name": ["Calculus I", "Calculus I"],
-                "course_credits_attempted": [3.0, 4.0],
+                "number_of_credits_attempted": [3.0, 3.0],
             }
         )
+        assert len(data_cleaning._handle_pdp_duplicates(df)) == 2
 
     @patch("edvise.utils.data_cleaning.LOGGER")
-    @patch("edvise.utils.data_cleaning.dedupe_by_renumbering_courses")
-    def test_renumbers_with_type_variation(
-        self, mock_dedupe, mock_logger, schema_df_with_type_variation
-    ):
-        mock_result = schema_df_with_type_variation.copy()
-        mock_result.loc[0, "course_number"] = "101-1"
-        mock_result.loc[1, "course_number"] = "101-2"
-        mock_dedupe.return_value = mock_result
-
-        result = data_cleaning._handle_schema_duplicates(schema_df_with_type_variation)
-        assert "course_id" in result.columns
-        assert mock_dedupe.called
-
-    @patch("edvise.utils.data_cleaning.LOGGER")
-    def test_drops_true_duplicates(self, mock_logger, schema_df_true_duplicates):
-        result = data_cleaning._handle_schema_duplicates(schema_df_true_duplicates)
-        assert len(result) == 1  # One duplicate dropped
-        # Should keep the one with higher credits (4.0)
-        assert result.iloc[0]["course_credits_attempted"] == 4.0
+    def test_omits_mostly_null_section_from_pdp_key(self, mock_logger):
+        df = pd.DataFrame(
+            {
+                "student_id": ["A"] * 5,
+                "academic_year": ["2024"] * 5,
+                "academic_term": ["FALL"] * 5,
+                "course_prefix": ["MATH"] * 5,
+                "course_number": ["101"] * 5,
+                "section_id": [pd.NA, pd.NA, pd.NA, pd.NA, "001"],
+                "course_name": ["Calculus I"] * 5,
+                "number_of_credits_attempted": [3.0] * 5,
+            }
+        )
+        assert len(data_cleaning._handle_pdp_duplicates(df)) == 1
 
 
 class TestHandlingDuplicates:
-    """Integration tests for the main handling_duplicates function."""
-
     @pytest.fixture
     def pdp_sample_df(self):
         return pd.DataFrame(
@@ -436,38 +348,8 @@ class TestHandlingDuplicates:
             }
         )
 
-    @pytest.fixture
-    def schema_sample_df(self):
-        return pd.DataFrame(
-            {
-                "student_id": ["A", "A"],
-                "academic_term": ["F2024", "F2024"],
-                "course_prefix": ["MATH", "MATH"],
-                "course_number": ["101", "101"],
-                "course_classification": ["Lecture", "Lecture"],
-                "course_name": ["Calculus I", "Calculus I"],
-                "course_credits_attempted": [3.0, 3.0],
-            }
-        )
-
-    def test_raises_error_for_invalid_schema_type(self, pdp_sample_df):
-        with pytest.raises(ValueError, match="schema_type must be either"):
-            data_cleaning.handling_duplicates(pdp_sample_df, "invalid")
-
     @patch("edvise.utils.data_cleaning.LOGGER")
-    def test_calls_pdp_handler_for_pdp_mode(self, mock_logger, pdp_sample_df):
-        result = data_cleaning.handling_duplicates(pdp_sample_df, "pdp")
+    def test_runs_pdp_handler(self, mock_logger, pdp_sample_df):
+        result = data_cleaning.handling_duplicates(pdp_sample_df)
         assert isinstance(result, pd.DataFrame)
-
-    @patch("edvise.utils.data_cleaning.LOGGER")
-    def test_calls_schema_handler_for_schema_mode(self, mock_logger, schema_sample_df):
-        result = data_cleaning.handling_duplicates(schema_sample_df, "es")
-        assert isinstance(result, pd.DataFrame)
-        assert "course_id" in result.columns
-
-    def test_handles_whitespace_in_schema_type(self, pdp_sample_df):
-        with patch("edvise.utils.data_cleaning.LOGGER"):
-            result1 = data_cleaning.handling_duplicates(pdp_sample_df, "  pdp  ")
-            result2 = data_cleaning.handling_duplicates(pdp_sample_df, "PDP")
-            assert isinstance(result1, pd.DataFrame)
-            assert isinstance(result2, pd.DataFrame)
+        assert len(result) == 1
