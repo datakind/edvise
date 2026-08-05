@@ -1,9 +1,9 @@
 """
-Parse archived Databricks bundle YAML into runtime metadata for the launcher.
+Parse archived Databricks bundle YAML for launcher validation.
 
 The release directory holds ``databricks_bundle_snapshot/`` (YAML copied from Git at
-``pipeline_version``). ``build_effective_release`` derives launcher metadata only from
-that archived inference job definition.
+``pipeline_version``). ``build_effective_release`` reads task keys and cluster runtime
+hints from the archived inference job definition.
 """
 
 from __future__ import annotations
@@ -12,20 +12,14 @@ import logging
 from pathlib import Path
 from typing import Any
 
-import yaml
-
-from pipelines.pdp.launchers.inference_parameters import (
-    build_parameter_contract,
-    parameter_contract_as_dicts,
-)
+from edvise.runtime.versioned_inference.dab_layout import default_dab_bundle_layout
 
 LOGGER = logging.getLogger(__name__)
 
-DEFAULT_ENTRYPOINT = "edvise.runtime.inference_driver"
-DEFAULT_INFERENCE_JOB_KEY = "edvise_github_sourced_pdp_inference_pipeline"
-DEFAULT_INFERENCE_YML = "databricks_bundle_snapshot/resources/github_pdp_inference.yml"
+_DEFAULT_LAYOUT = default_dab_bundle_layout()
+DEFAULT_INFERENCE_JOB_KEY = _DEFAULT_LAYOUT.inference_job_key
+DEFAULT_INFERENCE_YML = _DEFAULT_LAYOUT.inference_yml_snapshot_rel
 
-# DBR 15.4 ML images on Databricks use Python 3.11 (launcher compatibility hint).
 _DBR_PYTHON_HINTS: dict[str, str] = {
     "15.4": "3.11",
     "14.3": "3.10",
@@ -48,29 +42,6 @@ def _python_hint_for_dbr(dbr: str | None) -> str | None:
     return None
 
 
-def _collect_pypi_packages(tasks: list[Any]) -> list[str]:
-    seen: set[str] = set()
-    out: list[str] = []
-    if not isinstance(tasks, list):
-        return out
-    for task in tasks:
-        if not isinstance(task, dict):
-            continue
-        libs = task.get("libraries")
-        if not isinstance(libs, list):
-            continue
-        for lib in libs:
-            if not isinstance(lib, dict):
-                continue
-            pypi = lib.get("pypi")
-            if isinstance(pypi, dict):
-                pkg = pypi.get("package")
-                if isinstance(pkg, str) and pkg.strip() and pkg not in seen:
-                    seen.add(pkg)
-                    out.append(pkg.strip())
-    return out
-
-
 def _collect_task_keys(tasks: list[Any]) -> list[str]:
     keys: list[str] = []
     if not isinstance(tasks, list):
@@ -81,18 +52,6 @@ def _collect_task_keys(tasks: list[Any]) -> list[str]:
             if isinstance(key, str) and key.strip():
                 keys.append(key.strip())
     return keys
-
-
-def _collect_job_parameter_names(parameters: list[Any]) -> list[str]:
-    names: list[str] = []
-    if not isinstance(parameters, list):
-        return names
-    for param in parameters:
-        if isinstance(param, dict):
-            name = param.get("name")
-            if isinstance(name, str) and name.strip():
-                names.append(name.strip())
-    return names
 
 
 def _spark_version_from_job(job: dict[str, Any]) -> str | None:
@@ -116,6 +75,8 @@ def load_inference_job_definition(
     job_key: str = DEFAULT_INFERENCE_JOB_KEY,
 ) -> dict[str, Any]:
     """Load the full inference job object from archived bundle YAML."""
+    import yaml
+
     if not yml_path.is_file():
         msg = f"Inference bundle YAML not found: {yml_path}"
         raise FileNotFoundError(msg)
@@ -144,40 +105,10 @@ def parse_inference_job_from_yaml(
     *,
     job_key: str = DEFAULT_INFERENCE_JOB_KEY,
 ) -> dict[str, Any]:
-    """
-    Parse ``github_pdp_inference.yml`` (or compatible) into launcher metadata.
-
-    Returns keys: ``job_key``, ``job_name``, ``expected_steps``, ``job_parameters``,
-    ``pypi_packages``, ``required_runtime``, ``inference_yml_path``.
-    """
-    if not yml_path.is_file():
-        msg = f"Inference bundle YAML not found: {yml_path}"
-        raise FileNotFoundError(msg)
-    raw = yaml.safe_load(yml_path.read_text(encoding="utf-8"))
-    if not isinstance(raw, dict):
-        msg = f"Invalid YAML root in {yml_path}"
-        raise TypeError(msg)
-    resources = raw.get("resources")
-    if not isinstance(resources, dict):
-        msg = f"No resources section in {yml_path}"
-        raise ValueError(msg)
-    jobs = resources.get("jobs")
-    if not isinstance(jobs, dict):
-        msg = f"No resources.jobs in {yml_path}"
-        raise ValueError(msg)
-
-    job = jobs.get(job_key)
-    if not isinstance(job, dict):
-        available = ", ".join(sorted(jobs.keys()))
-        msg = f"Job {job_key!r} not in {yml_path}; available: {available}"
-        raise ValueError(msg)
-
+    """Parse archived inference YAML into launcher metadata for compatibility checks."""
+    job = load_inference_job_definition(yml_path, job_key=job_key)
     tasks = job.get("tasks")
     task_keys = _collect_task_keys(tasks if isinstance(tasks, list) else [])
-    job_params = _collect_job_parameter_names(
-        job.get("parameters") if isinstance(job.get("parameters"), list) else []
-    )
-    pypi = _collect_pypi_packages(tasks if isinstance(tasks, list) else [])
     dbr = _spark_version_from_job(job)
     required_runtime: dict[str, str] = {}
     if dbr:
@@ -186,18 +117,14 @@ def parse_inference_job_from_yaml(
     if py_hint:
         required_runtime["python"] = py_hint
 
-    contract = build_parameter_contract(job)
     job_name = job.get("name")
     return {
         "job_key": job_key,
         "job_name": str(job_name) if job_name is not None else job_key,
         "expected_steps": task_keys,
-        "job_parameters": job_params,
-        "parameter_contract": parameter_contract_as_dicts(contract),
-        "pypi_packages": pypi,
         "required_runtime": required_runtime,
         "inference_yml_path": str(yml_path),
-        "execution_mode": "wheel",
+        "execution_mode": "git_submit",
     }
 
 
@@ -216,9 +143,7 @@ def build_effective_release(
 
     effective: dict[str, Any] = dict(parsed)
     effective["pipeline_version"] = pipeline_version
-    effective["git_sha"] = pipeline_version
     effective["bundle_snapshot_dir"] = str(release_dir / "databricks_bundle_snapshot")
-    effective["entrypoint"] = DEFAULT_ENTRYPOINT
 
     logger.info(
         "Built release metadata from %s: job=%s steps=%s dbr=%s",

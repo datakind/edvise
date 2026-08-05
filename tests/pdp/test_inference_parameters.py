@@ -12,12 +12,13 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
-from pipelines.pdp.launchers.bundle_from_dab import load_inference_job_definition
-from pipelines.pdp.launchers.inference_parameters import (
+from edvise.runtime.versioned_inference.bundle.from_dab import (
+    load_inference_job_definition,
+)
+from edvise.runtime.versioned_inference.parameters import (
     DEFAULT_STABLE_PARAMETER_ALIASES,
     build_parameter_contract,
     build_stable_trigger_payload,
-    deep_merge_stable_dict,
     load_parameter_aliases,
     merge_parameter_aliases,
     suggest_missing_parameter_mappings,
@@ -248,19 +249,3 @@ def test_suggest_missing_parameter_mappings_never_auto_applies() -> None:
         ),
     )
     assert any("cohort_file_name" in h for h in hints)
-
-
-def test_deep_merge_stable_trigger_json() -> None:
-    base = build_stable_trigger_payload(
-        institution="a",
-        model_name="m",
-        workspace="w",
-        cohort_dataset="old.csv",
-    )
-    merged = deep_merge_stable_dict(
-        base,
-        {"datasets": {"cohort": "new.csv"}, "outputs": {"bucket": "b1"}},
-    )
-    assert merged["datasets"]["cohort"] == "new.csv"
-    assert merged["datasets"]["course"] == ""
-    assert merged["outputs"]["bucket"] == "b1"

@@ -24,7 +24,7 @@ resources:
             Resolve pipeline_version from model metadata; fetch inference DAB YAML from
             GitHub at that SHA or tag into databricks_bundle_snapshot/ on the release volume.
           spark_python_task:
-            python_file: pipelines/pdp/launchers/materialize_runtime_bundle.py
+            python_file: src/edvise/scripts/inference_launcher_materialize.py
             source: GIT
             parameters:
               - --databricks_institution_name
@@ -35,6 +35,8 @@ resources:
               - "{{job.parameters.model_run_id}}"
               - --DB_workspace
               - "{{job.parameters.DB_workspace}}"
+              - --schema_type
+              - "{{job.parameters.schema_type}}"
               - --release_base_path
               - "{{job.parameters.release_base_path}}"
               - --github_repo
@@ -49,7 +51,7 @@ resources:
           depends_on:
             - task_key: materialize_runtime_bundle
           spark_python_task:
-            python_file: pipelines/pdp/launchers/versioned_inference_launcher.py
+            python_file: src/edvise/scripts/inference_launcher_validate.py
             source: GIT
             parameters:
               - --databricks_institution_name
@@ -60,6 +62,8 @@ resources:
               - "{{job.parameters.model_run_id}}"
               - --DB_workspace
               - "{{job.parameters.DB_workspace}}"
+              - --schema_type
+              - "{{job.parameters.schema_type}}"
               - --release_base_path
               - "{{job.parameters.release_base_path}}"
               - --git_url
@@ -93,7 +97,7 @@ resources:
           depends_on:
             - task_key: versioned_inference_launcher_validate
           spark_python_task:
-            python_file: pipelines/pdp/launchers/trigger_versioned_inference.py
+            python_file: src/edvise/scripts/inference_launcher_trigger.py
             source: GIT
             parameters:
               - --databricks_institution_name
@@ -104,6 +108,8 @@ resources:
               - "{{job.parameters.model_run_id}}"
               - --DB_workspace
               - "{{job.parameters.DB_workspace}}"
+              - --schema_type
+              - "{{job.parameters.schema_type}}"
               - --release_base_path
               - "{{job.parameters.release_base_path}}"
               - --git_url
@@ -160,6 +166,8 @@ resources:
           default: ""
         - name: DB_workspace
           default: ${var.DB_workspace}
+        - name: schema_type
+          default: "pdp"
         - name: release_base_path
           default: ${var.release_base_path}
         - name: github_repo

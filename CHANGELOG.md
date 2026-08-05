@@ -1,3 +1,17 @@
+## 1.8.1 (2026-08-04)
+- feat(legacy): add batch GCS ingest task to legacy inference pipeline (#239)
+- feat(genai): enable Anthropic prompt caching in SMA refinement (#261)
+- fix: remove stray versioned-inference line from 1.7.2 changelog section (#264)
+- feat(genai): enable IA prompt caching for grain inference + term normalization (#265)
+- fix(validation): adding thresholds for missingness that are hard blockers during inference (#267)
+
+## 1.8.0 (2026-08-04)
+- feat: improve ES/genAI data audit logging parity with PDP (#254)
+- feat(pdp): section-aware PDP course duplicate cleaning (#255)
+- fix(genai): flag exact-duplicate SMA Pass 2 TERMINAL HITL options (#256)
+- fix(legacy): avoid advisor-output table collision for legacy multi-model institutions (#258)
+- refactor: versioned inference pipeline (#260)
+
 ## 1.7.2 (2026-07-28)
 - fix(genai): auto-sort non-chronological season_map in term HITL UI (#237)
 - docs: move CLAUDE.md content to AGENTS.md (#247)
