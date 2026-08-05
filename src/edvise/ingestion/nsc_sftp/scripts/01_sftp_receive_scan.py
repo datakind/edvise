@@ -1,0 +1,244 @@
+"""
+Connect to SFTP, select cohort/course files, upsert unseen files into
+ingestion_manifest, and stage NEW files into pending_ingest_queue.
+
+File selection:
+  - If both ``cohort_file_name`` and ``course_file_name`` are set → manual.
+  - Else ``file_selection_mode``:
+      - ``uningested`` (default): newest stamp pair not fully BRONZE_WRITTEN
+      - ``latest``: newest stamp pair on SFTP
+      - ``manual``: requires both file name params
+
+Outputs:
+  - Delta: ingestion_manifest, pending_ingest_queue
+  - Staged files under UC volume path from nsc_sftp.constants.SFTP_TMP_DIR
+"""
+
+from __future__ import annotations
+
+import logging
+import sys
+
+from edvise.ingestion.nsc_sftp.constants import (
+    configure_nsc_catalog,
+    parse_spark_python_task_params,
+    resolve_nsc_catalog,
+)
+
+configure_nsc_catalog(resolve_nsc_catalog(sys.argv))
+
+from databricks.connect import DatabricksSession
+from pyspark.sql import functions as F
+
+from edvise import utils
+from edvise.ingestion.nsc_sftp.constants import (
+    MANIFEST_TABLE_PATH,
+    QUEUE_TABLE_PATH,
+    SFTP_REMOTE_FOLDER,
+    SFTP_SOURCE_SYSTEM,
+    SFTP_TMP_DIR,
+)
+from edvise.ingestion.nsc_sftp.file_selection import select_file_pair
+from edvise.ingestion.nsc_sftp.helpers import (
+    build_listing_df,
+    download_new_files_and_queue,
+    ensure_manifest_and_queue_tables,
+    get_files_to_queue,
+    upsert_new_to_manifest,
+)
+from edvise.utils.sftp import connect_sftp, list_receive_files
+
+
+try:
+    dbutils  # noqa: F821
+except NameError:
+    from unittest.mock import MagicMock
+
+    dbutils = MagicMock()
+
+spark = DatabricksSession.builder.getOrCreate()
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
+
+asset_scope = "nsc-sftp-asset"
+
+host = dbutils.secrets.get(scope=asset_scope, key="nsc-sftp-host")
+user = dbutils.secrets.get(scope=asset_scope, key="nsc-sftp-user")
+password = dbutils.secrets.get(scope=asset_scope, key="nsc-sftp-password")
+
+_argv = parse_spark_python_task_params(sys.argv)
+cohort_file_name = str(
+    utils.databricks.get_db_widget_param(
+        "cohort_file_name", default=_argv.get("cohort_file_name", "")
+    )
+).strip()
+course_file_name = str(
+    utils.databricks.get_db_widget_param(
+        "course_file_name", default=_argv.get("course_file_name", "")
+    )
+).strip()
+file_selection_mode = (
+    str(
+        utils.databricks.get_db_widget_param(
+            "file_selection_mode",
+            default=_argv.get("file_selection_mode", "uningested"),
+        )
+    )
+    .strip()
+    .lower()
+    or "uningested"
+)
+
+logger.info("SFTP secured assets loaded successfully.")
+logger.info(f"Staging to UC volume path: {SFTP_TMP_DIR}")
+logger.info(
+    "Selection inputs: mode=%s cohort_file_name=%r course_file_name=%r",
+    file_selection_mode,
+    cohort_file_name,
+    course_file_name,
+)
+
+transport = None
+sftp = None
+
+try:
+    ensure_manifest_and_queue_tables(spark)
+
+    transport, sftp = connect_sftp(host, user, password)
+    logger.info(
+        f"Connected to SFTP host={host} and scanning folder={SFTP_REMOTE_FOLDER}"
+    )
+
+    file_rows_all = list_receive_files(sftp, SFTP_REMOTE_FOLDER, SFTP_SOURCE_SYSTEM)
+    if not file_rows_all:
+        logger.info(
+            f"No files found in SFTP folder: {SFTP_REMOTE_FOLDER}. Exiting (no-op)."
+        )
+        dbutils.notebook.exit("NO_FILES")
+
+    available = sorted({r.get("file_name") for r in file_rows_all})
+    logger.info(
+        f"Found {len(file_rows_all)} file(s) on SFTP in folder={SFTP_REMOTE_FOLDER}; "
+        f"first 25={available[:25]}"
+    )
+
+    # Fingerprints/statuses needed for uningested selection (full listing).
+    df_all_listing = build_listing_df(spark, file_rows_all)
+    fingerprint_by_name = {
+        r["file_name"]: r["file_fingerprint"]
+        for r in df_all_listing.select("file_name", "file_fingerprint").collect()
+    }
+    status_by_fingerprint: dict[str, str] = {}
+    if spark.catalog.tableExists(MANIFEST_TABLE_PATH):
+        status_by_fingerprint = {
+            r["file_fingerprint"]: r["status"]
+            for r in spark.table(MANIFEST_TABLE_PATH)
+            .select("file_fingerprint", "status")
+            .collect()
+            if r["file_fingerprint"] and r["status"]
+        }
+
+    cohort_file_name, course_file_name, mode_used = select_file_pair(
+        file_rows_all,
+        mode=file_selection_mode,
+        cohort_file_name=cohort_file_name,
+        course_file_name=course_file_name,
+        fingerprint_by_name=fingerprint_by_name,
+        status_by_fingerprint=status_by_fingerprint,
+    )
+    logger.info(
+        "Selected files via mode=%s: cohort=%s course=%s",
+        mode_used,
+        cohort_file_name,
+        course_file_name,
+    )
+
+    requested_names = {cohort_file_name, course_file_name}
+    file_rows = [r for r in file_rows_all if r.get("file_name") in requested_names]
+
+    found_names = {r.get("file_name") for r in file_rows}
+    missing_names = sorted(requested_names - found_names)
+    if missing_names:
+        raise FileNotFoundError(
+            f"Requested file(s) not found on SFTP in folder '{SFTP_REMOTE_FOLDER}': "
+            f"{missing_names}. Available file count={len(available)}; "
+            f"first 25={available[:25]}"
+        )
+
+    for r in file_rows:
+        logger.info(
+            f"Selected SFTP file: name={r.get('file_name')} size={r.get('file_size')} "
+            f"modified={r.get('file_modified_time')}"
+        )
+
+    df_listing = build_listing_df(spark, file_rows)
+    fingerprints = [
+        r["file_fingerprint"] for r in df_listing.select("file_fingerprint").collect()
+    ]
+
+    logger.info("SFTP listing (selected files):")
+    df_listing.select(
+        "file_name", "file_size", "file_modified_time", "file_fingerprint"
+    ).show(truncate=False)
+
+    upsert_new_to_manifest(spark, df_listing)
+
+    logger.info("Manifest rows (selected files):")
+    spark.table(MANIFEST_TABLE_PATH).where(
+        F.col("file_fingerprint").isin(fingerprints)
+    ).select(
+        "file_name",
+        "file_fingerprint",
+        "status",
+        "processed_at",
+        "error_message",
+    ).show(truncate=False)
+
+    df_to_queue = get_files_to_queue(spark, df_listing)
+
+    to_queue_count = df_to_queue.count()
+    if to_queue_count == 0:
+        logger.info(
+            "No files to queue: either nothing is NEW, or NEW files are already queued. "
+            "Exiting (no-op)."
+        )
+        dbutils.notebook.exit("QUEUED_FILES=0")
+
+    logger.info("Files eligible to queue:")
+    df_to_queue.select(
+        "file_name", "file_size", "file_modified_time", "file_fingerprint"
+    ).show(truncate=False)
+
+    logger.info(
+        f"Queuing {to_queue_count} NEW-unqueued file(s) to {QUEUE_TABLE_PATH} "
+        "and staging to UC volume."
+    )
+    queued_count = download_new_files_and_queue(spark, sftp, df_to_queue, logger)
+
+    logger.info("Queue rows (selected files):")
+    spark.table(QUEUE_TABLE_PATH).where(
+        F.col("file_fingerprint").isin(fingerprints)
+    ).select("file_name", "file_fingerprint", "local_tmp_path", "queued_at").show(
+        truncate=False
+    )
+
+    logger.info(
+        f"Queued {queued_count} file(s) for downstream processing in {QUEUE_TABLE_PATH}."
+    )
+    dbutils.notebook.exit(f"QUEUED_FILES={queued_count}")
+
+finally:
+    try:
+        if sftp is not None:
+            sftp.close()
+    except Exception:
+        pass
+    try:
+        if transport is not None:
+            transport.close()
+    except Exception:
+        pass

@@ -1,5 +1,5 @@
 """
-NSC SFTP ingestion helpers.
+NSC SFTP ingestion helpers (manifest, queue, plan, staging, bronze writes).
 
 NSC-specific utilities for processing SFTP files, extracting institution IDs,
 managing ingestion manifests, and working with Databricks schemas/volumes.
@@ -22,7 +22,7 @@ import pyspark.sql
 from pyspark.sql import functions as F
 from pyspark.sql import types as T
 
-from edvise.ingestion.constants import (
+from edvise.ingestion.nsc_sftp.constants import (
     CATALOG,
     DEFAULT_SCHEMA,
     MANIFEST_TABLE_PATH,
