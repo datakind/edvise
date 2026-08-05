@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import re
 import sys
 import typing as t
 
@@ -50,30 +51,56 @@ logging.basicConfig(
 logging.getLogger("py4j").setLevel(logging.WARNING)
 LOGGER = logging.getLogger(__name__)
 
+# Longest-first; strips frac/num/cum* prefixes so family variants share one key.
+_FEATURE_FAMILY_RE = re.compile(
+    r"^(?:cumfrac_num_courses_|cumfrac_num_|frac_courses_|num_courses_|"
+    r"cumsum_|cummin_|cummean_|cummax_|cumstd_|cumnum_|cumcount_|cumfrac_|"
+    r"frac_|num_)+"
+)
 
-def _pick_ranked_features(
-    ranked: pd.Series,
-    *,
-    n: int,
+
+def _feature_family(name: str) -> str:
+    return _FEATURE_FAMILY_RE.sub("", name)
+
+
+def _suggest_force_include(
+    *ranked_series: pd.Series,
     exclude: set[str],
-    seen: set[str],
+    n_each: int = 5,
 ) -> list[str]:
-    """Take up to ``n`` names from a ranked series, skipping overlaps and tied values."""
-    picked: list[str] = []
-    last_val: float | None = None
-    for name, val in ranked.items():
-        name_s = str(name)
-        if name_s in exclude or name_s in seen:
-            continue
-        val_f = float(val)
-        if last_val is not None and val_f == last_val:
-            continue
-        picked.append(name_s)
-        seen.add(name_s)
-        last_val = val_f
-        if len(picked) >= n:
-            break
-    return picked
+    """Top/bottom/assoc picks → one name per family (highest |score| wins)."""
+    best: dict[str, tuple[str, float]] = {}
+    order: list[str] = []
+    seen_names: set[str] = set()
+
+    for series in ranked_series:
+        n_picked = 0
+        pool_fams: set[str] = set()
+        last_val: float | None = None
+        for name, val in series.items():
+            if n_picked >= n_each:
+                break
+            name_s = str(name)
+            if name_s in exclude or name_s in seen_names:
+                continue
+            val_f = float(val)
+            if last_val is not None and val_f == last_val:
+                continue
+            fam = _feature_family(name_s)
+            if fam in pool_fams:
+                continue
+            pool_fams.add(fam)
+            seen_names.add(name_s)
+            last_val = val_f
+            n_picked += 1
+            prev = best.get(fam)
+            if prev is None:
+                best[fam] = (name_s, val_f)
+                order.append(fam)
+            elif abs(val_f) > abs(prev[1]):
+                best[fam] = (name_s, val_f)
+
+    return [best[fam][0] for fam in order]
 
 
 class ModelPrepTask:
@@ -209,17 +236,9 @@ class ModelPrepTask:
             )
             return
 
-        # Drop bias-group + weight/id/split up front (keeps target). Narrows the
-        # expensive pairwise pass and avoids high-cardinality id Cramer's V.
+        # non_feature_cols minus target (id/split/weights/student groups)
         exclude = {
-            c
-            for c in (
-                *(self.cfg.student_group_cols or []),
-                self.cfg.sample_weight_col or "sample_weight",
-                self.cfg.student_id_col,
-                self.cfg.split_col or "split",
-            )
-            if c in pre.columns and c != target_col
+            c for c in self.cfg.non_feature_cols if c != target_col and c in pre.columns
         }
         feat = pre.drop(columns=exclude)
         LOGGER.info("Target association excludes: %s", sorted(exclude))
@@ -248,15 +267,12 @@ class ModelPrepTask:
         )
 
         non_features = set(self.cfg.non_feature_cols)
-        seen: set[str] = set()
-        suggest = (
-            _pick_ranked_features(corrs, n=5, exclude=non_features, seen=seen)
-            + _pick_ranked_features(
-                corrs.iloc[::-1], n=5, exclude=non_features, seen=seen
-            )
-            + _pick_ranked_features(assocs, n=5, exclude=non_features, seen=seen)
+        LOGGER.info(
+            "suggest force including: %s",
+            _suggest_force_include(
+                corrs, corrs.iloc[::-1], assocs, exclude=non_features
+            ),
         )
-        LOGGER.info("suggest force including: %s", suggest)
 
     def run(self):
         # Ensure correct folder: training or inference
