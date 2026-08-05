@@ -2,6 +2,8 @@ import logging
 
 import pandas as pd
 
+from edvise.shared.utils import as_percent
+
 LOGGER = logging.getLogger(__name__)
 
 _MISSING = frozenset(
@@ -100,36 +102,33 @@ def handle_missing_grades(df: pd.DataFrame) -> pd.DataFrame:
         else 0
     )
 
-    def _pct(n: int) -> float:
-        return (100.0 * n / n_null) if n_null else 0.0
-
     LOGGER.warning(
         "handle_missing_grades: found %d null-grade row(s). Case breakdown:\n"
         "  Duplicate found + credits_earned is null OR 0 → "
-        "Keep; grade='M': %d (%.1f%%)\n"
+        "Keep; grade='M': %d (%s%%)\n"
         "  Duplicate found + credits_earned > 0 → "
-        "Keep; grade='M': %d (%.1f%%)\n"
+        "Keep; grade='M': %d (%s%%)\n"
         "  BOTH duplicates missing grades, AND credits_earned is null OR 0 "
-        "for both → Keep first row; drop the rest: %d (%.1f%%)\n"
-        "  Unique record, credits_earned null OR 0 → Drop: %d (%.1f%%)\n"
-        "  Unique record, credits_earned > 0 → Drop: %d (%.1f%%)\n"
-        "  Total kept and recoded to grade='M': %d (%.1f%%)\n"
-        "  credits_earned field modified (null → 0) on kept rows: %d (%.1f%%)",
+        "for both → Keep first row; drop the rest: %d (%s%%)\n"
+        "  Unique record, credits_earned null OR 0 → Drop: %d (%s%%)\n"
+        "  Unique record, credits_earned > 0 → Drop: %d (%s%%)\n"
+        "  Total kept and recoded to grade='M': %d (%s%%)\n"
+        "  credits_earned field modified (null → 0) on kept rows: %d (%s%%)",
         n_null,
         n_keep_earned_zero,
-        _pct(n_keep_earned_zero),
+        as_percent(n_keep_earned_zero / n_null),
         n_keep_earned_pos,
-        _pct(n_keep_earned_pos),
+        as_percent(n_keep_earned_pos / n_null),
         n_extra,
-        _pct(n_extra),
+        as_percent(n_extra / n_null),
         n_drop_unique_earned_zero,
-        _pct(n_drop_unique_earned_zero),
+        as_percent(n_drop_unique_earned_zero / n_null),
         n_drop_unique_earned_pos,
-        _pct(n_drop_unique_earned_pos),
+        as_percent(n_drop_unique_earned_pos / n_null),
         n_recode,
-        _pct(n_recode),
+        as_percent(n_recode / n_null),
         n_earned_modified,
-        _pct(n_earned_modified),
+        as_percent(n_earned_modified / n_null),
     )
     if n_unique >= _HIGH_DROP:
         from edvise.data_audit.eda import log_terms
