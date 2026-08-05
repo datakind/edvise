@@ -2,8 +2,8 @@
 SMA refinement + HITL: prompts, orchestration, and post-parse safety nets (single module).
 
 **Pass 1** — refinement + HITL flagging (slim JSON: ``field_statuses``,
-``refined_corrections``, ``hitl_flags``; no full manifest): one LLM call per entity
-(cohort and course are separate calls).
+``refined_corrections``, optional ``column_aliases_to_add``, ``hitl_flags``; no full
+manifest): one LLM call per entity (cohort and course are separate calls).
 
 **Pass 2** — option generation: one LLM call per entity with all Pass 1 flags for
 that entity in a single ``items`` array (cohort + course = 2 Pass 2 calls per institution;
@@ -180,6 +180,15 @@ Pass 1 output — respond with a single JSON object, no preamble, no markdown:
     // only for fields with field_statuses[target_field]="refined_by_llm" or "refined_and_proposed_for_hitl"
     // omit key entirely if no fields were corrected
   },
+  "column_aliases_to_add": [
+    // optional — ColumnAlias objects to append to the entity manifest when a
+    // JOIN fix needs a name bridge (same shape as Pass 2 option.column_alias).
+    // Example: course join_keys use term_descr but student physical column is
+    // term_desc → {table: "student", source_column: "term_desc",
+    //              canonical_column: "term_descr", rationale: "..."}.
+    // Omit key or use [] when no aliases are needed.
+    // ColumnAlias: {table: str!, source_column: str!, canonical_column: str!, rationale?: str}
+  ],
   "hitl_flags": [
     {
       "item_id": "{institution_id}_{entity_type}_{target_field}_{failure_mode}",
@@ -205,6 +214,8 @@ CRITICAL:
   - Do not change confidence on any field.
   - Every proposed_for_hitl or refined_and_proposed_for_hitl field must appear in hitl_flags.
   - Every refined_by_llm or refined_and_proposed_for_hitl field with a correction must appear in refined_corrections.
+  - When a JOIN fix renames join_keys to a canonical name that differs on the other
+    table, ALSO emit column_aliases_to_add (do not only change join_keys).
 """
 
 _PASS1_OUTPUT_SCHEMA_COMBINED = """
@@ -222,6 +233,10 @@ Pass 1 combined output (multiple entities in one response) — single JSON objec
     }
     // omit entity key if no corrections for that entity
   },
+  "column_aliases_to_add_by_entity": {
+    "<entity_type>": [ /* same shape as column_aliases_to_add in single-entity Pass 1 */ ]
+    // omit entity key or use [] when no aliases for that entity
+  },
   "hitl_flags_by_entity": {
     "<entity_type>": [ /* same shape as hitl_flags in single-entity Pass 1 */ ]
   }
@@ -230,7 +245,8 @@ Pass 1 combined output (multiple entities in one response) — single JSON objec
 CRITICAL:
   - field_statuses_by_entity, refined_corrections_by_entity, and hitl_flags_by_entity
     must contain exactly the same entity_type keys as listed in the user message.
-  - Per-entity rules match single-entity Pass 1 (complete field_statuses, corrections, flags).
+  - Per-entity rules match single-entity Pass 1 (complete field_statuses, corrections,
+    column_aliases_to_add, flags).
   - Do not emit full manifests — slim keys only.
 """
 
@@ -280,6 +296,8 @@ FIELD STATUS — use exactly one status per target_field:
 HIGH CONFIDENCE — validation errors:
   - Deterministic fix (typo, structural): set field_statuses[target_field]="refined_by_llm",
     emit deltas in refined_corrections, no hitl_flags entry for that field.
+    JOIN name mismatches that need a ColumnAlias: also emit column_aliases_to_add
+    (canonical join_keys alone are not enough when physical names differ).
   - Fix requires judgment or is ambiguous: set field_statuses[target_field]="proposed_for_hitl"
     and emit hitl_flags.
 
@@ -457,6 +475,7 @@ OUTPUT FORMAT — respond with a single JSON object, no preamble, no markdown:
 {
   "field_statuses": { ...every target_field... },
   "refined_corrections": { ...optional — refined_by_llm / refined_and_proposed_for_hitl deltas... },
+  "column_aliases_to_add": [ ...optional ColumnAlias objects for JOIN name bridges... ],
   "hitl_flags": [ ...optional — proposed_for_hitl / refined_and_proposed_for_hitl... ]
 }
 
@@ -465,7 +484,8 @@ CRITICAL:
   - Do not invent columns or tables not present in the schema contract.
   - Do not change confidence on any field.
   - Do not emit options in Pass 1.
-  - Do not output a full manifest — field_statuses + refined_corrections + hitl_flags only.
+  - Do not output a full manifest — field_statuses + refined_corrections +
+    column_aliases_to_add + hitl_flags only.
 """
 
 _PASS1_OUTPUT_FORMAT_COMBINED = """
@@ -479,6 +499,10 @@ OUTPUT FORMAT — respond with a single JSON object, no preamble, no markdown:
     "<entity_type>": { ...optional per-entity refined_corrections... },
     ...
   },
+  "column_aliases_to_add_by_entity": {
+    "<entity_type>": [ ...optional ColumnAlias objects... ],
+    ...
+  },
   "hitl_flags_by_entity": {
     "<entity_type>": [ ...Pass 1 flags for that entity only — no options... ],
     ...
@@ -486,8 +510,9 @@ OUTPUT FORMAT — respond with a single JSON object, no preamble, no markdown:
 }
 
 CRITICAL:
-  - All three top-level objects must contain exactly the same entity_type keys
-    as listed in the user message (e.g. cohort and course).
+  - field_statuses_by_entity and hitl_flags_by_entity must contain exactly the same
+    entity_type keys as listed in the user message (e.g. cohort and course);
+    refined_corrections_by_entity / column_aliases_to_add_by_entity may omit empty entities.
   - Each field_statuses_by_entity entry must list every target_field for that entity.
   - Do not invent columns or tables not present in the schema contract.
   - Do not change confidence on any field.
@@ -763,6 +788,8 @@ entity_type: {entity_type}
    - If confidence <= {HITL_CONFIDENCE_THRESHOLD} and you made a correction: set
      field_statuses[target_field]="refined_and_proposed_for_hitl", put deltas in refined_corrections,
      and add a hitl_flag (correction is option 1 in Pass 2).
+   - JOIN key renames that need a physical↔canonical name bridge: also emit
+     column_aliases_to_add (same ColumnAlias shape as Pass 2 option.column_alias).
 
 2. For fields you cannot confidently fix (including low confidence with no correction), set
    field_statuses[target_field]="proposed_for_hitl" and add a hitl_flag with current_field_mapping
@@ -773,7 +800,8 @@ entity_type: {entity_type}
    Do not include them in refined_corrections or hitl_flags.
 
 4. Return the single JSON object described in your instructions.
-   Do not output a full manifest — field_statuses + refined_corrections + hitl_flags only.
+   Do not output a full manifest — field_statuses + refined_corrections +
+   column_aliases_to_add + hitl_flags only.
 """
 
 
@@ -839,6 +867,8 @@ For EACH entity section above, apply the refinement rules independently (same as
    - If confidence <= {HITL_CONFIDENCE_THRESHOLD} and you made a correction: set
      field_statuses_by_entity[entity][target_field]="refined_and_proposed_for_hitl", put deltas in
      refined_corrections_by_entity, and add a hitl_flags_by_entity[entity] entry.
+   - JOIN key renames that need a physical↔canonical name bridge: also emit
+     column_aliases_to_add_by_entity[entity].
 
 2. For fields you cannot confidently fix (including low confidence with no correction), set
    field_statuses_by_entity[entity][target_field]="proposed_for_hitl" and add hitl_flags_by_entity[entity]
@@ -850,7 +880,7 @@ For EACH entity section above, apply the refinement rules independently (same as
 
 4. Return the single combined JSON object described in your instructions.
    Do not output full manifests — field_statuses_by_entity + refined_corrections_by_entity +
-   hitl_flags_by_entity only.
+   column_aliases_to_add_by_entity + hitl_flags_by_entity only.
 """
 
 
@@ -940,9 +970,15 @@ def _apply_pass1_result(
 ) -> tuple[FieldMappingManifest, list[dict[str, Any]]]:
     """
     Reconstruct full manifest from Pass 1 slim output.
-    Merges refined_corrections onto input records.
+    Merges refined_corrections onto input records and appends
+    ``column_aliases_to_add`` via :func:`add_alias_if_missing`.
     Sets review_status on every record from field_statuses.
     """
+    from edvise.genai.mapping.schema_mapping_agent.manifest.hitl.schemas import (
+        add_alias_if_missing,
+    )
+    from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import ColumnAlias
+
     field_statuses = pass1_result.get("field_statuses")
     if not isinstance(field_statuses, dict):
         raise ValueError("Pass 1 output missing or invalid field_statuses")
@@ -1000,8 +1036,21 @@ def _apply_pass1_result(
         entity_type=input_manifest.entity_type,
         target_schema=input_manifest.target_schema,
         mappings=updated_mappings,
-        column_aliases=input_manifest.column_aliases,
+        column_aliases=list(input_manifest.column_aliases),
     )
+
+    aliases_raw = pass1_result.get("column_aliases_to_add") or []
+    if aliases_raw is None:
+        aliases_raw = []
+    if not isinstance(aliases_raw, list):
+        raise ValueError("Pass 1 column_aliases_to_add must be a list")
+    for raw_alias in aliases_raw:
+        if not isinstance(raw_alias, dict):
+            raise ValueError(
+                "Pass 1 column_aliases_to_add entries must be ColumnAlias objects"
+            )
+        add_alias_if_missing(refined_manifest, ColumnAlias.model_validate(raw_alias))
+
     return refined_manifest, hitl_flags
 
 
