@@ -51,8 +51,10 @@ def _best_scored_name(
         cmp = abs(score)
         fam = feature_family(ns)
         cur = best.get(fam)
-        if cur is None or cmp > abs(cur[1]) or (
-            cmp == abs(cur[1]) and _name_pref(ns) < _name_pref(cur[0])
+        if (
+            cur is None
+            or cmp > abs(cur[1])
+            or (cmp == abs(cur[1]) and _name_pref(ns) < _name_pref(cur[0]))
         ):
             best[fam] = (ns, score)
     return best
@@ -63,7 +65,7 @@ def _top_names(ser: pd.Series, n: int, *, floor: float | None = None) -> list[st
     if floor is not None:
         ser = ser[ser.abs() >= floor]
     # After sorting, keep first of each distinct value.
-    return ser[~ser.duplicated(keep="first")].head(n).index.astype(str).tolist()
+    return [str(name) for name in ser[~ser.duplicated(keep="first")].head(n).index]
 
 
 def suggest_force_include_cols(
@@ -75,9 +77,7 @@ def suggest_force_include_cols(
     skip_cumulative: bool = False,
 ) -> list[str]:
     """Top-3 +pos and top-3 −neg corr families; stronger assoc can win the name."""
-    best = _best_scored_name(
-        corrs, exclude=exclude, skip_cumulative=skip_cumulative
-    )
+    best = _best_scored_name(corrs, exclude=exclude, skip_cumulative=skip_cumulative)
     assoc_best = _best_scored_name(
         assocs, exclude=exclude, skip_cumulative=skip_cumulative, abs_score=True
     )
