@@ -9,7 +9,6 @@ from __future__ import annotations
 import argparse
 import logging
 import os
-import re
 import sys
 import typing as t
 
@@ -34,6 +33,7 @@ from edvise.data_audit.eda import compute_pairwise_associations
 from edvise.dataio.read import read_config, read_parquet
 from edvise.dataio.write import write_parquet
 from edvise.model_prep import cleanup_features as cleanup, training_params
+from edvise.model_prep.target_associations import suggest_force_include_cols
 from edvise.shared.logger import (
     init_file_logging,
     local_fs_path,
@@ -50,61 +50,6 @@ logging.basicConfig(
 )
 logging.getLogger("py4j").setLevel(logging.WARNING)
 LOGGER = logging.getLogger(__name__)
-
-# Longest-first; strips frac/num/cum* prefixes so family variants share one key.
-_FEATURE_FAMILY_RE = re.compile(
-    r"^(?:cumfrac_num_courses_|cumfrac_num_|frac_courses_|num_courses_|"
-    r"cumsum_|cummin_|cummean_|cummax_|cumstd_|cumnum_|cumcount_|cumfrac_|"
-    r"frac_|num_)+"
-)
-
-
-def _feature_family(name: str) -> str:
-    return _FEATURE_FAMILY_RE.sub("", name)
-
-
-def _suggest_force_include(
-    *ranked_series: pd.Series,
-    exclude: set[str],
-    n_each: int = 5,
-    skip_cumulative: bool = False,
-) -> list[str]:
-    """Top/bottom/assoc picks → one name per family (highest |score| wins)."""
-    best: dict[str, tuple[str, float]] = {}
-    order: list[str] = []
-    seen_names: set[str] = set()
-
-    for series in ranked_series:
-        n_picked = 0
-        pool_fams: set[str] = set()
-        last_val: float | None = None
-        for name, val in series.items():
-            if n_picked >= n_each:
-                break
-            name_s = str(name)
-            if name_s in exclude or name_s in seen_names:
-                continue
-            # Retention checkpoints are usually first-term; cum* features are noisy.
-            if skip_cumulative and name_s.startswith("cum"):
-                continue
-            val_f = float(val)
-            if last_val is not None and val_f == last_val:
-                continue
-            fam = _feature_family(name_s)
-            if fam in pool_fams:
-                continue
-            pool_fams.add(fam)
-            seen_names.add(name_s)
-            last_val = val_f
-            n_picked += 1
-            prev = best.get(fam)
-            if prev is None:
-                best[fam] = (name_s, val_f)
-                order.append(fam)
-            elif abs(val_f) > abs(prev[1]):
-                best[fam] = (name_s, val_f)
-
-    return [best[fam][0] for fam in order]
 
 
 class ModelPrepTask:
@@ -240,12 +185,10 @@ class ModelPrepTask:
             )
             return
 
-        # non_feature_cols minus target (id/split/weights/student groups)
-        exclude = {
-            c for c in self.cfg.non_feature_cols if c != target_col and c in pre.columns
-        }
-        feat = pre.drop(columns=exclude)
-        LOGGER.info("Target association excludes: %s", sorted(exclude))
+        non_features = set(self.cfg.non_feature_cols)
+        drop_cols = [c for c in non_features if c != target_col and c in pre.columns]
+        feat = pre.drop(columns=drop_cols)
+        LOGGER.info("Target association excludes: %s", drop_cols)
 
         corrs = (
             feat.corrwith(feat[target_col], method="spearman", numeric_only=True)
@@ -258,7 +201,6 @@ class ModelPrepTask:
             corrs.head(10).to_string(),
             corrs.tail(10).to_string(),
         )
-
         assocs = (
             compute_pairwise_associations(feat, ref_col=target_col)[target_col]
             .dropna()
@@ -269,19 +211,15 @@ class ModelPrepTask:
             target_col,
             assocs.head(10).to_string(),
         )
-
-        non_features = set(self.cfg.non_feature_cols)
         prep = self.cfg.preprocessing
-        target_type = getattr(getattr(prep, "target", None), "type_", None)
-        skip_cumulative = target_type == "retention"
         LOGGER.info(
             "suggest force including: %s",
-            _suggest_force_include(
+            suggest_force_include_cols(
                 corrs,
-                corrs.iloc[::-1],
                 assocs,
                 exclude=non_features,
-                skip_cumulative=skip_cumulative,
+                skip_cumulative=getattr(getattr(prep, "target", None), "type_", None)
+                == "retention",
             ),
         )
 
