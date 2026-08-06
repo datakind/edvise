@@ -67,6 +67,7 @@ def _suggest_force_include(
     *ranked_series: pd.Series,
     exclude: set[str],
     n_each: int = 5,
+    skip_cumulative: bool = False,
 ) -> list[str]:
     """Top/bottom/assoc picks → one name per family (highest |score| wins)."""
     best: dict[str, tuple[str, float]] = {}
@@ -82,6 +83,9 @@ def _suggest_force_include(
                 break
             name_s = str(name)
             if name_s in exclude or name_s in seen_names:
+                continue
+            # Retention checkpoints are usually first-term; cum* features are noisy.
+            if skip_cumulative and name_s.startswith("cum"):
                 continue
             val_f = float(val)
             if last_val is not None and val_f == last_val:
@@ -267,10 +271,17 @@ class ModelPrepTask:
         )
 
         non_features = set(self.cfg.non_feature_cols)
+        prep = self.cfg.preprocessing
+        target_type = getattr(getattr(prep, "target", None), "type_", None)
+        skip_cumulative = target_type == "retention"
         LOGGER.info(
             "suggest force including: %s",
             _suggest_force_include(
-                corrs, corrs.iloc[::-1], assocs, exclude=non_features
+                corrs,
+                corrs.iloc[::-1],
+                assocs,
+                exclude=non_features,
+                skip_cumulative=skip_cumulative,
             ),
         )
 
