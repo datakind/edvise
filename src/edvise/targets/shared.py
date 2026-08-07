@@ -140,8 +140,8 @@ def get_students_with_second_year_in_dataset(
             from ``df[term_id_col]`` itself or as a manually specified value which
             may be different from the actual max value in ``df`` , depending on use case.
             Note: Value must be a string formatted as "YYYY[-YY]".
-            Spring/Summer cohorts use the calendar/end year (``2024-25 SPRING|SUMMER``
-            → 2025); Fall/Winter keep the start year.
+            Summer cohorts use the end year (``2024-25 SUMMER`` → 2025) so they share
+            the cutoff with Fall of that year; Fall/Winter/Spring keep the start year.
         student_id_cols: One or multiple columns uniquely identifying students.
         cohort_id_col: Column used to uniquely identify student cohorts.
         term_id_col: Colum used to uniquely identify academic terms.
@@ -160,9 +160,9 @@ def get_students_with_second_year_in_dataset(
         # assume every value for a student's cohort id is the same, so "first" is fine
         .agg(student_cohort_id=(cohort_id_col, "first"))
         .assign(
-            # FALL/WINTER → start year; SPRING/SUMMER → end year
+            # Summer → end year (like following Fall); other seasons keep start year
             student_cohort_year=lambda df: _extract_year_from_id(
-                df["student_cohort_id"], roll_spring_summer=True
+                df["student_cohort_id"], summer_as_end_year=True
             ),
             max_academic_year=max_academic_year,  # type: ignore
         )
@@ -188,18 +188,17 @@ def _log_labelable_students(
 
 
 def _extract_year_from_id(
-    ser: pd.Series, *, roll_spring_summer: bool = False
+    ser: pd.Series, *, summer_as_end_year: bool = False
 ) -> pd.Series:
     """Extract leading YYYY from ids like ``2024-25 FALL``.
 
-    Term order is always FALL → WINTER → SPRING → SUMMER. When
-    ``roll_spring_summer`` is True, SPRING/SUMMER use the end year
-    (``2024-25 SPRING|SUMMER`` → 2025); FALL/WINTER keep the start year.
+    When ``summer_as_end_year`` is True, SUMMER uses the academic-year end
+    (``2024-25 SUMMER`` → 2025) so it shares the ``max_academic_year`` cutoff with
+    the following Fall. Spring stays on the start year (Spring 2025 retains into
+    Spring 2026 under academic year 2025-26).
     """
     s = ser.astype("string")
     year = s.str.extract(r"^(\d{4})", expand=False).astype("Int32")
-    if roll_spring_summer:
-        year = year + s.str.contains(r"(?i)\b(?:SPRING|SUMMER)\b", na=False).astype(
-            "Int32"
-        )
+    if summer_as_end_year:
+        year = year + s.str.contains(r"(?i)\bSUMMER\b", na=False).astype("Int32")
     return year

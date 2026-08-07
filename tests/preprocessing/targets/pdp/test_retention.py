@@ -90,10 +90,9 @@ from edvise.targets import retention
                 },
             ).astype({"student_id": "string", "retention": "boolean"}),
             "2022-23",
-            # 2021-22 SPRING rolls to 2022 and is excluded when max is 2022
             pd.Series(
-                data=[False],
-                index=pd.Index(["01"], dtype="string", name="student_id"),
+                data=[False, True],
+                index=pd.Index(["01", "02"], dtype="string", name="student_id"),
                 name="target",
                 dtype="boolean",
             ),
@@ -116,7 +115,7 @@ from edvise.targets import retention
                 dtype="boolean",
             ),
         ),
-        # SPRING/SUMMER roll to end year; FALL/WINTER keep start year
+        # Summer rolls to end year (like Fall 2025); Spring keeps start year
         (
             pd.DataFrame(
                 {
@@ -141,11 +140,12 @@ from edvise.targets import retention
                 },
             ).astype({"student_id": "string", "retention": "boolean"}),
             "2025",
-            # 2023-24 FALL (2023), 2024-25 WINTER (2024), 2024-25 FALL (2024)
-            # excluded: SPRING/SUMMER 2024-25 (2025) and FALL 2025-26 (2025)
+            # kept: FALL/WINTER/SPRING 2024-25 (and earlier); excluded: SUMMER 2024-25, FALL 2025-26
             pd.Series(
-                data=[False, True, False],
-                index=pd.Index(["01", "02", "05"], dtype="string", name="student_id"),
+                data=[False, True, False, False],
+                index=pd.Index(
+                    ["01", "02", "03", "05"], dtype="string", name="student_id"
+                ),
                 name="target",
                 dtype="boolean",
             ),
