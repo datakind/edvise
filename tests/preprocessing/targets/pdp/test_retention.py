@@ -115,6 +115,34 @@ from edvise.targets import retention
                 dtype="boolean",
             ),
         ),
+        # Summer 2024-25 is calendar Summer 2025 and shares the Fall 2025 cutoff
+        (
+            pd.DataFrame(
+                {
+                    "student_id": ["01", "02", "03", "04"],
+                    "retention": [True, False, True, False],
+                    "cohort_id": [
+                        "2023-24 FALL",
+                        "2024-25 SUMMER",
+                        "2024-25 FALL",
+                        "2025-26 FALL",
+                    ],
+                    "term_id": [
+                        "2023-24 FALL",
+                        "2024-25 SUMMER",
+                        "2024-25 FALL",
+                        "2025-26 SUMMER",
+                    ],
+                },
+            ).astype({"student_id": "string", "retention": "boolean"}),
+            "2025",
+            pd.Series(
+                data=[False, False],
+                index=pd.Index(["01", "03"], dtype="string", name="student_id"),
+                name="target",
+                dtype="boolean",
+            ),
+        ),
     ],
 )
 def test_compute_target(df, max_academic_year, exp):

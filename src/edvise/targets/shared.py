@@ -140,6 +140,8 @@ def get_students_with_second_year_in_dataset(
             from ``df[term_id_col]`` itself or as a manually specified value which
             may be different from the actual max value in ``df`` , depending on use case.
             Note: Value must be a string formatted as "YYYY[-YY]".
+            Summer cohorts use the calendar/end year (``2024-25 SUMMER`` → 2025), matching
+            Fall of that year for this cutoff.
         student_id_cols: One or multiple columns uniquely identifying students.
         cohort_id_col: Column used to uniquely identify student cohorts.
         term_id_col: Colum used to uniquely identify academic terms.
@@ -158,8 +160,9 @@ def get_students_with_second_year_in_dataset(
         # assume every value for a student's cohort id is the same, so "first" is fine
         .agg(student_cohort_id=(cohort_id_col, "first"))
         .assign(
+            # Summer is calendar end-year (like Fall of that year); see _extract_year_from_id
             student_cohort_year=lambda df: _extract_year_from_id(
-                df["student_cohort_id"]
+                df["student_cohort_id"], summer_as_end_year=True
             ),
             max_academic_year=max_academic_year,  # type: ignore
         )
@@ -184,5 +187,16 @@ def _log_labelable_students(
     )
 
 
-def _extract_year_from_id(ser: pd.Series) -> pd.Series:
-    return ser.astype("string").str.extract(r"^(\d{4})", expand=False).astype("Int32")
+def _extract_year_from_id(
+    ser: pd.Series, *, summer_as_end_year: bool = False
+) -> pd.Series:
+    """Extract leading YYYY from ids like ``2024-25 FALL``.
+
+    When ``summer_as_end_year`` is True, SUMMER uses the academic-year end
+    (``2024-25 SUMMER`` → 2025), matching calendar Summer / following Fall.
+    """
+    s = ser.astype("string")
+    year = s.str.extract(r"^(\d{4})", expand=False).astype("Int32")
+    if summer_as_end_year:
+        year = year + s.str.contains(r"(?i)\bSUMMER\b", na=False).astype("Int32")
+    return year
