@@ -3,15 +3,53 @@
 from __future__ import annotations
 
 import logging
+import os
 import sys
 from typing import Any
 from unittest.mock import MagicMock
 
-from edvise.ingestion.nsc_sftp.constants import (
-    configure_nsc_catalog,
-    parse_spark_python_task_params,
-    resolve_nsc_catalog,
+from edvise.ingestion.nsc_sftp.constants import configure_nsc_catalog
+from edvise.utils.databricks import (
+    get_db_widget_param,
+    get_dbutils_or_none,
+    get_spark_session,
 )
+
+
+def parse_spark_python_task_params(argv: list[str] | None = None) -> dict[str, str]:
+    """Parse ``--key value`` pairs from ``spark_python_task.parameters``."""
+    if argv is None:
+        argv = sys.argv
+    out: dict[str, str] = {}
+    i = 1
+    while i < len(argv):
+        a = argv[i]
+        if a.startswith("--") and i + 1 < len(argv):
+            out[a[2:].replace("-", "_")] = argv[i + 1]
+            i += 2
+        else:
+            i += 1
+    return out
+
+
+def resolve_nsc_catalog(argv: list[str] | None = None) -> str:
+    """
+    Resolve Unity Catalog name: ``--DB_workspace`` → widget → ``NSC_DB_WORKSPACE``
+    → default catalog for local imports.
+    """
+    from edvise.ingestion.nsc_sftp.constants import DEFAULT_CATALOG_FOR_LOCAL
+
+    pairs = parse_spark_python_task_params(argv)
+    raw = pairs.get("DB_workspace", "").strip()
+    if raw:
+        return raw
+    try:
+        w = get_db_widget_param("DB_workspace", default="")
+        if str(w).strip():
+            return str(w).strip()
+    except Exception:
+        pass
+    return os.environ.get("NSC_DB_WORKSPACE", "").strip() or DEFAULT_CATALOG_FOR_LOCAL
 
 
 def bootstrap_catalog(argv: list[str] | None = None) -> None:
@@ -20,16 +58,12 @@ def bootstrap_catalog(argv: list[str] | None = None) -> None:
 
 
 def get_dbutils() -> Any:
-    try:
-        return dbutils  # type: ignore[name-defined]  # noqa: F821
-    except NameError:
-        return MagicMock()
+    """Return real dbutils on Databricks; MagicMock locally so scripts import cleanly."""
+    return get_dbutils_or_none() or MagicMock()
 
 
 def get_spark():
-    from databricks.connect import DatabricksSession
-
-    return DatabricksSession.builder.getOrCreate()
+    return get_spark_session()
 
 
 def get_logger(name: str) -> logging.Logger:
@@ -41,13 +75,31 @@ def get_logger(name: str) -> logging.Logger:
 
 
 def job_param(name: str, default: str = "", *, argv: list[str] | None = None) -> str:
-    """Resolve a job/widget parameter as a stripped string."""
-    from edvise import utils
-
+    """Resolve a job/widget parameter as a stripped string (argv wins as default)."""
     pairs = parse_spark_python_task_params(sys.argv if argv is None else argv)
-    return str(
-        utils.databricks.get_db_widget_param(name, default=pairs.get(name, default))
-    ).strip()
+    fallback = pairs.get(name, default)
+    try:
+        return str(get_db_widget_param(name, default=fallback)).strip()
+    except Exception:
+        return str(fallback).strip()
+
+
+def require_job_param(name: str, *, argv: list[str] | None = None) -> str:
+    value = job_param(name, "", argv=argv)
+    if not value:
+        raise ValueError(
+            f"Missing required job parameter {name}. "
+            "Pass it via DAB var / job parameter at deploy or run time."
+        )
+    return value
+
+
+def notebook_exit(dbutils_obj: Any, message: str) -> None:
+    """Exit a Databricks task; raise SystemExit locally for testability."""
+    try:
+        dbutils_obj.notebook.exit(message)
+    except Exception:
+        raise SystemExit(message) from None
 
 
 def workflow_run_id(dbutils_obj: Any) -> str | None:

@@ -19,18 +19,17 @@ from edvise.ingestion.nsc_sftp.constants import (
     INSTITUTION_LOOKUP_PATH,
     MANIFEST_TABLE_PATH,
     PLAN_TABLE_PATH,
-    SST_API_KEY_SECRET_KEY,
-    SST_BASE_URL,
-    SST_TOKEN_ENDPOINT,
+    SST_TOKEN_PATH,
 )
 from edvise.ingestion.nsc_sftp.helpers import (
+    build_edvise_api_client,
     load_staged_csv,
     process_and_save_file,
     resolve_bronze_volume_dir,
     summarize_file_metrics,
     update_manifest,
 )
-from edvise.utils.api_requests import EdviseAPIClient, fetch_institution_by_pdp_id
+from edvise.utils.api_requests import fetch_institution_by_pdp_id
 from edvise.utils.institution_naming import databricksify_inst_name
 from edvise.utils.sftp import output_file_name_from_sftp
 
@@ -38,17 +37,20 @@ dbutils = runtime.get_dbutils()
 spark = runtime.get_spark()
 logger = runtime.get_logger(__name__)
 
-asset_scope = "nsc-sftp-asset"
-api_key = dbutils.secrets.get(scope=asset_scope, key=SST_API_KEY_SECRET_KEY).strip()
+db_workspace = runtime.require_job_param("DB_workspace")
+secret_scope = runtime.require_job_param("nsc_sftp_secret_scope")
+sst_api_key_secret_key = runtime.require_job_param("sst_api_key_secret_key")
+
+api_key = dbutils.secrets.get(scope=secret_scope, key=sst_api_key_secret_key).strip()
 if not api_key:
     raise RuntimeError(
-        f"Empty SST API key: scope={asset_scope} key={SST_API_KEY_SECRET_KEY}"
+        f"Empty SST API key: scope={secret_scope} key={sst_api_key_secret_key}"
     )
 
-api_client = EdviseAPIClient(
+api_client = build_edvise_api_client(
     api_key=api_key,
-    base_url=SST_BASE_URL,
-    token_endpoint=SST_TOKEN_ENDPOINT,
+    db_workspace=db_workspace,
+    token_path=SST_TOKEN_PATH,
     institution_lookup_path=INSTITUTION_LOOKUP_PATH,
 )
 
@@ -78,7 +80,7 @@ def _school_check_log(file_name: str, inst_id: str, filtered) -> None:
 
 
 if not spark.catalog.tableExists(PLAN_TABLE_PATH):
-    dbutils.notebook.exit("NO_PLAN_TABLE")
+    runtime.notebook_exit(dbutils, "NO_PLAN_TABLE")
 if not spark.catalog.tableExists(MANIFEST_TABLE_PATH):
     raise RuntimeError(f"Manifest table missing: {MANIFEST_TABLE_PATH}")
 
@@ -92,9 +94,8 @@ plan_new_df = (
     .where(F.col("status") == F.lit("NEW"))
 )
 if plan_new_df.limit(1).count() == 0:
-    dbutils.notebook.exit("NO_NEW_TO_INGEST")
+    runtime.notebook_exit(dbutils, "NO_NEW_TO_INGEST")
 
-# One collect: file metadata + institution ids grouped in Python.
 plan_rows = plan_new_df.select(
     "file_fingerprint", "file_name", "local_path", "inst_col", "institution_id"
 ).collect()
@@ -113,7 +114,7 @@ for row in plan_rows:
     )
 
 run_id = runtime.workflow_run_id(dbutils)
-counts = defaultdict(int)
+counts: dict[str, int] = defaultdict(int)
 bronze_dir_cache: dict[str, str] = {}
 
 for fp, meta in by_file.items():
@@ -122,21 +123,30 @@ for fp, meta in by_file.items():
     inst_col = meta["inst_col"]
     inst_ids = sorted(set(inst_ids_by_fp[fp]))
 
-    if not local_path or not os.path.exists(local_path):
+    def _fail(msg: str, **manifest_kwargs) -> None:
         update_manifest(
             spark,
             MANIFEST_TABLE_PATH,
             fp,
             status="FAILED",
-            error_message=f"Staged local file missing: {local_path}"[:8000],
+            error_message=msg[:8000],
             run_id=run_id,
+            **manifest_kwargs,
         )
         counts["failed_files"] += 1
+
+    if not local_path or not os.path.exists(local_path):
+        _fail(f"Staged local file missing: {local_path}")
         continue
 
     try:
         df_full = load_staged_csv(local_path, renames=COLUMN_RENAMES, inst_col=inst_col)
         student_count, file_cohort, cohort_term_pairs = summarize_file_metrics(df_full)
+        metrics = dict(
+            cohort=file_cohort,
+            cohort_term_pairs=cohort_term_pairs,
+            student_count=student_count,
+        )
         logger.info(
             "file=%s fp=%s students=%s cohorts=%s institutions=%s",
             file_name,
@@ -147,18 +157,7 @@ for fp, meta in by_file.items():
         )
 
         if inst_col not in df_full.columns:
-            update_manifest(
-                spark,
-                MANIFEST_TABLE_PATH,
-                fp,
-                status="FAILED",
-                error_message=f"Missing institution column '{inst_col}'"[:8000],
-                run_id=run_id,
-                cohort=file_cohort,
-                cohort_term_pairs=cohort_term_pairs,
-                student_count=student_count,
-            )
-            counts["failed_files"] += 1
+            _fail(f"Missing institution column '{inst_col}'", **metrics)
             continue
 
         if not inst_ids:
@@ -169,18 +168,16 @@ for fp, meta in by_file.items():
                 status="BRONZE_WRITTEN",
                 error_message=None,
                 run_id=run_id,
-                cohort=file_cohort,
-                cohort_term_pairs=cohort_term_pairs,
-                student_count=student_count,
+                **metrics,
             )
             counts["skipped_files"] += 1
             continue
 
-        # One pass over the frame instead of N equality filters.
+        wanted = set(map(str, inst_ids))
         grouped = {
             str(k): g.reset_index(drop=True)
             for k, g in df_full.groupby(inst_col, sort=False)
-            if str(k) in set(map(str, inst_ids))
+            if str(k) in wanted
         }
         file_errors: list[str] = []
         out_name = output_file_name_from_sftp(file_name)
@@ -249,18 +246,7 @@ for fp, meta in by_file.items():
                 file_errors.append(msg)
 
         if file_errors:
-            update_manifest(
-                spark,
-                MANIFEST_TABLE_PATH,
-                fp,
-                status="FAILED",
-                error_message=" | ".join(file_errors)[:8000],
-                run_id=run_id,
-                cohort=file_cohort,
-                cohort_term_pairs=cohort_term_pairs,
-                student_count=student_count,
-            )
-            counts["failed_files"] += 1
+            _fail(" | ".join(file_errors), **metrics)
         else:
             update_manifest(
                 spark,
@@ -269,29 +255,20 @@ for fp, meta in by_file.items():
                 status="BRONZE_WRITTEN",
                 error_message=None,
                 run_id=run_id,
-                cohort=file_cohort,
-                cohort_term_pairs=cohort_term_pairs,
-                student_count=student_count,
+                **metrics,
             )
             counts["processed_files"] += 1
 
     except Exception as exc:
         logger.exception("fatal_file_error file=%s fp=%s: %s", file_name, fp, exc)
-        update_manifest(
-            spark,
-            MANIFEST_TABLE_PATH,
-            fp,
-            status="FAILED",
-            error_message=f"fatal_file_error file={file_name} fp={fp}: {exc}"[:8000],
-            run_id=run_id,
-        )
-        counts["failed_files"] += 1
+        _fail(f"fatal_file_error file={file_name} fp={fp}: {exc}")
 
 logger.info("Done counts=%s", dict(counts))
-dbutils.notebook.exit(
+runtime.notebook_exit(
+    dbutils,
     "PROCESSED={processed_files};FAILED={failed_files};SKIPPED={skipped_files};"
     "WRITTEN={institutions_written};EXISTING={institutions_skipped_existing};"
     "UNRESOLVED={institutions_unresolved};NO_BRONZE={institutions_no_bronze}".format_map(
         defaultdict(int, counts)
-    )
+    ),
 )

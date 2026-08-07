@@ -10,7 +10,7 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass
-from typing import Any, Iterable, Literal, Mapping, Optional
+from typing import Any, Iterable, Literal, Mapping, Optional, Sequence
 
 FILE_STAMP_RE = re.compile(r"_(\d{14})(?:\.[^.]+)?$", re.IGNORECASE)
 FileSelectionMode = Literal["manual", "latest", "skip_ingested"]
@@ -77,7 +77,7 @@ def discover_file_pairs(file_rows: Iterable[Mapping[str, Any]]) -> list[FilePair
 
 
 def select_file_pair(
-    file_rows: list[Mapping[str, Any]],
+    file_rows: Sequence[Mapping[str, Any]],
     *,
     mode: str,
     cohort_file_name: str = "",

@@ -428,12 +428,7 @@ def normalize_staged_frame(
     df: pd.DataFrame, *, renames: dict[str, str]
 ) -> pd.DataFrame:
     """Apply snake_case + COLUMN_RENAMES to a staged PDP frame."""
-    return df.rename(
-        columns={
-            c: renames.get(convert_to_snake_case(c), convert_to_snake_case(c))
-            for c in df.columns
-        }
-    )
+    return df.rename(columns=_normalize_header_map(list(df.columns), renames))
 
 
 def load_staged_csv(
@@ -566,6 +561,37 @@ def resolve_bronze_volume_dir(
     bronze_schema = find_bronze_schema(spark, catalog, inst_prefix)
     bronze_volume_name = find_bronze_volume_name(spark, catalog, bronze_schema)
     return f"/Volumes/{catalog}/{bronze_schema}/{bronze_volume_name}"
+
+
+def bronze_written_file_names(spark: pyspark.sql.SparkSession) -> set[str]:
+    """file_name values already marked BRONZE_WRITTEN in ingestion_manifest."""
+    if not spark.catalog.tableExists(MANIFEST_TABLE_PATH):
+        return set()
+    rows = (
+        spark.table(MANIFEST_TABLE_PATH)
+        .where(F.col("status") == F.lit("BRONZE_WRITTEN"))
+        .select("file_name")
+        .collect()
+    )
+    return {r["file_name"] for r in rows if r["file_name"]}
+
+
+def build_edvise_api_client(
+    *,
+    api_key: str,
+    db_workspace: str,
+    token_path: str,
+    institution_lookup_path: str,
+):
+    """Construct EdviseAPIClient with workspace-derived base URL."""
+    from edvise.utils.api_requests import EdviseAPIClient, get_base_url
+
+    return EdviseAPIClient(
+        api_key=api_key,
+        base_url=get_base_url(db_workspace),
+        token_endpoint=token_path,
+        institution_lookup_path=institution_lookup_path,
+    )
 
 
 def update_manifest(

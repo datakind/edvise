@@ -24,6 +24,10 @@ variables:
     description: "Workspace group with CAN_MANAGE on the job"
   ingestion_slack_webhook_id:
     description: "Slack webhook ID for ingestion pipeline failure notifications"
+  nsc_sftp_secret_scope:
+    description: "Databricks secret scope holding NSC SFTP + SST API credentials (from GitHub Secrets at deploy)"
+  sst_api_key_secret_key:
+    description: "Key name within nsc_sftp_secret_scope for the SST API key (from GitHub Secrets at deploy)"
 
 run_as:
   service_principal_name: ${var.ds_run_as}

@@ -1,6 +1,7 @@
 # NSC/PDP SFTP automated ingestion: Git-sourced spark_python_task chain (01→02→03).
 # Prerequisites: Job parameter DB_workspace (Unity Catalog), matching UC tables/volumes,
-# secret scope nsc-sftp-asset (SFTP + SST API key), and cluster egress for SFTP/APIs.
+# Databricks secret scope/key (passed via DAB vars from GitHub Secrets at deploy),
+# and cluster egress for SFTP/APIs.
 #
 # File selection:
 #   - Set cohort_file_name + course_file_name for a manual run, OR
@@ -20,6 +21,10 @@ resources:
       parameters:
         - name: DB_workspace
           default: ${var.DB_workspace}
+        - name: nsc_sftp_secret_scope
+          default: ${var.nsc_sftp_secret_scope}
+        - name: sst_api_key_secret_key
+          default: ${var.sst_api_key_secret_key}
         - name: file_selection_mode
           default: skip_ingested
         - name: cohort_file_name
@@ -35,6 +40,8 @@ resources:
             parameters:
               - --DB_workspace
               - "{{job.parameters.DB_workspace}}"
+              - --nsc_sftp_secret_scope
+              - "{{job.parameters.nsc_sftp_secret_scope}}"
               - --file_selection_mode
               - "{{job.parameters.file_selection_mode}}"
               - --cohort_file_name
@@ -91,6 +98,10 @@ resources:
             parameters:
               - --DB_workspace
               - "{{job.parameters.DB_workspace}}"
+              - --nsc_sftp_secret_scope
+              - "{{job.parameters.nsc_sftp_secret_scope}}"
+              - --sst_api_key_secret_key
+              - "{{job.parameters.sst_api_key_secret_key}}"
           job_cluster_key: nsc-sftp-ingestion-cluster
           libraries:
             - pypi:

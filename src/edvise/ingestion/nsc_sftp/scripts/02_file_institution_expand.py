@@ -30,20 +30,19 @@ INST_COL_PATTERN = re.compile(INSTITUTION_COLUMN_PATTERN, re.IGNORECASE)
 
 ensure_plan_table(spark, PLAN_TABLE_PATH)
 if not spark.catalog.tableExists(QUEUE_TABLE_PATH):
-    dbutils.notebook.exit("NO_QUEUE_TABLE")
+    runtime.notebook_exit(dbutils, "NO_QUEUE_TABLE")
 
 queue_df = spark.table(QUEUE_TABLE_PATH)
 if queue_df.limit(1).count() == 0:
-    dbutils.notebook.exit("NO_QUEUED_FILES")
+    runtime.notebook_exit(dbutils, "NO_QUEUED_FILES")
 
-# Skip fingerprints already expanded.
 queue_df = queue_df.join(
     spark.table(PLAN_TABLE_PATH).select("file_fingerprint").distinct(),
     on="file_fingerprint",
     how="left_anti",
 )
 if queue_df.limit(1).count() == 0:
-    dbutils.notebook.exit("NO_NEW_EXPANSION_WORK")
+    runtime.notebook_exit(dbutils, "NO_NEW_EXPANSION_WORK")
 
 queued_files = queue_df.select(
     "file_fingerprint",
@@ -98,7 +97,7 @@ for row in queued_files:
 if missing:
     raise FileNotFoundError("Missing staged files: " + "; ".join(missing))
 if not work_items:
-    dbutils.notebook.exit("NO_WORK_ITEMS")
+    runtime.notebook_exit(dbutils, "NO_WORK_ITEMS")
 
 schema = T.StructType(
     [
@@ -112,8 +111,9 @@ schema = T.StructType(
         T.StructField("planned_at", T.TimestampType(), False),
     ]
 )
-df_plan = spark.createDataFrame(work_items, schema=schema)
-df_plan.createOrReplaceTempView("incoming_plan_rows")
+spark.createDataFrame(work_items, schema=schema).createOrReplaceTempView(
+    "incoming_plan_rows"
+)
 spark.sql(
     f"""
     MERGE INTO {PLAN_TABLE_PATH} AS t
@@ -129,6 +129,5 @@ spark.sql(
     WHEN NOT MATCHED THEN INSERT *
     """
 )
-count_out = len(work_items)
-logger.info("Wrote/updated %s plan row(s) into %s", count_out, PLAN_TABLE_PATH)
-dbutils.notebook.exit(f"WORK_ITEMS={count_out}")
+logger.info("Wrote/updated %s plan row(s) into %s", len(work_items), PLAN_TABLE_PATH)
+runtime.notebook_exit(dbutils, f"WORK_ITEMS={len(work_items)}")
