@@ -1114,9 +1114,8 @@ def _revalidate_pass1_and_force_hitl(
         detail_strs = [e.detail for e in errs]
         failure_mode = _failure_mode_for_validation_errors(errs)
         status = record.review_status
-        status_val = status.value if hasattr(status, "value") else str(status)
 
-        if status_val == ReviewStatus.refined_by_llm.value:
+        if status == ReviewStatus.refined_by_llm:
             has_correction = target_field in refined_corrections
             new_status = (
                 ReviewStatus.refined_and_proposed_for_hitl
@@ -1128,7 +1127,7 @@ def _revalidate_pass1_and_force_hitl(
                 f"still has {len(errs)} validation error(s). Forcing to {new_status.value}."
             )
             record.review_status = new_status
-        elif status_val == ReviewStatus.auto_approved.value:
+        elif status == ReviewStatus.auto_approved:
             warnings.append(
                 f"[post-pass1 validation] '{target_field}' marked auto_approved but "
                 f"still has {len(errs)} validation error(s). Forcing to proposed_for_hitl."
