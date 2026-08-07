@@ -29,18 +29,24 @@ print("src_path:", src_path)
 print("sys.path:", sys.path)
 
 from edvise.configs.schema_type import project_config_class
-from edvise.data_audit.eda import compute_pairwise_associations
 from edvise.dataio.read import read_config, read_parquet
 from edvise.dataio.write import write_parquet
 from edvise.model_prep import cleanup_features as cleanup, training_params
-from edvise.model_prep.target_associations import suggest_force_include_cols
+from edvise.model_prep.target_associations import (
+    compute_mutual_infos,
+    compute_spearman_corrs,
+    compute_target_assocs,
+    compute_univariate_aucs,
+    format_metric_table,
+    suggest_force_include_cols,
+)
 from edvise.shared.logger import (
     init_file_logging,
     local_fs_path,
     resolve_run_path,
 )
 from edvise.shared.utils import cohort_pair_columns, feature_cleanup_for_schema
-from edvise.shared.validation import require, warn_if
+from edvise.shared.validation import is_boolean_like, require, warn_if
 from edvise.utils.update_config import update_training_cohorts
 
 logging.basicConfig(
@@ -176,7 +182,7 @@ class ModelPrepTask:
         return df
 
     def log_target_feature_associations(self, pre: pd.DataFrame) -> None:
-        """Log target Spearman corrs / mixed-type associations; suggest force_include."""
+        """Log Spearman/AUC/MI/assoc vs target; suggest force_include (AUC-first)."""
         target_col = self.cfg.target_col
         if target_col not in pre.columns:
             LOGGER.warning(
@@ -190,35 +196,64 @@ class ModelPrepTask:
         feat = pre.drop(columns=drop_cols)
         LOGGER.info("Target association excludes: %s", drop_cols)
 
-        corrs = (
-            feat.corrwith(feat[target_col], method="spearman", numeric_only=True)
-            .dropna()
-            .sort_values(ascending=False)
+        corrs = compute_spearman_corrs(
+            feat, target_col=target_col, exclude=non_features
         )
+        aucs = compute_univariate_aucs(
+            feat, target_col=target_col, exclude=non_features
+        )
+        mis = compute_mutual_infos(
+            feat,
+            target_col=target_col,
+            exclude=non_features,
+            random_state=self.cfg.random_state,
+        )
+        assocs = compute_target_assocs(
+            feat, target_col=target_col, exclude=non_features
+        )
+
         LOGGER.info(
             "Spearman corrs vs '%s' (top/bottom 10):\n%s\n...\n%s",
             target_col,
             corrs.head(10).to_string(),
             corrs.tail(10).to_string(),
         )
-        assocs = (
-            compute_pairwise_associations(feat, ref_col=target_col)[target_col]
-            .dropna()
-            .sort_values(ascending=False)
+        LOGGER.info(
+            "Univariate ROC AUC vs '%s' (top 10):\n%s",
+            target_col,
+            aucs.head(10).to_string(),
+        )
+        LOGGER.info(
+            "Mutual information vs '%s' (top 10):\n%s",
+            target_col,
+            mis.head(10).to_string(),
         )
         LOGGER.info(
             "Pairwise associations vs '%s' (top 10):\n%s",
             target_col,
             assocs.head(10).to_string(),
         )
-        prep = self.cfg.preprocessing
+        LOGGER.info(
+            "Multi-metric top features:\n%s",
+            format_metric_table(
+                aucs,
+                mis,
+                corrs.abs().sort_values(ascending=False),
+                assocs,
+                labels=["auc", "mi", "abs_spearman", "assoc"],
+            ),
+        )
         LOGGER.info(
             "suggest force including: %s",
             suggest_force_include_cols(
                 corrs,
-                assocs,
+                aucs,
+                mis=mis,
+                assocs=assocs,
                 exclude=non_features,
-                skip_cumulative=getattr(getattr(prep, "target", None), "type_", None)
+                skip_cumulative=getattr(
+                    getattr(self.cfg.preprocessing, "target", None), "type_", None
+                )
                 == "retention",
             ),
         )
@@ -361,13 +396,7 @@ class ModelPrepTask:
                 f"Missing target column '{self.cfg.target_col}' in preprocessed dataset.",
             )
             require(
-                (df_preprocessed[self.cfg.target_col].dtype == bool)
-                or (
-                    df_preprocessed[self.cfg.target_col]
-                    .dropna()
-                    .isin([0, 1, True, False])
-                    .all()
-                ),
+                is_boolean_like(df_preprocessed[self.cfg.target_col]),
                 "Target column is not boolean-like after preprocessing.",
             )
 
