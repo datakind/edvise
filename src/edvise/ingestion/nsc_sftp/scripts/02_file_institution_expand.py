@@ -6,7 +6,30 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 from datetime import datetime, timezone
+
+# Ensure repo src/ is on sys.path so `import edvise.*` works in Databricks Jobs.
+# Layout: <git_root>/src/edvise/ingestion/nsc_sftp/scripts/<this_file>
+_here = globals().get("__file__")
+if _here:
+    _script_dir = os.path.dirname(os.path.abspath(_here))
+else:
+    _argv0 = os.path.abspath(sys.argv[0]) if sys.argv else ""
+    if _argv0.endswith(".py") and os.path.isfile(_argv0):
+        _script_dir = os.path.dirname(_argv0)
+    else:
+        _script_dir = os.path.abspath(os.getcwd())
+_current = _script_dir
+for _ in range(8):
+    if os.path.isdir(os.path.join(_current, "edvise")):
+        if _current not in sys.path:
+            sys.path.insert(0, _current)
+        break
+    _parent = os.path.dirname(_current)
+    if _parent == _current:
+        break
+    _current = _parent
 
 from edvise.ingestion.nsc_sftp import runtime
 
