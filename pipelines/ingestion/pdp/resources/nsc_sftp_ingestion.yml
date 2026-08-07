@@ -4,7 +4,7 @@
 #
 # File selection:
 #   - Set cohort_file_name + course_file_name for a manual run, OR
-#   - Leave them empty and use file_selection_mode=uningested|latest (default: uningested).
+#   - Leave them empty and use file_selection_mode=skip_ingested|latest (default: skip_ingested).
 
 resources:
   jobs:
@@ -21,7 +21,7 @@ resources:
         - name: DB_workspace
           default: ${var.DB_workspace}
         - name: file_selection_mode
-          default: uningested
+          default: skip_ingested
         - name: cohort_file_name
           default: ""
         - name: course_file_name

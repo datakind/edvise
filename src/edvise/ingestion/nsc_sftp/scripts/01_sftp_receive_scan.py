@@ -39,7 +39,7 @@ password = dbutils.secrets.get(scope=asset_scope, key="nsc-sftp-password")
 cohort_file_name = runtime.job_param("cohort_file_name")
 course_file_name = runtime.job_param("course_file_name")
 file_selection_mode = (
-    runtime.job_param("file_selection_mode", "uningested").lower() or "uningested"
+    runtime.job_param("file_selection_mode", "skip_ingested").lower() or "skip_ingested"
 )
 
 logger.info(
@@ -63,7 +63,7 @@ try:
     available = sorted({r["file_name"] for r in file_rows_all if r.get("file_name")})
     logger.info("SFTP files=%s preview=%s", len(available), available[:25])
 
-    # Cheap uningested check: BRONZE_WRITTEN file names only (no full Spark fingerprint pass).
+    # skip_ingested: BRONZE_WRITTEN file names only (no full Spark fingerprint pass).
     ingested_names: set[str] = set()
     if spark.catalog.tableExists(MANIFEST_TABLE_PATH):
         ingested_names = {

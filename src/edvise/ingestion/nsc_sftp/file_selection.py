@@ -13,7 +13,10 @@ from dataclasses import dataclass
 from typing import Any, Iterable, Literal, Mapping, Optional
 
 FILE_STAMP_RE = re.compile(r"_(\d{14})(?:\.[^.]+)?$", re.IGNORECASE)
-FileSelectionMode = Literal["manual", "latest", "uningested"]
+FileSelectionMode = Literal["manual", "latest", "skip_ingested"]
+
+# Older job runs may still pass this; treat as skip_ingested.
+_MODE_ALIASES = {"uningested": "skip_ingested"}
 
 
 @dataclass(frozen=True)
@@ -87,13 +90,15 @@ def select_file_pair(
     """
     Resolve cohort/course file names for an ingestion run.
 
-    ``uningested`` skips pairs whose cohort and course names are both present in
-    ``ingested_file_names`` (typically BRONZE_WRITTEN file_name values). Stamp-based
-    NSC names make file_name a stable version key without Spark fingerprinting.
+    ``skip_ingested`` picks the newest stamp pair that is not already fully
+    present in ``ingested_file_names`` (typically BRONZE_WRITTEN file_name values).
+    Stamp-based NSC names make file_name a stable version key without Spark
+    fingerprinting.
     """
     cohort_file_name = (cohort_file_name or "").strip()
     course_file_name = (course_file_name or "").strip()
-    mode_norm = (mode or "uningested").strip().lower()
+    mode_norm = (mode or "skip_ingested").strip().lower()
+    mode_norm = _MODE_ALIASES.get(mode_norm, mode_norm)
 
     if cohort_file_name and course_file_name:
         cohort_stamp = extract_file_stamp(cohort_file_name)
@@ -110,10 +115,10 @@ def select_file_pair(
             "file_selection_mode=manual requires both cohort_file_name and "
             "course_file_name job parameters."
         )
-    if mode_norm not in {"latest", "uningested"}:
+    if mode_norm not in {"latest", "skip_ingested"}:
         raise ValueError(
             f"Unsupported file_selection_mode={mode!r}. "
-            "Use 'manual', 'latest', or 'uningested'."
+            "Use 'manual', 'latest', or 'skip_ingested'."
         )
 
     pairs = discover_file_pairs(file_rows)

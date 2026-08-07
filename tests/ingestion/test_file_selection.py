@@ -47,7 +47,7 @@ def test_select_file_pair_manual():
     course = "A_Course_20240115123045.csv"
     c, o, mode = select_file_pair(
         [],
-        mode="uningested",
+        mode="skip_ingested",
         cohort_file_name=cohort,
         course_file_name=course,
     )
@@ -67,7 +67,7 @@ def test_select_file_pair_latest():
     assert o == "B_Course_20240201101010.csv"
 
 
-def test_select_file_pair_uningested_skips_bronze_written():
+def test_select_file_pair_skip_ingested():
     rows = [
         _row("A_Cohort_20240115123045.csv"),
         _row("A_Course_20240115123045.csv"),
@@ -76,18 +76,28 @@ def test_select_file_pair_uningested_skips_bronze_written():
     ]
     c, o, mode = select_file_pair(
         rows,
-        mode="uningested",
+        mode="skip_ingested",
         ingested_file_names={
             "B_Cohort_20240201101010.csv",
             "B_Course_20240201101010.csv",
         },
     )
-    assert mode == "uningested"
+    assert mode == "skip_ingested"
     assert c == "A_Cohort_20240115123045.csv"
     assert o == "A_Course_20240115123045.csv"
 
 
-def test_select_file_pair_uningested_all_done_raises():
+def test_select_file_pair_skip_ingested_alias_uningested():
+    rows = [
+        _row("A_Cohort_20240115123045.csv"),
+        _row("A_Course_20240115123045.csv"),
+    ]
+    c, o, mode = select_file_pair(rows, mode="uningested")
+    assert mode == "skip_ingested"
+    assert c == "A_Cohort_20240115123045.csv"
+
+
+def test_select_file_pair_skip_ingested_all_done_raises():
     rows = [
         _row("A_Cohort_20240115123045.csv"),
         _row("A_Course_20240115123045.csv"),
@@ -95,7 +105,7 @@ def test_select_file_pair_uningested_all_done_raises():
     with pytest.raises(FileNotFoundError, match="already BRONZE_WRITTEN"):
         select_file_pair(
             rows,
-            mode="uningested",
+            mode="skip_ingested",
             ingested_file_names={
                 "A_Cohort_20240115123045.csv",
                 "A_Course_20240115123045.csv",
