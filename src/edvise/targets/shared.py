@@ -199,7 +199,7 @@ def _extract_year_from_id(
     s = ser.astype("string")
     year = s.str.extract(r"^(\d{4})", expand=False).astype("Int32")
     if roll_spring_summer:
-        year = year + s.str.contains(
-            r"(?i)\b(?:SPRING|SUMMER)\b", na=False
-        ).astype("Int32")
+        year = year + s.str.contains(r"(?i)\b(?:SPRING|SUMMER)\b", na=False).astype(
+            "Int32"
+        )
     return year
