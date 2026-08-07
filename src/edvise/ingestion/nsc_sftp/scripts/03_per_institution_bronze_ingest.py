@@ -6,7 +6,9 @@ from __future__ import annotations
 
 import os
 from collections import defaultdict
+from typing import Optional
 
+import pandas as pd
 from edvise.ingestion.nsc_sftp import runtime
 
 runtime.bootstrap_catalog()
@@ -55,7 +57,7 @@ api_client = build_edvise_api_client(
 )
 
 
-def _school_check_log(file_name: str, inst_id: str, filtered) -> None:
+def _school_check_log(file_name: str, inst_id: str, filtered: pd.DataFrame) -> None:
     if {"cohort", "cohort_term"}.issubset(filtered.columns):
         latest = filtered["cohort"].max()
         terms = (
@@ -99,7 +101,7 @@ if plan_new_df.limit(1).count() == 0:
 plan_rows = plan_new_df.select(
     "file_fingerprint", "file_name", "local_path", "inst_col", "institution_id"
 ).collect()
-by_file: dict[str, dict] = {}
+by_file: dict[str, dict[str, str]] = {}
 inst_ids_by_fp: dict[str, list[str]] = defaultdict(list)
 for row in plan_rows:
     fp = row["file_fingerprint"]
@@ -123,7 +125,13 @@ for fp, meta in by_file.items():
     inst_col = meta["inst_col"]
     inst_ids = sorted(set(inst_ids_by_fp[fp]))
 
-    def _fail(msg: str, **manifest_kwargs) -> None:
+    def _fail(
+        msg: str,
+        *,
+        cohort: Optional[list[str]] = None,
+        cohort_term_pairs: Optional[list[dict[str, str]]] = None,
+        student_count: Optional[int] = None,
+    ) -> None:
         update_manifest(
             spark,
             MANIFEST_TABLE_PATH,
@@ -131,7 +139,9 @@ for fp, meta in by_file.items():
             status="FAILED",
             error_message=msg[:8000],
             run_id=run_id,
-            **manifest_kwargs,
+            cohort=cohort,
+            cohort_term_pairs=cohort_term_pairs,
+            student_count=student_count,
         )
         counts["failed_files"] += 1
 
@@ -142,11 +152,6 @@ for fp, meta in by_file.items():
     try:
         df_full = load_staged_csv(local_path, renames=COLUMN_RENAMES, inst_col=inst_col)
         student_count, file_cohort, cohort_term_pairs = summarize_file_metrics(df_full)
-        metrics = dict(
-            cohort=file_cohort,
-            cohort_term_pairs=cohort_term_pairs,
-            student_count=student_count,
-        )
         logger.info(
             "file=%s fp=%s students=%s cohorts=%s institutions=%s",
             file_name,
@@ -157,7 +162,12 @@ for fp, meta in by_file.items():
         )
 
         if inst_col not in df_full.columns:
-            _fail(f"Missing institution column '{inst_col}'", **metrics)
+            _fail(
+                f"Missing institution column '{inst_col}'",
+                cohort=file_cohort,
+                cohort_term_pairs=cohort_term_pairs,
+                student_count=student_count,
+            )
             continue
 
         if not inst_ids:
@@ -168,7 +178,9 @@ for fp, meta in by_file.items():
                 status="BRONZE_WRITTEN",
                 error_message=None,
                 run_id=run_id,
-                **metrics,
+                cohort=file_cohort,
+                cohort_term_pairs=cohort_term_pairs,
+                student_count=student_count,
             )
             counts["skipped_files"] += 1
             continue
@@ -246,7 +258,12 @@ for fp, meta in by_file.items():
                 file_errors.append(msg)
 
         if file_errors:
-            _fail(" | ".join(file_errors), **metrics)
+            _fail(
+                " | ".join(file_errors),
+                cohort=file_cohort,
+                cohort_term_pairs=cohort_term_pairs,
+                student_count=student_count,
+            )
         else:
             update_manifest(
                 spark,
@@ -255,7 +272,9 @@ for fp, meta in by_file.items():
                 status="BRONZE_WRITTEN",
                 error_message=None,
                 run_id=run_id,
-                **metrics,
+                cohort=file_cohort,
+                cohort_term_pairs=cohort_term_pairs,
+                student_count=student_count,
             )
             counts["processed_files"] += 1
 

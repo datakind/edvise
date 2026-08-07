@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     import paramiko
+    from edvise.utils.api_requests import EdviseAPIClient
 
 import pandas as pd
 import pyspark.sql
@@ -582,7 +583,7 @@ def build_edvise_api_client(
     db_workspace: str,
     token_path: str,
     institution_lookup_path: str,
-):
+) -> EdviseAPIClient:
     """Construct EdviseAPIClient with workspace-derived base URL."""
     from edvise.utils.api_requests import EdviseAPIClient, get_base_url
 
