@@ -90,9 +90,10 @@ from edvise.targets import retention
                 },
             ).astype({"student_id": "string", "retention": "boolean"}),
             "2022-23",
+            # 2021-22 SPRING rolls to 2022 and is excluded when max is 2022
             pd.Series(
-                data=[False, True],
-                index=pd.Index(["01", "02"], dtype="string", name="student_id"),
+                data=[False],
+                index=pd.Index(["01"], dtype="string", name="student_id"),
                 name="target",
                 dtype="boolean",
             ),
@@ -115,20 +116,24 @@ from edvise.targets import retention
                 dtype="boolean",
             ),
         ),
-        # Summer 2024-25 is calendar Summer 2025 and shares the Fall 2025 cutoff
+        # SPRING/SUMMER roll to end year; FALL/WINTER keep start year
         (
             pd.DataFrame(
                 {
-                    "student_id": ["01", "02", "03", "04"],
-                    "retention": [True, False, True, False],
+                    "student_id": ["01", "02", "03", "04", "05", "06"],
+                    "retention": [True, False, True, False, True, False],
                     "cohort_id": [
                         "2023-24 FALL",
+                        "2024-25 WINTER",
+                        "2024-25 SPRING",
                         "2024-25 SUMMER",
                         "2024-25 FALL",
                         "2025-26 FALL",
                     ],
                     "term_id": [
                         "2023-24 FALL",
+                        "2024-25 WINTER",
+                        "2024-25 SPRING",
                         "2024-25 SUMMER",
                         "2024-25 FALL",
                         "2025-26 SUMMER",
@@ -136,9 +141,11 @@ from edvise.targets import retention
                 },
             ).astype({"student_id": "string", "retention": "boolean"}),
             "2025",
+            # 2023-24 FALL (2023), 2024-25 WINTER (2024), 2024-25 FALL (2024)
+            # excluded: SPRING/SUMMER 2024-25 (2025) and FALL 2025-26 (2025)
             pd.Series(
-                data=[False, False],
-                index=pd.Index(["01", "03"], dtype="string", name="student_id"),
+                data=[False, True, False],
+                index=pd.Index(["01", "02", "05"], dtype="string", name="student_id"),
                 name="target",
                 dtype="boolean",
             ),
