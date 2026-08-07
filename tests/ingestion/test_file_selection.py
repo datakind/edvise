@@ -87,16 +87,6 @@ def test_select_file_pair_skip_ingested():
     assert o == "A_Course_20240115123045.csv"
 
 
-def test_select_file_pair_skip_ingested_alias_uningested():
-    rows = [
-        _row("A_Cohort_20240115123045.csv"),
-        _row("A_Course_20240115123045.csv"),
-    ]
-    c, o, mode = select_file_pair(rows, mode="uningested")
-    assert mode == "skip_ingested"
-    assert c == "A_Cohort_20240115123045.csv"
-
-
 def test_select_file_pair_skip_ingested_all_done_raises():
     rows = [
         _row("A_Cohort_20240115123045.csv"),

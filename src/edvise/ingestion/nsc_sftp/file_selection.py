@@ -15,9 +15,6 @@ from typing import Any, Iterable, Literal, Mapping, Optional
 FILE_STAMP_RE = re.compile(r"_(\d{14})(?:\.[^.]+)?$", re.IGNORECASE)
 FileSelectionMode = Literal["manual", "latest", "skip_ingested"]
 
-# Older job runs may still pass this; treat as skip_ingested.
-_MODE_ALIASES = {"uningested": "skip_ingested"}
-
 
 @dataclass(frozen=True)
 class FilePair:
@@ -98,7 +95,6 @@ def select_file_pair(
     cohort_file_name = (cohort_file_name or "").strip()
     course_file_name = (course_file_name or "").strip()
     mode_norm = (mode or "skip_ingested").strip().lower()
-    mode_norm = _MODE_ALIASES.get(mode_norm, mode_norm)
 
     if cohort_file_name and course_file_name:
         cohort_stamp = extract_file_stamp(cohort_file_name)
