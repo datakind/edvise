@@ -1,5 +1,5 @@
 """
-NSC SFTP ingestion helpers.
+NSC SFTP ingestion helpers (manifest, queue, plan, staging, bronze writes).
 
 NSC-specific utilities for processing SFTP files, extracting institution IDs,
 managing ingestion manifests, and working with Databricks schemas/volumes.
@@ -16,13 +16,14 @@ from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     import paramiko
+    from edvise.utils.api_requests import EdviseAPIClient
 
 import pandas as pd
 import pyspark.sql
 from pyspark.sql import functions as F
 from pyspark.sql import types as T
 
-from edvise.ingestion.constants import (
+from edvise.ingestion.nsc_sftp.constants import (
     CATALOG,
     DEFAULT_SCHEMA,
     MANIFEST_TABLE_PATH,
@@ -413,6 +414,114 @@ def ensure_plan_table(spark: pyspark.sql.SparkSession, plan_table: str) -> None:
     )
 
 
+def _normalize_header_map(
+    header_cols: list[str], renames: dict[str, str]
+) -> dict[str, str]:
+    """Map raw CSV header -> normalized/renamed column name."""
+    out: dict[str, str] = {}
+    for raw in header_cols:
+        normalized = convert_to_snake_case(raw)
+        out[raw] = renames.get(normalized, normalized)
+    return out
+
+
+def normalize_staged_frame(
+    df: pd.DataFrame, *, renames: dict[str, str]
+) -> pd.DataFrame:
+    """Apply snake_case + COLUMN_RENAMES to a staged PDP frame."""
+    return df.rename(columns=_normalize_header_map(list(df.columns), renames))
+
+
+def load_staged_csv(
+    local_path: str,
+    *,
+    renames: dict[str, str],
+    inst_col: Optional[str] = None,
+) -> pd.DataFrame:
+    """
+    Load a staged CSV once with institution IDs forced to string when possible.
+    """
+    header_cols = pd.read_csv(local_path, nrows=0).columns.tolist()
+    header_map = _normalize_header_map(header_cols, renames)
+    dtype = None
+    if inst_col:
+        raw_inst_col = next(
+            (raw for raw, norm in header_map.items() if norm == inst_col), None
+        )
+        if raw_inst_col:
+            dtype = {raw_inst_col: str}
+    df = pd.read_csv(local_path, on_bad_lines="warn", dtype=dtype)
+    return normalize_staged_frame(df, renames=renames)
+
+
+def summarize_file_metrics(
+    df: pd.DataFrame,
+) -> tuple[Optional[int], Optional[list[str]], Optional[list[dict[str, str]]]]:
+    """Cheap file-level metrics for manifest updates / logging."""
+    student_count = None
+    student_col = next(
+        (c for c in ("student_id", "study_id", "student_guid") if c in df.columns),
+        None,
+    )
+    if student_col:
+        student_count = int(df[student_col].nunique(dropna=True))
+
+    file_cohort = None
+    if "cohort" in df.columns:
+        vals = df["cohort"].dropna().astype(str).str.strip()
+        vals = vals[~vals.str.lower().isin({"", "nan", "none", "null"})]
+        uniq = sorted(vals.unique().tolist())
+        file_cohort = uniq or None
+
+    file_cohort_term_pairs = None
+    if {"cohort", "cohort_term"}.issubset(df.columns):
+        tmp = df.loc[:, ["cohort", "cohort_term"]].dropna().copy()
+        tmp["cohort"] = tmp["cohort"].astype(str).str.strip()
+        tmp["cohort_term"] = tmp["cohort_term"].astype(str).str.strip().str.upper()
+        bad = {"", "nan", "none", "null"}
+        tmp = tmp[
+            ~tmp["cohort"].str.lower().isin(bad)
+            & ~tmp["cohort_term"].str.lower().isin(bad)
+        ]
+        tmp = tmp.drop_duplicates().sort_values(["cohort", "cohort_term"])
+        pairs = [
+            {"cohort": r.cohort, "cohort_term": r.cohort_term}
+            for r in tmp.itertuples(index=False)
+        ]
+        file_cohort_term_pairs = pairs or None
+
+    return student_count, file_cohort, file_cohort_term_pairs
+
+
+def _normalize_institution_id(value: object) -> Optional[str]:
+    try:
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, int):
+            return str(value)
+        if isinstance(value, float):
+            if not math.isfinite(value):
+                return None
+            return str(int(value)) if value.is_integer() else str(value).strip()
+    except Exception:
+        pass
+
+    s = str(value).strip()
+    if s == "" or s.lower() in {
+        "nan",
+        "inf",
+        "+inf",
+        "-inf",
+        "infinity",
+        "+infinity",
+        "-infinity",
+    }:
+        return None
+    if re.fullmatch(r"\d+\.0+", s):
+        return s.split(".", 1)[0]
+    return s
+
+
 def extract_institution_ids(
     local_path: str,
     *,
@@ -420,79 +529,70 @@ def extract_institution_ids(
     inst_col_pattern: re.Pattern,
 ) -> tuple[Optional[str], list[str]]:
     """
-    Extract unique institution IDs from a staged CSV file.
+    Extract unique institution IDs from a staged CSV.
 
-    Reads file, normalizes/renames columns, detects institution column,
-    and returns unique institution IDs.
-
-    Args:
-        local_path: Path to local CSV file
-        renames: Dictionary mapping old column names to new names
-        inst_col_pattern: Compiled regex pattern to match institution column
-
-    Returns:
-        Tuple of (institution_column_name, sorted_list_of_unique_ids).
-        Returns (None, []) if no institution column found.
-
-    Example:
-        >>> pattern = re.compile(r"(?=.*institution)(?=.*id)", re.IGNORECASE)
-        >>> renames = {"inst_id": "institution_id"}
-        >>> col, ids = extract_institution_ids(
-        ...     "/tmp/file.csv", renames=renames, inst_col_pattern=pattern
-        ... )
-        >>> print(col, ids)
-        'institution_id' ['12345', '67890']
+    Only the institution column is fully read (header scan first), which keeps
+    stage-02 cheap for wide PDP files.
     """
-    df = pd.read_csv(local_path, on_bad_lines="warn")
-    # Use convert_to_snake_case from utils instead of normalize_col
-    df = df.rename(columns={c: convert_to_snake_case(c) for c in df.columns})
-    df = df.rename(columns=renames)
-
-    inst_col = detect_institution_column(df.columns.tolist(), inst_col_pattern)
+    header_cols = pd.read_csv(local_path, nrows=0).columns.tolist()
+    header_map = _normalize_header_map(header_cols, renames)
+    inst_col = detect_institution_column(list(header_map.values()), inst_col_pattern)
     if inst_col is None:
         return None, []
 
-    # Make IDs robust: drop nulls, strip whitespace, keep as string
-    series = df[inst_col].dropna()
+    raw_inst_col = next(raw for raw, norm in header_map.items() if norm == inst_col)
+    series = pd.read_csv(local_path, usecols=[raw_inst_col], on_bad_lines="warn")[
+        raw_inst_col
+    ].dropna()
 
-    # Some files store as numeric; normalize to integer-like strings when possible
-    ids = set()
-    for v in series.tolist():
-        # Handle pandas/numpy numeric types
-        try:
-            if isinstance(v, int):
-                ids.add(str(v))
-                continue
-            if isinstance(v, float):
-                # Treat +/-inf as invalid IDs
-                if not math.isfinite(v):
-                    continue
-                # If 323100.0 -> "323100"
-                if v.is_integer():
-                    ids.add(str(int(v)))
-                else:
-                    ids.add(str(v).strip())
-                continue
-        except Exception:
-            pass
-
-        s = str(v).strip()
-        if s == "" or s.lower() in {
-            "nan",
-            "inf",
-            "+inf",
-            "-inf",
-            "infinity",
-            "+infinity",
-            "-infinity",
-        }:
-            continue
-        # If it's "323100.0" as string, coerce safely
-        if re.fullmatch(r"\d+\.0+", s):
-            s = s.split(".")[0]
-        ids.add(s)
-
+    ids: set[str] = set()
+    for value in series.tolist():
+        normalized = _normalize_institution_id(value)
+        if normalized is not None:
+            ids.add(normalized)
     return inst_col, sorted(ids)
+
+
+def resolve_bronze_volume_dir(
+    spark: pyspark.sql.SparkSession, catalog: str, inst_prefix: str
+) -> str:
+    """Return `/Volumes/{catalog}/{schema}/{volume}` for an institution prefix."""
+    from edvise.utils.databricks import find_bronze_schema, find_bronze_volume_name
+
+    bronze_schema = find_bronze_schema(spark, catalog, inst_prefix)
+    bronze_volume_name = find_bronze_volume_name(spark, catalog, bronze_schema)
+    return f"/Volumes/{catalog}/{bronze_schema}/{bronze_volume_name}"
+
+
+def bronze_written_file_names(spark: pyspark.sql.SparkSession) -> set[str]:
+    """file_name values already marked BRONZE_WRITTEN in ingestion_manifest."""
+    if not spark.catalog.tableExists(MANIFEST_TABLE_PATH):
+        return set()
+    rows = (
+        spark.table(MANIFEST_TABLE_PATH)
+        .where(F.col("status") == F.lit("BRONZE_WRITTEN"))
+        .select("file_name")
+        .collect()
+    )
+    return {r["file_name"] for r in rows if r["file_name"]}
+
+
+def build_edvise_api_client(
+    *,
+    api_key: str,
+    db_workspace: str,
+    token_path: str,
+    institution_lookup_path: str,
+) -> EdviseAPIClient:
+    """Construct EdviseAPIClient with workspace-derived base URL."""
+    from edvise.utils.api_requests import EdviseAPIClient, get_base_url
+
+    return EdviseAPIClient(
+        api_key=api_key,
+        base_url=get_base_url(db_workspace),
+        token_endpoint=token_path,
+        institution_lookup_path=institution_lookup_path,
+    )
 
 
 def update_manifest(

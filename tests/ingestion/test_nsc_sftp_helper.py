@@ -1,6 +1,6 @@
 import re
 
-from edvise.ingestion.nsc_sftp_helpers import (
+from edvise.ingestion.nsc_sftp.helpers import (
     detect_institution_column,
     extract_institution_ids,
 )
