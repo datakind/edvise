@@ -1,8 +1,11 @@
 """
 Select cohort/course SFTP file pairs for NSC PDP ingestion.
 
-Files are expected to end with a shared 14-digit stamp ``_YYYYMMDDHHMMSS`` and
-to contain ``cohort`` or ``course`` in the basename (case-insensitive).
+Files share a trailing 14-digit stamp ``_YYYYMMDDHHMMSS``. Roles match basename
+markers (course checked first — it contains the cohort marker as a suffix):
+
+- course: ``COURSE_LEVEL_AR_DEIDENTIFIED_STUDYID``
+- cohort: ``AR_DEIDENTIFIED_STUDYID``
 """
 
 from __future__ import annotations
@@ -13,6 +16,8 @@ from dataclasses import dataclass
 from typing import Any, Iterable, Literal, Mapping, Optional, Sequence
 
 FILE_STAMP_RE = re.compile(r"_(\d{14})(?:\.[^.]+)?$", re.IGNORECASE)
+COURSE_MARKER = "COURSE_LEVEL_AR_DEIDENTIFIED_STUDYID"
+COHORT_MARKER = "AR_DEIDENTIFIED_STUDYID"
 FileSelectionMode = Literal["manual", "latest", "skip_ingested"]
 
 
@@ -42,13 +47,11 @@ def try_extract_file_stamp(file_name: str) -> Optional[str]:
 
 
 def classify_pdp_file_role(file_name: str) -> Optional[Literal["cohort", "course"]]:
-    base = os.path.basename(file_name).lower()
-    has_cohort = "cohort" in base
-    has_course = "course" in base
-    if has_cohort and not has_course:
-        return "cohort"
-    if has_course and not has_cohort:
+    base = os.path.basename(file_name).upper()
+    if COURSE_MARKER in base:
         return "course"
+    if COHORT_MARKER in base:
+        return "cohort"
     return None
 
 
