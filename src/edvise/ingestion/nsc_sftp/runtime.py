@@ -75,13 +75,14 @@ def get_logger(name: str) -> logging.Logger:
 
 
 def job_param(name: str, default: str = "", *, argv: list[str] | None = None) -> str:
-    """Resolve a job/widget parameter as a stripped string (argv wins as default)."""
+    """Resolve a job parameter: ``spark_python_task`` argv, then notebook widget."""
     pairs = parse_spark_python_task_params(sys.argv if argv is None else argv)
-    fallback = pairs.get(name, default)
+    if name in pairs:
+        return str(pairs[name]).strip()
     try:
-        return str(get_db_widget_param(name, default=fallback)).strip()
+        return str(get_db_widget_param(name, default=default)).strip()
     except Exception:
-        return str(fallback).strip()
+        return str(default).strip()
 
 
 def require_job_param(name: str, *, argv: list[str] | None = None) -> str:
