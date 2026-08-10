@@ -1,3 +1,8 @@
+## 1.9.0 (2026-08-10)
+- refactor(dataio): split PDP course load/prepare; try date formats in-memory (#266)
+- feat: model prep target assoc logs (#273)
+- feat: fixing missing flag features getting double counted in model card (#275)
+
 ## 1.8.1 (2026-08-04)
 - feat(legacy): add batch GCS ingest task to legacy inference pipeline (#239)
 - feat(genai): enable Anthropic prompt caching in SMA refinement (#261)
