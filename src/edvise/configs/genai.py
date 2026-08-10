@@ -20,6 +20,8 @@ from edvise.genai.mapping.shared.pipeline_artifacts import (
 )
 from edvise.genai.mapping.shared.volume_paths import (
     bronze_volume_path_for_institution,
+    genai_reference_current_root,
+    genai_reference_root,
     resolve_genai_data_path,
     resolve_genai_inputs_toml_path,
     silver_genai_mapping_root,
@@ -31,6 +33,8 @@ __all__ = [
     "IdentityAgentInputsConfig",
     "SchoolMappingConfig",
     "bronze_volume_path_for_institution",
+    "genai_reference_current_root",
+    "genai_reference_root",
     "resolve_genai_data_path",
     "resolve_genai_inputs_toml_path",
     "silver_genai_mapping_root",
