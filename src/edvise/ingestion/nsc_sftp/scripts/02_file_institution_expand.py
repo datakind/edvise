@@ -10,6 +10,7 @@ import os
 import re
 import sys
 from datetime import datetime, timezone
+from typing import Any
 
 # Ensure repo src/ is on sys.path so `import edvise.*` works in Databricks Jobs.
 _here = globals().get("__file__")
@@ -101,7 +102,7 @@ queued_files = queue_df.select(
 work_items: list[dict] = []
 missing: list[str] = []
 now_ts = datetime.now(timezone.utc)
-file_pdp_ids: dict[str, tuple[object, list[str], str]] = {}
+file_pdp_ids: dict[str, tuple[dict[str, Any], list[str], str]] = {}
 
 for row in queued_files:
     fp, file_name, local_path = (
@@ -118,7 +119,16 @@ for row in queued_files:
     if not inst_col or not inst_ids:
         logger.warning("No institution IDs for file=%s fp=%s; skipping.", file_name, fp)
         continue
-    file_pdp_ids[fp] = (row, inst_ids, inst_col)
+    file_pdp_ids[fp] = (
+        {
+            "file_name": file_name,
+            "local_path": local_path,
+            "file_size": row["file_size"],
+            "file_modified_time": row["file_modified_time"],
+        },
+        inst_ids,
+        inst_col,
+    )
 
 if missing:
     raise FileNotFoundError("Missing staged files: " + "; ".join(missing))
@@ -128,26 +138,26 @@ if not file_pdp_ids:
 all_pdp_ids = [pid for _, ids, _ in file_pdp_ids.values() for pid in ids]
 sst_by_pdp = resolve_sst_institutions(api_client, all_pdp_ids)
 
-for fp, (row, inst_ids, inst_col) in file_pdp_ids.items():
+for fp, (meta, inst_ids, inst_col) in file_pdp_ids.items():
     for pdp_id in inst_ids:
         sst_inst_id, institution_name = sst_by_pdp[pdp_id]
         work_items.append(
             {
                 "file_fingerprint": fp,
-                "file_name": row["file_name"],
-                "local_path": row["local_path"],
+                "file_name": meta["file_name"],
+                "local_path": meta["local_path"],
                 "institution_id": pdp_id,
                 "inst_id": sst_inst_id,
                 "institution_name": institution_name,
                 "inst_col": inst_col,
-                "file_size": row["file_size"],
-                "file_modified_time": row["file_modified_time"],
+                "file_size": meta["file_size"],
+                "file_modified_time": meta["file_modified_time"],
                 "planned_at": now_ts,
             }
         )
     logger.info(
         "file=%s: %s institution(s) via %s preview=%s",
-        row["file_name"],
+        meta["file_name"],
         len(inst_ids),
         inst_col,
         [

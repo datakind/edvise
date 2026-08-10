@@ -97,9 +97,7 @@ def _school_check_log(file_name: str, pdp_id: str, filtered: pd.DataFrame) -> No
         )
 
 
-def _sst_identity(
-    pdp_id: str, planned: Optional[tuple[str, str]]
-) -> tuple[str, str]:
+def _sst_identity(pdp_id: str, planned: Optional[tuple[str, str]]) -> tuple[str, str]:
     if planned and planned[0] and planned[1]:
         return planned
     return resolve_sst_institution(api_client, pdp_id)
@@ -316,9 +314,7 @@ for fp, meta in by_file.items():
                     f"institution={inst_name!r} rows={len(filtered)} path={full_path}"
                 )
             except Exception as exc:
-                msg = (
-                    f"inst_ingest_failed file={file_name} fp={fp} pdp_id={pdp_id}: {exc}"
-                )
+                msg = f"inst_ingest_failed file={file_name} fp={fp} pdp_id={pdp_id}: {exc}"
                 logger.exception(msg)
                 file_errors.append(msg)
                 failed_rows.append(f"file={file_name} pdp_id={pdp_id} reason={exc}")
