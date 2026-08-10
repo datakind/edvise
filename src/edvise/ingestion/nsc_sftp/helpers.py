@@ -455,7 +455,11 @@ def backfill_plan_institution_identity(
     api_client: "EdviseAPIClient",
     plan_table: str,
 ) -> int:
-    """Fill blank ``inst_id`` / ``institution_name`` on plan rows. Returns PDP ids filled."""
+    """Fill blank ``inst_id`` / ``institution_name`` on plan rows. Returns PDP ids filled.
+
+    Auth/lookup failures are logged and skipped so expand can continue; new plan rows
+    still resolve SST identity strictly via ``resolve_sst_institutions``.
+    """
     ensure_plan_table(spark, plan_table)
     blank = (
         F.col("inst_id").isNull()
@@ -477,7 +481,15 @@ def backfill_plan_institution_identity(
     if not pdp_ids:
         return 0
 
-    resolved = resolve_sst_institutions(api_client, pdp_ids)
+    try:
+        resolved = resolve_sst_institutions(api_client, pdp_ids)
+    except Exception:
+        LOGGER.exception(
+            "SST backfill failed for %s PDP id(s); leaving inst_id/name blank",
+            len(pdp_ids),
+        )
+        return 0
+
     rows = [
         {
             "institution_id": pdp_id,
