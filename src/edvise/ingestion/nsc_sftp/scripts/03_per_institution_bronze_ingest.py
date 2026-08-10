@@ -141,6 +141,17 @@ for row in plan_rows:
 run_id = runtime.workflow_run_id(dbutils)
 counts: dict[str, int] = defaultdict(int)
 bronze_dir_cache: dict[str, str] = {}
+# Per-institution outcomes for end-of-run summary logging.
+ingested_rows: list[str] = []
+skipped_rows: list[str] = []
+failed_rows: list[str] = []
+
+logger.info(
+    "Starting bronze ingest: %s file(s), %s institution-file plan row(s), run_id=%s",
+    len(by_file),
+    len(plan_rows),
+    run_id,
+)
 
 for fp, meta in by_file.items():
     file_name = meta["file_name"]
@@ -170,18 +181,19 @@ for fp, meta in by_file.items():
 
     if not local_path or not os.path.exists(local_path):
         _fail(f"Staged local file missing: {local_path}")
+        failed_rows.append(f"file={file_name} reason=staged_file_missing")
         continue
 
     try:
         df_full = load_staged_csv(local_path, renames=COLUMN_RENAMES, inst_col=inst_col)
         student_count, file_cohort, cohort_term_pairs = summarize_file_metrics(df_full)
         logger.info(
-            "file=%s fp=%s students=%s cohorts=%s institutions=%s",
+            "Processing file=%s fp=%s students=%s cohorts=%s planned_institutions=%s",
             file_name,
             fp,
             student_count,
             len(file_cohort or []),
-            len(inst_ids),
+            inst_ids,
         )
 
         if inst_col not in df_full.columns:
@@ -190,6 +202,9 @@ for fp, meta in by_file.items():
                 cohort=file_cohort,
                 cohort_term_pairs=cohort_term_pairs,
                 student_count=student_count,
+            )
+            failed_rows.append(
+                f"file={file_name} reason=missing_institution_column col={inst_col}"
             )
             continue
 
@@ -206,6 +221,7 @@ for fp, meta in by_file.items():
                 student_count=student_count,
             )
             counts["skipped_files"] += 1
+            skipped_rows.append(f"file={file_name} reason=no_institutions_in_plan")
             continue
 
         wanted = set(map(str, inst_ids))
@@ -222,6 +238,9 @@ for fp, meta in by_file.items():
                 filtered = grouped.get(str(inst_id))
                 if filtered is None or filtered.empty:
                     counts["institutions_empty"] += 1
+                    skipped_rows.append(
+                        f"file={file_name} pdp_id={inst_id} reason=no_rows_for_institution"
+                    )
                     continue
 
                 _school_check_log(file_name, inst_id, filtered)
@@ -253,32 +272,44 @@ for fp, meta in by_file.items():
                 full_path = os.path.join(volume_dir, out_name)
                 if os.path.exists(full_path):
                     counts["institutions_skipped_existing"] += 1
+                    skipped_rows.append(
+                        f"file={file_name} pdp_id={inst_id} institution={inst_name!r} "
+                        f"reason=already_exists path={full_path}"
+                    )
                     logger.info(
-                        "Skip existing file=%s inst=%s path=%s",
+                        "Skip existing file=%s pdp_id=%s institution=%r path=%s",
                         file_name,
                         inst_id,
+                        inst_name,
                         full_path,
                     )
                     continue
 
                 logger.info(
-                    "Write file=%s inst=%s name=%r -> %s/%s",
+                    "Writing file=%s pdp_id=%s institution=%r rows=%s -> %s",
                     file_name,
                     inst_id,
                     inst_name,
-                    volume_dir,
-                    out_name,
+                    len(filtered),
+                    full_path,
                 )
                 process_and_save_file(
                     volume_dir=volume_dir, file_name=out_name, df=filtered
                 )
                 counts["institutions_written"] += 1
+                ingested_rows.append(
+                    f"file={file_name} pdp_id={inst_id} institution={inst_name!r} "
+                    f"rows={len(filtered)} path={full_path}"
+                )
             except Exception as exc:
                 msg = (
                     f"inst_ingest_failed file={file_name} fp={fp} inst={inst_id}: {exc}"
                 )
                 logger.exception(msg)
                 file_errors.append(msg)
+                failed_rows.append(
+                    f"file={file_name} pdp_id={inst_id} reason={exc}"
+                )
 
         if file_errors:
             _fail(
@@ -304,7 +335,17 @@ for fp, meta in by_file.items():
     except Exception as exc:
         logger.exception("fatal_file_error file=%s fp=%s: %s", file_name, fp, exc)
         _fail(f"fatal_file_error file={file_name} fp={fp}: {exc}")
+        failed_rows.append(f"file={file_name} reason=fatal_file_error error={exc}")
 
+logger.info("=== INGESTION SUMMARY (written=%s) ===", len(ingested_rows))
+for line in ingested_rows:
+    logger.info("INGESTED %s", line)
+logger.info("=== SKIPPED (%s) ===", len(skipped_rows))
+for line in skipped_rows:
+    logger.info("SKIPPED %s", line)
+logger.info("=== FAILED (%s) ===", len(failed_rows))
+for line in failed_rows:
+    logger.info("FAILED %s", line)
 logger.info("Done counts=%s", dict(counts))
 runtime.notebook_exit(
     dbutils,
