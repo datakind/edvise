@@ -75,7 +75,10 @@ class H2OModelCard(ModelCard[C]):
         Returns:
             A dictionary with feature metadata for the template.
         """
-        feature_count = len(h2o_ml.inference.get_h2o_used_features(self.model))
+        # Group with the same helper as the ranked SHAP feature table so
+        # *_missing_flag / one-hot levels are not double-counted.
+        used = h2o_ml.inference.get_h2o_used_features(self.model)
+        feature_count = len({h2o_ml.inference.get_base_feature_name(c) for c in used})
         if not self.cfg.modeling or not self.cfg.modeling.feature_selection:
             raise ValueError(
                 "Modeling configuration or feature selection config is missing."

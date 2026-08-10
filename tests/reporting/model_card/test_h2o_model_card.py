@@ -86,9 +86,19 @@ def test_load_model_incomplete_config(mock_config, mock_client):
         card.load_model()
 
 
+@pytest.mark.parametrize(
+    ("used_features", "expected_count"),
+    [
+        (["a", "b", "c"], "3"),
+        (["gpa", "gpa_missing_flag", "credits"], "2"),
+        (["ethnicity.White", "ethnicity.Black", "ethnicity_missing_flag"], "1"),
+    ],
+)
 @patch("edvise.reporting.model_card.h2o_base.h2o_ml.inference.get_h2o_used_features")
-def test_get_feature_metadata_success(mock_get_features, mock_config, mock_client):
-    mock_get_features.return_value = ["a", "b", "c"]
+def test_get_feature_metadata_success(
+    mock_get_features, used_features, expected_count, mock_config, mock_client
+):
+    mock_get_features.return_value = used_features
     card = TestableH2OModelCard(
         config=mock_config,
         catalog="catalog",
@@ -97,7 +107,7 @@ def test_get_feature_metadata_success(mock_get_features, mock_config, mock_clien
     )
     card.model = MagicMock()
     metadata = card.get_feature_metadata()
-    assert metadata["number_of_features"] == "3"
+    assert metadata["number_of_features"] == expected_count
     assert metadata["collinearity_threshold"] == "0.9"
     assert metadata["low_variance_threshold"] == "0.01"
     assert metadata["incomplete_threshold"] == "5"
