@@ -47,14 +47,15 @@ from edvise.ingestion.nsc_sftp.constants import (
     SST_TOKEN_PATH,
 )
 from edvise.ingestion.nsc_sftp.helpers import (
-    build_edvise_api_client,
+    ensure_plan_table,
+    job_edvise_api_client,
     load_staged_csv,
     process_and_save_file,
     resolve_bronze_volume_dir,
+    resolve_sst_institution,
     summarize_file_metrics,
     update_manifest,
 )
-from edvise.utils.api_requests import fetch_institution_by_pdp_id
 from edvise.utils.institution_naming import databricksify_inst_name
 from edvise.utils.sftp import output_file_name_from_sftp
 
@@ -62,25 +63,17 @@ dbutils = runtime.get_dbutils()
 spark = runtime.get_spark()
 logger = runtime.get_logger(__name__)
 
-db_workspace = runtime.require_job_param("DB_workspace")
-secret_scope = runtime.require_job_param("nsc_sftp_secret_scope")
-sst_api_key_secret_key = runtime.require_job_param("sst_api_key_secret_key")
-
-api_key = dbutils.secrets.get(scope=secret_scope, key=sst_api_key_secret_key).strip()
-if not api_key:
-    raise RuntimeError(
-        f"Empty SST API key: scope={secret_scope} key={sst_api_key_secret_key}"
-    )
-
-api_client = build_edvise_api_client(
-    api_key=api_key,
-    db_workspace=db_workspace,
+api_client = job_edvise_api_client(
+    dbutils,
+    db_workspace=runtime.require_job_param("DB_workspace"),
+    secret_scope=runtime.require_job_param("nsc_sftp_secret_scope"),
+    sst_api_key_secret_key=runtime.require_job_param("sst_api_key_secret_key"),
     token_path=SST_TOKEN_PATH,
     institution_lookup_path=INSTITUTION_LOOKUP_PATH,
 )
 
 
-def _school_check_log(file_name: str, inst_id: str, filtered: pd.DataFrame) -> None:
+def _school_check_log(file_name: str, pdp_id: str, filtered: pd.DataFrame) -> None:
     if {"cohort", "cohort_term"}.issubset(filtered.columns):
         latest = filtered["cohort"].max()
         terms = (
@@ -91,17 +84,25 @@ def _school_check_log(file_name: str, inst_id: str, filtered: pd.DataFrame) -> N
             .tolist()
         )
         logger.info(
-            "School check file=%s inst=%s rows=%s latest_cohort=%s terms=%s",
+            "School check file=%s pdp_id=%s rows=%s latest_cohort=%s terms=%s",
             file_name,
-            inst_id,
+            pdp_id,
             len(filtered),
             latest,
             terms,
         )
     else:
         logger.info(
-            "School check file=%s inst=%s rows=%s", file_name, inst_id, len(filtered)
+            "School check file=%s pdp_id=%s rows=%s", file_name, pdp_id, len(filtered)
         )
+
+
+def _sst_identity(
+    pdp_id: str, planned: Optional[tuple[str, str]]
+) -> tuple[str, str]:
+    if planned and planned[0] and planned[1]:
+        return planned
+    return resolve_sst_institution(api_client, pdp_id)
 
 
 if not spark.catalog.tableExists(PLAN_TABLE_PATH):
@@ -109,6 +110,7 @@ if not spark.catalog.tableExists(PLAN_TABLE_PATH):
 if not spark.catalog.tableExists(MANIFEST_TABLE_PATH):
     raise RuntimeError(f"Manifest table missing: {MANIFEST_TABLE_PATH}")
 
+ensure_plan_table(spark, PLAN_TABLE_PATH)
 plan_new_df = (
     spark.table(PLAN_TABLE_PATH)
     .join(
@@ -122,21 +124,34 @@ if plan_new_df.limit(1).count() == 0:
     runtime.notebook_exit(dbutils, "NO_NEW_TO_INGEST")
 
 plan_rows = plan_new_df.select(
-    "file_fingerprint", "file_name", "local_path", "inst_col", "institution_id"
+    "file_fingerprint",
+    "file_name",
+    "local_path",
+    "inst_col",
+    "institution_id",
+    "inst_id",
+    "institution_name",
 ).collect()
 by_file: dict[str, dict[str, str]] = {}
 inst_ids_by_fp: dict[str, list[str]] = defaultdict(list)
+identity_by_fp: dict[str, dict[str, tuple[str, str]]] = defaultdict(dict)
 for row in plan_rows:
-    fp = row["file_fingerprint"]
-    inst_ids_by_fp[fp].append(row["institution_id"])
+    d = row.asDict()
+    fp = d["file_fingerprint"]
+    pdp_id = str(d["institution_id"])
+    inst_ids_by_fp[fp].append(pdp_id)
     by_file.setdefault(
         fp,
         {
-            "file_name": row["file_name"],
-            "local_path": row["local_path"],
-            "inst_col": row["inst_col"],
+            "file_name": d["file_name"],
+            "local_path": d["local_path"],
+            "inst_col": d["inst_col"],
         },
     )
+    sst_id = str(d.get("inst_id") or "").strip()
+    sst_name = str(d.get("institution_name") or "").strip()
+    if sst_id and sst_name:
+        identity_by_fp[fp][pdp_id] = (sst_id, sst_name)
 
 run_id = runtime.workflow_run_id(dbutils)
 counts: dict[str, int] = defaultdict(int)
@@ -233,28 +248,25 @@ for fp, meta in by_file.items():
         file_errors: list[str] = []
         out_name = output_file_name_from_sftp(file_name)
 
-        for inst_id in inst_ids:
+        for pdp_id in inst_ids:
             try:
-                filtered = grouped.get(str(inst_id))
+                filtered = grouped.get(str(pdp_id))
                 if filtered is None or filtered.empty:
                     counts["institutions_empty"] += 1
                     skipped_rows.append(
-                        f"file={file_name} pdp_id={inst_id} reason=no_rows_for_institution"
+                        f"file={file_name} pdp_id={pdp_id} reason=no_rows_for_institution"
                     )
                     continue
 
-                _school_check_log(file_name, inst_id, filtered)
+                _school_check_log(file_name, pdp_id, filtered)
 
                 try:
-                    info = fetch_institution_by_pdp_id(api_client, inst_id)
+                    sst_inst_id, inst_name = _sst_identity(
+                        pdp_id, identity_by_fp[fp].get(str(pdp_id))
+                    )
                 except Exception as api_err:
                     counts["institutions_unresolved"] += 1
                     raise ValueError(f"SST API lookup failed: {api_err}") from api_err
-
-                inst_name = info.get("name")
-                if not inst_name:
-                    counts["institutions_unresolved"] += 1
-                    raise ValueError(f"SST API returned no name for pdp_id={inst_id}")
 
                 prefix = databricksify_inst_name(inst_name)
                 if prefix not in bronze_dir_cache:
@@ -273,22 +285,24 @@ for fp, meta in by_file.items():
                 if os.path.exists(full_path):
                     counts["institutions_skipped_existing"] += 1
                     skipped_rows.append(
-                        f"file={file_name} pdp_id={inst_id} institution={inst_name!r} "
-                        f"reason=already_exists path={full_path}"
+                        f"file={file_name} pdp_id={pdp_id} inst_id={sst_inst_id} "
+                        f"institution={inst_name!r} reason=already_exists path={full_path}"
                     )
                     logger.info(
-                        "Skip existing file=%s pdp_id=%s institution=%r path=%s",
+                        "Skip existing file=%s pdp_id=%s inst_id=%s institution=%r path=%s",
                         file_name,
-                        inst_id,
+                        pdp_id,
+                        sst_inst_id,
                         inst_name,
                         full_path,
                     )
                     continue
 
                 logger.info(
-                    "Writing file=%s pdp_id=%s institution=%r rows=%s -> %s",
+                    "Writing file=%s pdp_id=%s inst_id=%s institution=%r rows=%s -> %s",
                     file_name,
-                    inst_id,
+                    pdp_id,
+                    sst_inst_id,
                     inst_name,
                     len(filtered),
                     full_path,
@@ -298,18 +312,16 @@ for fp, meta in by_file.items():
                 )
                 counts["institutions_written"] += 1
                 ingested_rows.append(
-                    f"file={file_name} pdp_id={inst_id} institution={inst_name!r} "
-                    f"rows={len(filtered)} path={full_path}"
+                    f"file={file_name} pdp_id={pdp_id} inst_id={sst_inst_id} "
+                    f"institution={inst_name!r} rows={len(filtered)} path={full_path}"
                 )
             except Exception as exc:
                 msg = (
-                    f"inst_ingest_failed file={file_name} fp={fp} inst={inst_id}: {exc}"
+                    f"inst_ingest_failed file={file_name} fp={fp} pdp_id={pdp_id}: {exc}"
                 )
                 logger.exception(msg)
                 file_errors.append(msg)
-                failed_rows.append(
-                    f"file={file_name} pdp_id={inst_id} reason={exc}"
-                )
+                failed_rows.append(f"file={file_name} pdp_id={pdp_id} reason={exc}")
 
         if file_errors:
             _fail(
@@ -337,15 +349,14 @@ for fp, meta in by_file.items():
         _fail(f"fatal_file_error file={file_name} fp={fp}: {exc}")
         failed_rows.append(f"file={file_name} reason=fatal_file_error error={exc}")
 
-logger.info("=== INGESTION SUMMARY (written=%s) ===", len(ingested_rows))
-for line in ingested_rows:
-    logger.info("INGESTED %s", line)
-logger.info("=== SKIPPED (%s) ===", len(skipped_rows))
-for line in skipped_rows:
-    logger.info("SKIPPED %s", line)
-logger.info("=== FAILED (%s) ===", len(failed_rows))
-for line in failed_rows:
-    logger.info("FAILED %s", line)
+for label, lines in (
+    ("INGESTED", ingested_rows),
+    ("SKIPPED", skipped_rows),
+    ("FAILED", failed_rows),
+):
+    logger.info("=== %s (%s) ===", label, len(lines))
+    for line in lines:
+        logger.info("%s %s", label, line)
 logger.info("Done counts=%s", dict(counts))
 runtime.notebook_exit(
     dbutils,

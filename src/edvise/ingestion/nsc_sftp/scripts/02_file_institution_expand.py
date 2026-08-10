@@ -1,5 +1,7 @@
 """
 Expand staged queue files into per-institution rows in institution_ingest_plan.
+
+Stores PDP id (from file) plus SST ``inst_id`` / ``name`` from the institutions API.
 """
 
 from __future__ import annotations
@@ -10,16 +12,16 @@ import sys
 from datetime import datetime, timezone
 
 # Ensure repo src/ is on sys.path so `import edvise.*` works in Databricks Jobs.
-# Layout: <git_root>/src/edvise/ingestion/nsc_sftp/scripts/<this_file>
 _here = globals().get("__file__")
 if _here:
     _script_dir = os.path.dirname(os.path.abspath(_here))
 else:
     _argv0 = os.path.abspath(sys.argv[0]) if sys.argv else ""
-    if _argv0.endswith(".py") and os.path.isfile(_argv0):
-        _script_dir = os.path.dirname(_argv0)
-    else:
-        _script_dir = os.path.abspath(os.getcwd())
+    _script_dir = (
+        os.path.dirname(_argv0)
+        if _argv0.endswith(".py") and os.path.isfile(_argv0)
+        else os.path.abspath(os.getcwd())
+    )
 _current = _script_dir
 for _ in range(8):
     if os.path.isdir(os.path.join(_current, "edvise")):
@@ -41,23 +43,44 @@ from pyspark.sql import types as T
 from edvise.ingestion.nsc_sftp.constants import (
     COLUMN_RENAMES,
     INSTITUTION_COLUMN_PATTERN,
+    INSTITUTION_LOOKUP_PATH,
     PLAN_TABLE_PATH,
     QUEUE_TABLE_PATH,
+    SST_TOKEN_PATH,
 )
-from edvise.ingestion.nsc_sftp.helpers import ensure_plan_table, extract_institution_ids
+from edvise.ingestion.nsc_sftp.helpers import (
+    backfill_plan_institution_identity,
+    ensure_plan_table,
+    extract_institution_ids,
+    job_edvise_api_client,
+    resolve_sst_institutions,
+)
 
 dbutils = runtime.get_dbutils()
 spark = runtime.get_spark()
 logger = runtime.get_logger(__name__)
 INST_COL_PATTERN = re.compile(INSTITUTION_COLUMN_PATTERN, re.IGNORECASE)
 
+api_client = job_edvise_api_client(
+    dbutils,
+    db_workspace=runtime.require_job_param("DB_workspace"),
+    secret_scope=runtime.require_job_param("nsc_sftp_secret_scope"),
+    sst_api_key_secret_key=runtime.require_job_param("sst_api_key_secret_key"),
+    token_path=SST_TOKEN_PATH,
+    institution_lookup_path=INSTITUTION_LOOKUP_PATH,
+)
+
 ensure_plan_table(spark, PLAN_TABLE_PATH)
+backfilled = backfill_plan_institution_identity(spark, api_client, PLAN_TABLE_PATH)
+if backfilled:
+    logger.info("Backfilled SST identity for %s PDP id(s)", backfilled)
+
 if not spark.catalog.tableExists(QUEUE_TABLE_PATH):
-    runtime.notebook_exit(dbutils, "NO_QUEUE_TABLE")
+    runtime.notebook_exit(dbutils, f"NO_QUEUE_TABLE;BACKFILLED={backfilled}")
 
 queue_df = spark.table(QUEUE_TABLE_PATH)
 if queue_df.limit(1).count() == 0:
-    runtime.notebook_exit(dbutils, "NO_QUEUED_FILES")
+    runtime.notebook_exit(dbutils, f"NO_QUEUED_FILES;BACKFILLED={backfilled}")
 
 queue_df = queue_df.join(
     spark.table(PLAN_TABLE_PATH).select("file_fingerprint").distinct(),
@@ -65,7 +88,7 @@ queue_df = queue_df.join(
     how="left_anti",
 )
 if queue_df.limit(1).count() == 0:
-    runtime.notebook_exit(dbutils, "NO_NEW_EXPANSION_WORK")
+    runtime.notebook_exit(dbutils, f"NO_NEW_EXPANSION_WORK;BACKFILLED={backfilled}")
 
 queued_files = queue_df.select(
     "file_fingerprint",
@@ -78,6 +101,7 @@ queued_files = queue_df.select(
 work_items: list[dict] = []
 missing: list[str] = []
 now_ts = datetime.now(timezone.utc)
+file_pdp_ids: dict[str, tuple[object, list[str], str]] = {}
 
 for row in queued_files:
     fp, file_name, local_path = (
@@ -88,39 +112,49 @@ for row in queued_files:
     if not local_path or not os.path.exists(local_path):
         missing.append(f"fp={fp} file={file_name} path={local_path}")
         continue
-
     inst_col, inst_ids = extract_institution_ids(
         local_path, renames=COLUMN_RENAMES, inst_col_pattern=INST_COL_PATTERN
     )
     if not inst_col or not inst_ids:
         logger.warning("No institution IDs for file=%s fp=%s; skipping.", file_name, fp)
         continue
-
-    work_items.extend(
-        {
-            "file_fingerprint": fp,
-            "file_name": file_name,
-            "local_path": local_path,
-            "institution_id": inst_id,
-            "inst_col": inst_col,
-            "file_size": row["file_size"],
-            "file_modified_time": row["file_modified_time"],
-            "planned_at": now_ts,
-        }
-        for inst_id in inst_ids
-    )
-    logger.info(
-        "file=%s: %s institution(s) via %s preview=%s",
-        file_name,
-        len(inst_ids),
-        inst_col,
-        inst_ids[:10],
-    )
+    file_pdp_ids[fp] = (row, inst_ids, inst_col)
 
 if missing:
     raise FileNotFoundError("Missing staged files: " + "; ".join(missing))
-if not work_items:
-    runtime.notebook_exit(dbutils, "NO_WORK_ITEMS")
+if not file_pdp_ids:
+    runtime.notebook_exit(dbutils, f"NO_WORK_ITEMS;BACKFILLED={backfilled}")
+
+all_pdp_ids = [pid for _, ids, _ in file_pdp_ids.values() for pid in ids]
+sst_by_pdp = resolve_sst_institutions(api_client, all_pdp_ids)
+
+for fp, (row, inst_ids, inst_col) in file_pdp_ids.items():
+    for pdp_id in inst_ids:
+        sst_inst_id, institution_name = sst_by_pdp[pdp_id]
+        work_items.append(
+            {
+                "file_fingerprint": fp,
+                "file_name": row["file_name"],
+                "local_path": row["local_path"],
+                "institution_id": pdp_id,
+                "inst_id": sst_inst_id,
+                "institution_name": institution_name,
+                "inst_col": inst_col,
+                "file_size": row["file_size"],
+                "file_modified_time": row["file_modified_time"],
+                "planned_at": now_ts,
+            }
+        )
+    logger.info(
+        "file=%s: %s institution(s) via %s preview=%s",
+        row["file_name"],
+        len(inst_ids),
+        inst_col,
+        [
+            {"pdp_id": pid, "inst_id": sst_by_pdp[pid][0], "name": sst_by_pdp[pid][1]}
+            for pid in inst_ids[:10]
+        ],
+    )
 
 schema = T.StructType(
     [
@@ -128,6 +162,8 @@ schema = T.StructType(
         T.StructField("file_name", T.StringType(), False),
         T.StructField("local_path", T.StringType(), False),
         T.StructField("institution_id", T.StringType(), False),
+        T.StructField("inst_id", T.StringType(), True),
+        T.StructField("institution_name", T.StringType(), True),
         T.StructField("inst_col", T.StringType(), False),
         T.StructField("file_size", T.LongType(), True),
         T.StructField("file_modified_time", T.TimestampType(), True),
@@ -145,6 +181,8 @@ spark.sql(
     WHEN MATCHED THEN UPDATE SET
       t.file_name = s.file_name,
       t.local_path = s.local_path,
+      t.inst_id = s.inst_id,
+      t.institution_name = s.institution_name,
       t.inst_col = s.inst_col,
       t.file_size = s.file_size,
       t.file_modified_time = s.file_modified_time,
@@ -153,4 +191,4 @@ spark.sql(
     """
 )
 logger.info("Wrote/updated %s plan row(s) into %s", len(work_items), PLAN_TABLE_PATH)
-runtime.notebook_exit(dbutils, f"WORK_ITEMS={len(work_items)}")
+runtime.notebook_exit(dbutils, f"WORK_ITEMS={len(work_items)};BACKFILLED={backfilled}")

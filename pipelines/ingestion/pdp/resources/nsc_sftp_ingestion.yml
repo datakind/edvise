@@ -74,6 +74,10 @@ resources:
             parameters:
               - --DB_workspace
               - "{{job.parameters.DB_workspace}}"
+              - --nsc_sftp_secret_scope
+              - "{{job.parameters.nsc_sftp_secret_scope}}"
+              - --sst_api_key_secret_key
+              - "{{job.parameters.sst_api_key_secret_key}}"
           job_cluster_key: nsc-sftp-ingestion-cluster
           libraries:
             - pypi:

@@ -389,13 +389,14 @@ def download_new_files_and_queue(
     return len(queued)
 
 
+_PLAN_IDENTITY_COLS = ("inst_id", "institution_name")
+
+
 def ensure_plan_table(spark: pyspark.sql.SparkSession, plan_table: str) -> None:
     """
-    Create institution_ingest_plan table if it doesn't exist.
+    Create institution_ingest_plan if missing; add SST identity columns if needed.
 
-    Args:
-        spark: Spark session
-        plan_table: Full table path (e.g., "catalog.schema.table")
+    ``institution_id`` = PDP id from file; ``inst_id`` / ``institution_name`` = SST API.
     """
     spark.sql(
         f"""
@@ -404,6 +405,8 @@ def ensure_plan_table(spark: pyspark.sql.SparkSession, plan_table: str) -> None:
           file_name STRING,
           local_path STRING,
           institution_id STRING,
+          inst_id STRING,
+          institution_name STRING,
           inst_col STRING,
           file_size BIGINT,
           file_modified_time TIMESTAMP,
@@ -412,6 +415,96 @@ def ensure_plan_table(spark: pyspark.sql.SparkSession, plan_table: str) -> None:
         USING DELTA
         """
     )
+    existing = {f.name for f in spark.table(plan_table).schema.fields}
+    missing = [c for c in _PLAN_IDENTITY_COLS if c not in existing]
+    if missing:
+        spark.sql(
+            f"ALTER TABLE {plan_table} ADD COLUMNS ({', '.join(f'{c} STRING' for c in missing)})"
+        )
+
+
+def resolve_sst_institution(
+    api_client: "EdviseAPIClient", pdp_id: str
+) -> tuple[str, str]:
+    """Return ``(inst_id, institution_name)`` from SST for a PDP id."""
+    from edvise.utils.api_requests import fetch_institution_by_pdp_id
+
+    info = fetch_institution_by_pdp_id(api_client, pdp_id)
+    inst_id = str(info.get("inst_id") or "").strip()
+    name = str(info.get("name") or "").strip()
+    if not inst_id or not name:
+        raise ValueError(
+            f"SST institution response missing inst_id/name for pdp_id={pdp_id}: "
+            f"keys={list(info.keys())}"
+        )
+    return inst_id, name
+
+
+def resolve_sst_institutions(
+    api_client: "EdviseAPIClient", pdp_ids: list[str]
+) -> dict[str, tuple[str, str]]:
+    """Resolve distinct PDP ids → ``(inst_id, institution_name)`` (API-cached)."""
+    out: dict[str, tuple[str, str]] = {}
+    for pdp_id in sorted({str(p).strip() for p in pdp_ids if str(p).strip()}):
+        out[pdp_id] = resolve_sst_institution(api_client, pdp_id)
+    return out
+
+
+def backfill_plan_institution_identity(
+    spark: pyspark.sql.SparkSession,
+    api_client: "EdviseAPIClient",
+    plan_table: str,
+) -> int:
+    """Fill blank ``inst_id`` / ``institution_name`` on plan rows. Returns PDP ids filled."""
+    ensure_plan_table(spark, plan_table)
+    blank = (
+        F.col("inst_id").isNull()
+        | (F.length(F.trim(F.col("inst_id"))) == 0)
+        | F.col("institution_name").isNull()
+        | (F.length(F.trim(F.col("institution_name"))) == 0)
+    )
+    pdp_ids = [
+        str(r["institution_id"]).strip()
+        for r in (
+            spark.table(plan_table)
+            .where(F.col("institution_id").isNotNull() & blank)
+            .select("institution_id")
+            .distinct()
+            .collect()
+        )
+        if r["institution_id"]
+    ]
+    if not pdp_ids:
+        return 0
+
+    resolved = resolve_sst_institutions(api_client, pdp_ids)
+    rows = [
+        {
+            "institution_id": pdp_id,
+            "inst_id": inst_id,
+            "institution_name": name,
+        }
+        for pdp_id, (inst_id, name) in resolved.items()
+    ]
+    for row in rows:
+        LOGGER.info(
+            "Resolved SST identity pdp_id=%s inst_id=%s name=%r",
+            row["institution_id"],
+            row["inst_id"],
+            row["institution_name"],
+        )
+    spark.createDataFrame(rows).createOrReplaceTempView("plan_identity_backfill")
+    spark.sql(
+        f"""
+        MERGE INTO {plan_table} AS t
+        USING plan_identity_backfill AS s
+        ON t.institution_id = s.institution_id
+        WHEN MATCHED THEN UPDATE SET
+          t.inst_id = s.inst_id,
+          t.institution_name = s.institution_name
+        """
+    )
+    return len(rows)
 
 
 def _normalize_header_map(
@@ -583,7 +676,7 @@ def build_edvise_api_client(
     db_workspace: str,
     token_path: str,
     institution_lookup_path: str,
-) -> EdviseAPIClient:
+) -> "EdviseAPIClient":
     """Construct EdviseAPIClient with workspace-derived base URL."""
     from edvise.utils.api_requests import EdviseAPIClient, get_base_url
 
@@ -591,6 +684,31 @@ def build_edvise_api_client(
         api_key=api_key,
         base_url=get_base_url(db_workspace),
         token_endpoint=token_path,
+        institution_lookup_path=institution_lookup_path,
+    )
+
+
+def job_edvise_api_client(
+    dbutils_obj: object,
+    *,
+    db_workspace: str,
+    secret_scope: str,
+    sst_api_key_secret_key: str,
+    token_path: str,
+    institution_lookup_path: str,
+) -> "EdviseAPIClient":
+    """Build API client from Databricks secret scope/key names (job params)."""
+    api_key = dbutils_obj.secrets.get(  # type: ignore[attr-defined]
+        scope=secret_scope, key=sst_api_key_secret_key
+    ).strip()
+    if not api_key:
+        raise RuntimeError(
+            f"Empty SST API key: scope={secret_scope} key={sst_api_key_secret_key}"
+        )
+    return build_edvise_api_client(
+        api_key=api_key,
+        db_workspace=db_workspace,
+        token_path=token_path,
         institution_lookup_path=institution_lookup_path,
     )
 
