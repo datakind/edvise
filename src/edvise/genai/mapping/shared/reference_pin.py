@@ -217,50 +217,40 @@ def pin_reference_snapshot(
     *,
     catalog: str,
     reference_id: str,
-    source_institution_id: str,
-    pinned_by: str,
-    source: SourceKind = "active",
-    onboard_run_id: str | None = None,
-    archetype: str | None = None,
     pipeline_version: str | None = None,
     write_history_copy: bool = True,
 ) -> dict[str, Any]:
     """
-    Copy source artifacts into ``references/<reference_id>/current/`` and write pin metadata.
+    Copy ``active/`` artifacts for ``reference_id`` into
+    ``references/<reference_id>/current/`` and write pin metadata.
 
-    Returns the pin payload (also written as ``genai_reference_pin.json``). Does **not** write
-    the UC ``reference_pins`` table — callers use :func:`upsert_reference_pin_row` for that.
+    ``reference_id`` is both the library slot and the institution whose silver
+    ``genai_mapping/active/`` is the source. ``source_onboard_run_id`` and
+    ``pipeline_version`` (when not passed) are read from ``genai_active_registry.json``.
+
+    Returns the pin payload (also written as ``genai_reference_pin.json``). Does **not**
+    write the UC ``reference_pins`` table — callers use :func:`upsert_reference_pin_row`.
     """
     ref = str(reference_id).strip()
-    by = str(pinned_by).strip()
     if not ref:
         raise ValueError("reference_id must be non-empty")
-    if not by:
-        raise ValueError("pinned_by must be non-empty")
 
     source_paths = resolve_reference_source_paths(
         catalog=catalog,
-        source_institution_id=source_institution_id,
-        source=source,
-        onboard_run_id=onboard_run_id,
+        source_institution_id=ref,
+        source="active",
     )
 
-    # Provenance defaults from active registry when pinning from active/.
-    resolved_run_id = str(onboard_run_id or "").strip() or None
+    resolved_run_id: str | None = None
     resolved_pipeline = str(pipeline_version or "").strip() or None
-    if source == "active":
-        active_root = (
-            Path(silver_genai_mapping_root(source_institution_id, catalog=catalog))
-            / "active"
-        )
-        reg = read_genai_active_registry(active_root)
-        if reg:
-            if not resolved_run_id:
-                rid = str(reg.get("onboard_run_id") or "").strip()
-                resolved_run_id = rid or None
-            if not resolved_pipeline:
-                pver = str(reg.get("pipeline_version") or "").strip()
-                resolved_pipeline = pver or None
+    active_root = Path(silver_genai_mapping_root(ref, catalog=catalog)) / "active"
+    reg = read_genai_active_registry(active_root)
+    if reg:
+        rid = str(reg.get("onboard_run_id") or "").strip()
+        resolved_run_id = rid or None
+        if not resolved_pipeline:
+            pver = str(reg.get("pipeline_version") or "").strip()
+            resolved_pipeline = pver or None
 
     content_hash = compute_reference_content_hash(source_paths)
     pinned_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -277,26 +267,22 @@ def pin_reference_snapshot(
     payload: dict[str, Any] = {
         "schema_version": _REFERENCE_PIN_SCHEMA_VERSION,
         "reference_id": ref,
-        "source_institution_id": str(source_institution_id).strip(),
+        "source_institution_id": ref,
         "pinned_at": pinned_at,
-        "pinned_by": by,
         "content_hash": content_hash,
         "artifacts": artifact_names,
-        "source": source,
+        "source": "active",
         "uc_catalog": str(catalog).strip(),
     }
     if resolved_run_id:
         payload["source_onboard_run_id"] = resolved_run_id
     if resolved_pipeline:
         payload["pipeline_version"] = resolved_pipeline
-    if archetype and str(archetype).strip():
-        payload["archetype"] = str(archetype).strip()
 
     pin_path = current / GENAI_REFERENCE_PIN_BASENAME
     _atomic_write_json(pin_path, payload)
     LOGGER.info("Wrote %s (content_hash=%r)", pin_path, content_hash)
 
-    # Confirm round-trip hash matches what we just wrote.
     verify_reference_pin_hash(current)
 
     if write_history_copy:

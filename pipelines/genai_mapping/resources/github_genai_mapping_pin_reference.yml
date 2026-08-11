@@ -1,4 +1,5 @@
 # Admin: pin gold few-shot artifacts into shared genai_mapping.references volume + registry.
+# reference_id = institution id; always copies that school's genai_mapping/active/.
 resources:
   jobs:
     edvise_genai_mapping_pin_reference_pipeline:
@@ -18,18 +19,8 @@ resources:
               - "{{job.parameters.catalog}}"
               - --reference_id
               - "{{job.parameters.reference_id}}"
-              - --source_institution_id
-              - "{{job.parameters.source_institution_id}}"
-              - --source
-              - "{{job.parameters.source}}"
-              - --onboard_run_id
-              - "{{job.parameters.onboard_run_id}}"
-              - --archetype
-              - "{{job.parameters.archetype}}"
               - --pipeline_version
               - "{{job.parameters.pipeline_version}}"
-              - --pinned_by
-              - "{{job.parameters.pinned_by}}"
           job_cluster_key: edvise-genai-mapping-pin-reference-cluster
           libraries:
             - pypi:
@@ -61,18 +52,8 @@ resources:
           default: ${var.DB_workspace}
         - name: reference_id
           default: ""
-        - name: source_institution_id
-          default: ""
-        - name: source
-          default: "active"
-        - name: onboard_run_id
-          default: ""
-        - name: archetype
-          default: ""
         - name: pipeline_version
           default: ${var.pipeline_version}
-        - name: pinned_by
-          default: ""
 
       permissions:
         - group_name: ${var.datakind_group_to_manage_workflow}

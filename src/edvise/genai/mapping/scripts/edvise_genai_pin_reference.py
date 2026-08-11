@@ -2,26 +2,22 @@
 """
 Pin a gold GenAI mapping reference into the shared ``genai_mapping.references`` volume.
 
-Copies few-shot artifacts from a school's ``active/`` (default) or a specific onboard run
-into::
+Copies few-shot artifacts from that institution's ``genai_mapping/active/`` into::
 
     /Volumes/<catalog>/genai_mapping/references/<reference_id>/current/
 
+``reference_id`` is the institution id (library slot = school). Provenance
+(``source_onboard_run_id``, ``pipeline_version``) is read from
+``genai_active_registry.json`` under ``active/``.
+
 Writes ``genai_reference_pin.json`` (content hash) and upserts
 ``{catalog}.genai_mapping.reference_pins``.
-
-Does **not** change SMA few-shot resolution (still reads school ``active/`` until a follow-up
-change). Safe to run after HITL + promote for each gold reference school.
 
 Example::
 
     python src/edvise/genai/mapping/scripts/edvise_genai_pin_reference.py \\
       --catalog dev_sst_02 \\
-      --reference_id ref_cc_student_term_01 \\
-      --source_institution_id my_school \\
-      --source active \\
-      --archetype cc_student_term \\
-      --pinned_by vishakh
+      --reference_id my_school
 """
 
 from __future__ import annotations
@@ -36,44 +32,24 @@ LOGGER = logging.getLogger(__name__)
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Pin GenAI mapping few-shot artifacts to shared references/ volume"
+        description=(
+            "Pin GenAI mapping few-shot artifacts from institution active/ "
+            "to shared references/<reference_id>/current/"
+        )
     )
     parser.add_argument("--catalog", required=True, help="UC catalog (e.g. dev_sst_02)")
     parser.add_argument(
         "--reference_id",
         required=True,
-        help="Library slot id (opaque ok), used as folder name under references/",
-    )
-    parser.add_argument(
-        "--source_institution_id",
-        required=True,
-        help="Institution whose silver volume provides the artifacts to pin",
-    )
-    parser.add_argument(
-        "--source",
-        default="active",
-        choices=["active", "onboard_run"],
-        help="Copy from genai_mapping/active/ (default) or a specific onboard run tree",
-    )
-    parser.add_argument(
-        "--onboard_run_id",
-        default="",
-        help="Required when --source=onboard_run; optional override when source=active",
-    )
-    parser.add_argument(
-        "--archetype",
-        default="",
-        help="Optional label (e.g. cc_student_term, 4yr_banner) stored on the pin",
+        help="Institution id to pin (slot under references/ and source of active/)",
     )
     parser.add_argument(
         "--pipeline_version",
         default="",
-        help="Optional; defaults from genai_active_registry.json when pinning from active/",
-    )
-    parser.add_argument(
-        "--pinned_by",
-        required=True,
-        help="Operator identity recorded on the pin (required)",
+        help=(
+            "Optional override; default is pipeline_version from "
+            "genai_active_registry.json under that school's active/"
+        ),
     )
     parser.add_argument(
         "--no_history_copy",
@@ -100,11 +76,6 @@ def main(argv: list[str] | None = None) -> int:
     pin = pin_reference_snapshot(
         catalog=args.catalog,
         reference_id=args.reference_id,
-        source_institution_id=args.source_institution_id,
-        pinned_by=args.pinned_by,
-        source=args.source,  # type: ignore[arg-type]
-        onboard_run_id=args.onboard_run_id or None,
-        archetype=args.archetype or None,
         pipeline_version=args.pipeline_version or None,
         write_history_copy=not args.no_history_copy,
     )
