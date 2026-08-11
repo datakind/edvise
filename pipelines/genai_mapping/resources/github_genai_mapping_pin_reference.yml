@@ -1,7 +1,7 @@
 # Admin: publish (canonical) or pull (replica) gold few-shot refs under genai_mapping.references.
 #
-# staging (canonical): mode=publish — copy institution active/ → references/<id>/current/
-# dest (replica):      mode=pull    — copy references/ from source_catalog (default staging_sst_01);
+# dev (canonical):     mode=publish — copy institution active/ → references/<id>/current/
+# staging (replica):   mode=pull    — copy references/ from source_catalog (default dev_sst_02);
 #                                    does not read local active/
 resources:
   jobs:
@@ -62,7 +62,7 @@ resources:
         - name: reference_id
           default: ""
         - name: source_catalog
-          default: "staging_sst_01"
+          default: "dev_sst_02"
         - name: pipeline_version
           default: ${var.pipeline_version}
 

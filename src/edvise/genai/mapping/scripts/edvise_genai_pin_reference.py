@@ -4,26 +4,26 @@ Publish or pull a gold GenAI mapping reference under ``genai_mapping.references`
 
 Modes
 -----
-``publish`` (canonical catalog, typically ``staging_sst_01``)
+``publish`` (canonical catalog, ``dev_sst_02``)
     Copy that institution's ``genai_mapping/active/`` →
     ``references/<reference_id>/current/`` + ``reference_pins`` row.
     Use when blessing a new/updated gold few-shot set.
 
-``pull`` (replica catalog, typically ``dev_sst_02``)
+``pull`` (replica catalog, ``staging_sst_01``)
     Copy ``references/<reference_id>/current/`` from ``source_catalog`` into this
     catalog. Does **not** read local ``active/`` (avoids divergent active overwriting
     the library). Requires volume read access to the source catalog.
 
 Examples::
 
-    # Staging — publish from active/
+    # Dev — publish from active/ (canonical)
     python .../edvise_genai_pin_reference.py \\
-      --mode publish --catalog staging_sst_01 --reference_id my_school
+      --mode publish --catalog dev_sst_02 --reference_id my_school
 
-    # Dev — pull staging's pinned bytes (parity)
+    # Staging — pull dev's pinned bytes (parity)
     python .../edvise_genai_pin_reference.py \\
-      --mode pull --catalog dev_sst_02 --reference_id my_school \\
-      --source_catalog staging_sst_01
+      --mode pull --catalog staging_sst_01 --reference_id my_school \\
+      --source_catalog dev_sst_02
 """
 
 from __future__ import annotations

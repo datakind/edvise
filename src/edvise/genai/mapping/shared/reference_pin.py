@@ -11,9 +11,9 @@ plus ``genai_reference_pin.json`` (local hash metadata) and a row in
 
 Two job modes:
 
-* ``publish`` — copy from local ``active/`` (canonical catalog, e.g. staging).
-* ``pull`` — copy ``references/<id>/current/`` from ``source_catalog`` into this catalog;
-  does not read local ``active/`` (replica parity).
+* ``publish`` — copy from local ``active/`` (canonical catalog, ``dev_sst_02``).
+* ``pull`` — copy ``references/<id>/current/`` from ``source_catalog`` into this catalog
+  (replica, e.g. ``staging_sst_01``); does not read local ``active/`` (parity).
 """
 
 from __future__ import annotations
@@ -52,7 +52,7 @@ SourceKind = Literal["active", "onboard_run"]
 PinMode = Literal["publish", "pull"]
 
 # Canonical catalog for gold references; pull mode defaults to this as source.
-DEFAULT_CANONICAL_REFERENCE_CATALOG: str = "staging_sst_01"
+DEFAULT_CANONICAL_REFERENCE_CATALOG: str = "dev_sst_02"
 
 
 def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:

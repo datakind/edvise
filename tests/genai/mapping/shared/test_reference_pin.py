@@ -198,8 +198,8 @@ def test_upsert_reference_pin_row_sql(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_pull_reference_snapshot_copies_bytes_not_active(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    src_cat = "staging_sst_01"
-    dest_cat = "dev_sst_02"
+    src_cat = "dev_sst_02"
+    dest_cat = "staging_sst_01"
     ref = "demo_col"
     volumes = tmp_path / "Volumes"
     _patch_volume_roots(monkeypatch, volumes)
