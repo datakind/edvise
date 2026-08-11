@@ -9,30 +9,19 @@ import sys
 from collections import defaultdict
 from typing import Optional
 
-# Ensure repo src/ is on sys.path so `import edvise.*` works in Databricks Jobs.
-# Layout: <git_root>/src/edvise/ingestion/nsc_sftp/scripts/<this_file>
-_here = globals().get("__file__")
-if _here:
-    _script_dir = os.path.dirname(os.path.abspath(_here))
-else:
-    _argv0 = os.path.abspath(sys.argv[0]) if sys.argv else ""
-    if _argv0.endswith(".py") and os.path.isfile(_argv0):
-        _script_dir = os.path.dirname(_argv0)
-    else:
-        _script_dir = os.path.abspath(os.getcwd())
-_current = _script_dir
+_cur = os.path.dirname(os.path.abspath(globals().get("__file__") or sys.argv[0] or "."))
 for _ in range(8):
-    if os.path.isdir(os.path.join(_current, "edvise")):
-        if _current not in sys.path:
-            sys.path.insert(0, _current)
+    if os.path.isdir(os.path.join(_cur, "edvise")):
+        if _cur not in sys.path:
+            sys.path.insert(0, _cur)
         break
-    _parent = os.path.dirname(_current)
-    if _parent == _current:
+    _nxt = os.path.dirname(_cur)
+    if _nxt == _cur:
         break
-    _current = _parent
+    _cur = _nxt
 
-import pandas as pd
-from edvise.ingestion.nsc_sftp import runtime
+import pandas as pd  # noqa: E402
+from edvise.ingestion.nsc_sftp import runtime  # noqa: E402
 
 runtime.bootstrap_catalog()
 
@@ -41,18 +30,16 @@ from pyspark.sql import functions as F
 from edvise.ingestion.nsc_sftp.constants import (
     CATALOG,
     COLUMN_RENAMES,
-    INSTITUTION_LOOKUP_PATH,
     MANIFEST_TABLE_PATH,
     PLAN_TABLE_PATH,
-    SST_TOKEN_PATH,
 )
 from edvise.ingestion.nsc_sftp.helpers import (
     ensure_plan_table,
-    job_edvise_api_client,
+    group_plan_rows_by_file,
     load_staged_csv,
     process_and_save_file,
     resolve_bronze_volume_dir,
-    resolve_sst_institution,
+    sst_identity_or_resolve,
     summarize_file_metrics,
     update_manifest,
 )
@@ -63,14 +50,8 @@ dbutils = runtime.get_dbutils()
 spark = runtime.get_spark()
 logger = runtime.get_logger(__name__)
 
-api_client = job_edvise_api_client(
-    dbutils,
-    db_workspace=runtime.require_job_param("DB_workspace"),
-    secret_scope=runtime.require_job_param("nsc_sftp_secret_scope"),
-    sst_api_key_secret_key=runtime.require_job_param("sst_api_key_secret_key"),
-    token_path=SST_TOKEN_PATH,
-    institution_lookup_path=INSTITUTION_LOOKUP_PATH,
-)
+api_client = runtime.require_edvise_api_client(dbutils)
+force_reingest = runtime.job_param_bool("force_reingest", False)
 
 
 def _school_check_log(file_name: str, pdp_id: str, filtered: pd.DataFrame) -> None:
@@ -95,12 +76,6 @@ def _school_check_log(file_name: str, pdp_id: str, filtered: pd.DataFrame) -> No
         logger.info(
             "School check file=%s pdp_id=%s rows=%s", file_name, pdp_id, len(filtered)
         )
-
-
-def _sst_identity(pdp_id: str, planned: Optional[tuple[str, str]]) -> tuple[str, str]:
-    if planned and planned[0] and planned[1]:
-        return planned
-    return resolve_sst_institution(api_client, pdp_id)
 
 
 if not spark.catalog.tableExists(PLAN_TABLE_PATH):
@@ -130,39 +105,21 @@ plan_rows = plan_new_df.select(
     "inst_id",
     "institution_name",
 ).collect()
-by_file: dict[str, dict[str, str]] = {}
-inst_ids_by_fp: dict[str, list[str]] = defaultdict(list)
-identity_by_fp: dict[str, dict[str, tuple[str, str]]] = defaultdict(dict)
-for row in plan_rows:
-    d = row.asDict()
-    fp = d["file_fingerprint"]
-    pdp_id = str(d["institution_id"])
-    inst_ids_by_fp[fp].append(pdp_id)
-    by_file.setdefault(
-        fp,
-        {
-            "file_name": d["file_name"],
-            "local_path": d["local_path"],
-            "inst_col": d["inst_col"],
-        },
-    )
-    sst_id = str(d.get("inst_id") or "").strip()
-    sst_name = str(d.get("institution_name") or "").strip()
-    if sst_id and sst_name:
-        identity_by_fp[fp][pdp_id] = (sst_id, sst_name)
+by_file, inst_ids_by_fp, identity_by_fp = group_plan_rows_by_file(plan_rows)
 
 run_id = runtime.workflow_run_id(dbutils)
 counts: dict[str, int] = defaultdict(int)
 bronze_dir_cache: dict[str, str] = {}
-# Per-institution outcomes for end-of-run summary logging.
 ingested_rows: list[str] = []
 skipped_rows: list[str] = []
 failed_rows: list[str] = []
 
 logger.info(
-    "Starting bronze ingest: %s file(s), %s institution-file plan row(s), run_id=%s",
+    "Starting bronze ingest: %s file(s), %s institution-file plan row(s), "
+    "force_reingest=%s run_id=%s",
     len(by_file),
     len(plan_rows),
+    force_reingest,
     run_id,
 )
 
@@ -259,8 +216,8 @@ for fp, meta in by_file.items():
                 _school_check_log(file_name, pdp_id, filtered)
 
                 try:
-                    sst_inst_id, inst_name = _sst_identity(
-                        pdp_id, identity_by_fp[fp].get(str(pdp_id))
+                    sst_inst_id, inst_name = sst_identity_or_resolve(
+                        api_client, pdp_id, identity_by_fp[fp].get(str(pdp_id))
                     )
                 except Exception as api_err:
                     counts["institutions_unresolved"] += 1
@@ -280,7 +237,7 @@ for fp, meta in by_file.items():
 
                 volume_dir = bronze_dir_cache[prefix]
                 full_path = os.path.join(volume_dir, out_name)
-                if os.path.exists(full_path):
+                if os.path.exists(full_path) and not force_reingest:
                     counts["institutions_skipped_existing"] += 1
                     skipped_rows.append(
                         f"file={file_name} pdp_id={pdp_id} inst_id={sst_inst_id} "
@@ -297,12 +254,14 @@ for fp, meta in by_file.items():
                     continue
 
                 logger.info(
-                    "Writing file=%s pdp_id=%s inst_id=%s institution=%r rows=%s -> %s",
+                    "Writing file=%s pdp_id=%s inst_id=%s institution=%r rows=%s "
+                    "force_reingest=%s -> %s",
                     file_name,
                     pdp_id,
                     sst_inst_id,
                     inst_name,
                     len(filtered),
+                    force_reingest,
                     full_path,
                 )
                 process_and_save_file(

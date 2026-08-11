@@ -7,29 +7,19 @@ from __future__ import annotations
 import os
 import sys
 
-# Ensure repo src/ is on sys.path so `import edvise.*` works in Databricks Jobs.
-# Layout: <git_root>/src/edvise/ingestion/nsc_sftp/scripts/<this_file>
-_here = globals().get("__file__")
-if _here:
-    _script_dir = os.path.dirname(os.path.abspath(_here))
-else:
-    _argv0 = os.path.abspath(sys.argv[0]) if sys.argv else ""
-    if _argv0.endswith(".py") and os.path.isfile(_argv0):
-        _script_dir = os.path.dirname(_argv0)
-    else:
-        _script_dir = os.path.abspath(os.getcwd())
-_current = _script_dir
+# Databricks GIT spark_python_task: put repo src/ on path before importing edvise.
+_cur = os.path.dirname(os.path.abspath(globals().get("__file__") or sys.argv[0] or "."))
 for _ in range(8):
-    if os.path.isdir(os.path.join(_current, "edvise")):
-        if _current not in sys.path:
-            sys.path.insert(0, _current)
+    if os.path.isdir(os.path.join(_cur, "edvise")):
+        if _cur not in sys.path:
+            sys.path.insert(0, _cur)
         break
-    _parent = os.path.dirname(_current)
-    if _parent == _current:
+    _nxt = os.path.dirname(_cur)
+    if _nxt == _cur:
         break
-    _current = _parent
+    _cur = _nxt
 
-from edvise.ingestion.nsc_sftp import runtime
+from edvise.ingestion.nsc_sftp import runtime  # noqa: E402
 
 runtime.bootstrap_catalog()
 
@@ -49,6 +39,7 @@ from edvise.ingestion.nsc_sftp.helpers import (
     download_new_files_and_queue,
     ensure_manifest_and_queue_tables,
     get_files_to_queue,
+    reset_files_for_reingest,
     upsert_new_to_manifest,
 )
 from edvise.utils.sftp import connect_sftp, list_receive_files
@@ -67,10 +58,12 @@ course_file_name = runtime.job_param("course_file_name")
 file_selection_mode = (
     runtime.job_param("file_selection_mode", "skip_ingested").lower() or "skip_ingested"
 )
+force_reingest = runtime.job_param_bool("force_reingest", False)
 
 logger.info(
-    "Selection inputs: mode=%s cohort=%r course=%r staging=%s",
+    "Selection inputs: mode=%s force_reingest=%s cohort=%r course=%r staging=%s",
     file_selection_mode,
+    force_reingest,
     cohort_file_name,
     course_file_name,
     SFTP_TMP_DIR,
@@ -94,7 +87,10 @@ try:
         mode=file_selection_mode,
         cohort_file_name=cohort_file_name,
         course_file_name=course_file_name,
-        ingested_file_names=bronze_written_file_names(spark),
+        # force_reingest: allow selecting pairs already BRONZE_WRITTEN
+        ingested_file_names=set()
+        if force_reingest
+        else bronze_written_file_names(spark),
     )
     logger.info(
         "Selected via %s: cohort=%s course=%s",
@@ -113,6 +109,14 @@ try:
         )
 
     df_listing = build_listing_df(spark, file_rows)
+    if force_reingest:
+        reset_files_for_reingest(
+            spark,
+            [
+                str(r["file_fingerprint"])
+                for r in df_listing.select("file_fingerprint").collect()
+            ],
+        )
     upsert_new_to_manifest(spark, df_listing)
 
     df_to_queue = get_files_to_queue(spark, df_listing)
@@ -122,7 +126,9 @@ try:
 
     queued_count = download_new_files_and_queue(spark, sftp, df_to_queue, logger)
     logger.info("Queued %s file(s) into %s", queued_count, QUEUE_TABLE_PATH)
-    runtime.notebook_exit(dbutils, f"QUEUED_FILES={queued_count}")
+    runtime.notebook_exit(
+        dbutils, f"QUEUED_FILES={queued_count};FORCE_REINGEST={force_reingest}"
+    )
 finally:
     for closer in (sftp, transport):
         try:

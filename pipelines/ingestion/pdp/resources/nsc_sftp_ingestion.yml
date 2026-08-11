@@ -6,6 +6,8 @@
 # File selection:
 #   - Set cohort_file_name + course_file_name for a manual run, OR
 #   - Leave them empty and use file_selection_mode=skip_ingested|latest (default: skip_ingested).
+# Testing: force_reingest=true resets manifest/queue/plan for the selected pair and
+# overwrites existing bronze CSVs (use with latest or manual).
 
 resources:
   jobs:
@@ -27,6 +29,8 @@ resources:
           default: ${var.sst_api_key_secret_key}
         - name: file_selection_mode
           default: skip_ingested
+        - name: force_reingest
+          default: "false"
         - name: cohort_file_name
           default: ""
         - name: course_file_name
@@ -44,6 +48,8 @@ resources:
               - "{{job.parameters.nsc_sftp_secret_scope}}"
               - --file_selection_mode
               - "{{job.parameters.file_selection_mode}}"
+              - --force_reingest
+              - "{{job.parameters.force_reingest}}"
               - --cohort_file_name
               - "{{job.parameters.cohort_file_name}}"
               - --course_file_name
@@ -106,6 +112,8 @@ resources:
               - "{{job.parameters.nsc_sftp_secret_scope}}"
               - --sst_api_key_secret_key
               - "{{job.parameters.sst_api_key_secret_key}}"
+              - --force_reingest
+              - "{{job.parameters.force_reingest}}"
           job_cluster_key: nsc-sftp-ingestion-cluster
           libraries:
             - pypi:

@@ -16,10 +16,24 @@ from edvise.utils.databricks import (
 )
 
 
+def ensure_src_on_path(start_dir: str | None = None) -> str | None:
+    """Insert repo ``src/`` on ``sys.path`` (needed before ``import edvise`` in jobs)."""
+    current = os.path.abspath(start_dir or os.getcwd())
+    for _ in range(8):
+        if os.path.isdir(os.path.join(current, "edvise")):
+            if current not in sys.path:
+                sys.path.insert(0, current)
+            return current
+        parent = os.path.dirname(current)
+        if parent == current:
+            break
+        current = parent
+    return None
+
+
 def parse_spark_python_task_params(argv: list[str] | None = None) -> dict[str, str]:
     """Parse ``--key value`` pairs from ``spark_python_task.parameters``."""
-    if argv is None:
-        argv = sys.argv
+    argv = sys.argv if argv is None else argv
     out: dict[str, str] = {}
     i = 1
     while i < len(argv):
@@ -93,6 +107,30 @@ def require_job_param(name: str, *, argv: list[str] | None = None) -> str:
             "Pass it via DAB var / job parameter at deploy or run time."
         )
     return value
+
+
+def job_param_bool(
+    name: str, default: bool = False, *, argv: list[str] | None = None
+) -> bool:
+    """Parse a job parameter as a boolean (true/false/1/0/yes/no)."""
+    raw = job_param(name, "true" if default else "false", argv=argv).lower()
+    if raw in {"1", "true", "yes", "y"}:
+        return True
+    if raw in {"0", "false", "no", "n", ""}:
+        return False
+    raise ValueError(f"Invalid boolean job parameter {name}={raw!r}. Use true/false.")
+
+
+def require_edvise_api_client(dbutils_obj: Any) -> Any:
+    """Build SST API client from parameterized job secret scope/key + DB_workspace."""
+    from edvise.ingestion.nsc_sftp.helpers import job_edvise_api_client
+
+    return job_edvise_api_client(
+        dbutils_obj,
+        db_workspace=require_job_param("DB_workspace"),
+        secret_scope=require_job_param("nsc_sftp_secret_scope"),
+        sst_api_key_secret_key=require_job_param("sst_api_key_secret_key"),
+    )
 
 
 def notebook_exit(dbutils_obj: Any, message: str) -> None:

@@ -12,7 +12,7 @@ import math
 import os
 import re
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Mapping, Optional, Sequence
 
 if TYPE_CHECKING:
     import paramiko
@@ -27,6 +27,7 @@ from edvise.ingestion.nsc_sftp.constants import (
     CATALOG,
     DEFAULT_SCHEMA,
     MANIFEST_TABLE_PATH,
+    PLAN_TABLE_PATH,
     QUEUE_TABLE_PATH,
     SFTP_DOWNLOAD_CHUNK_MB,
     SFTP_TMP_DIR,
@@ -177,6 +178,60 @@ def build_listing_df(
     )
 
     return df
+
+
+def reset_files_for_reingest(
+    spark: pyspark.sql.SparkSession, file_fingerprints: Sequence[str]
+) -> int:
+    """
+    Clear queue/plan rows and reset manifest to NEW for the given fingerprints.
+
+    Used when ``force_reingest=true`` so previously BRONZE_WRITTEN files can be
+    staged and processed again.
+    """
+    fps = sorted({str(fp).strip() for fp in file_fingerprints if str(fp).strip()})
+    if not fps:
+        return 0
+
+    spark.createDataFrame(
+        [(fp,) for fp in fps],
+        schema=T.StructType([T.StructField("file_fingerprint", T.StringType(), False)]),
+    ).createOrReplaceTempView("_nsc_reingest_fps")
+
+    if spark.catalog.tableExists(QUEUE_TABLE_PATH):
+        spark.sql(
+            f"""
+            DELETE FROM {QUEUE_TABLE_PATH}
+            WHERE file_fingerprint IN (SELECT file_fingerprint FROM _nsc_reingest_fps)
+            """
+        )
+    if spark.catalog.tableExists(PLAN_TABLE_PATH):
+        spark.sql(
+            f"""
+            DELETE FROM {PLAN_TABLE_PATH}
+            WHERE file_fingerprint IN (SELECT file_fingerprint FROM _nsc_reingest_fps)
+            """
+        )
+    if spark.catalog.tableExists(MANIFEST_TABLE_PATH):
+        cols = set(spark.table(MANIFEST_TABLE_PATH).columns)
+        set_parts = ["status = 'NEW'"]
+        for col, expr in (
+            ("error_message", "NULL"),
+            ("ingested_at", "NULL"),
+            ("processed_at", "NULL"),
+            ("run_id", "NULL"),
+        ):
+            if col in cols:
+                set_parts.append(f"{col} = {expr}")
+        spark.sql(
+            f"""
+            UPDATE {MANIFEST_TABLE_PATH}
+            SET {", ".join(set_parts)}
+            WHERE file_fingerprint IN (SELECT file_fingerprint FROM _nsc_reingest_fps)
+            """
+        )
+    LOGGER.info("force_reingest reset %s fingerprint(s)", len(fps))
+    return len(fps)
 
 
 def upsert_new_to_manifest(
@@ -426,7 +481,7 @@ def ensure_plan_table(spark: pyspark.sql.SparkSession, plan_table: str) -> None:
 def resolve_sst_institution(
     api_client: "EdviseAPIClient", pdp_id: str
 ) -> tuple[str, str]:
-    """Return ``(inst_id, institution_name)`` from SST for a PDP id."""
+    """Return ``(inst_id, institution_name)`` from SST institutions API."""
     from edvise.utils.api_requests import fetch_institution_by_pdp_id
 
     info = fetch_institution_by_pdp_id(api_client, pdp_id)
@@ -440,14 +495,64 @@ def resolve_sst_institution(
     return inst_id, name
 
 
+def sst_identity_or_resolve(
+    api_client: "EdviseAPIClient",
+    pdp_id: str,
+    planned: Optional[tuple[str, str]] = None,
+) -> tuple[str, str]:
+    """Use planned ``(inst_id, name)`` when present; otherwise call SST API."""
+    if planned and planned[0] and planned[1]:
+        return planned
+    return resolve_sst_institution(api_client, pdp_id)
+
+
+def group_plan_rows_by_file(
+    plan_rows: Sequence[Any],
+) -> tuple[
+    dict[str, dict[str, str]],
+    dict[str, list[str]],
+    dict[str, dict[str, tuple[str, str]]],
+]:
+    """
+    Group collected plan Rows into per-file metadata, PDP ids, and SST identities.
+
+    Returns ``(by_file, inst_ids_by_fp, identity_by_fp)``.
+    """
+    by_file: dict[str, dict[str, str]] = {}
+    inst_ids_by_fp: dict[str, list[str]] = {}
+    identity_by_fp: dict[str, dict[str, tuple[str, str]]] = {}
+    for row in plan_rows:
+        raw: Mapping[str, Any]
+        if hasattr(row, "asDict"):
+            raw = row.asDict()
+        else:
+            raw = row
+        fp = str(raw["file_fingerprint"])
+        pdp_id = str(raw["institution_id"])
+        inst_ids_by_fp.setdefault(fp, []).append(pdp_id)
+        by_file.setdefault(
+            fp,
+            {
+                "file_name": str(raw["file_name"]),
+                "local_path": str(raw["local_path"]),
+                "inst_col": str(raw["inst_col"]),
+            },
+        )
+        sst_id = str(raw.get("inst_id") or "").strip()
+        sst_name = str(raw.get("institution_name") or "").strip()
+        if sst_id and sst_name:
+            identity_by_fp.setdefault(fp, {})[pdp_id] = (sst_id, sst_name)
+    return by_file, inst_ids_by_fp, identity_by_fp
+
+
 def resolve_sst_institutions(
-    api_client: "EdviseAPIClient", pdp_ids: list[str]
+    api_client: "EdviseAPIClient", pdp_ids: Sequence[str]
 ) -> dict[str, tuple[str, str]]:
     """Resolve distinct PDP ids → ``(inst_id, institution_name)`` (API-cached)."""
-    out: dict[str, tuple[str, str]] = {}
-    for pdp_id in sorted({str(p).strip() for p in pdp_ids if str(p).strip()}):
-        out[pdp_id] = resolve_sst_institution(api_client, pdp_id)
-    return out
+    return {
+        pdp_id: resolve_sst_institution(api_client, pdp_id)
+        for pdp_id in sorted({str(p).strip() for p in pdp_ids if str(p).strip()})
+    }
 
 
 def backfill_plan_institution_identity(
@@ -455,32 +560,23 @@ def backfill_plan_institution_identity(
     api_client: "EdviseAPIClient",
     plan_table: str,
 ) -> int:
-    """Fill blank ``inst_id`` / ``institution_name`` on plan rows. Returns PDP ids filled.
-
-    Auth/lookup failures are logged and skipped so expand can continue; new plan rows
-    still resolve SST identity strictly via ``resolve_sst_institutions``.
-    """
+    """Fill blank plan ``inst_id`` / ``institution_name`` via SST API. Soft-fails on auth."""
     ensure_plan_table(spark, plan_table)
-    blank = (
-        F.col("inst_id").isNull()
-        | (F.length(F.trim(F.col("inst_id"))) == 0)
-        | F.col("institution_name").isNull()
-        | (F.length(F.trim(F.col("institution_name"))) == 0)
+    blank = F.coalesce(F.length(F.trim(F.col("inst_id"))), F.lit(0)) == 0
+    blank = blank | (
+        F.coalesce(F.length(F.trim(F.col("institution_name"))), F.lit(0)) == 0
     )
     pdp_ids = [
         str(r["institution_id"]).strip()
-        for r in (
-            spark.table(plan_table)
-            .where(F.col("institution_id").isNotNull() & blank)
-            .select("institution_id")
-            .distinct()
-            .collect()
-        )
+        for r in spark.table(plan_table)
+        .where(F.col("institution_id").isNotNull() & blank)
+        .select("institution_id")
+        .distinct()
+        .collect()
         if r["institution_id"]
     ]
     if not pdp_ids:
         return 0
-
     try:
         resolved = resolve_sst_institutions(api_client, pdp_ids)
     except Exception:
@@ -489,7 +585,6 @@ def backfill_plan_institution_identity(
             len(pdp_ids),
         )
         return 0
-
     rows = [
         {
             "institution_id": pdp_id,
@@ -498,13 +593,6 @@ def backfill_plan_institution_identity(
         }
         for pdp_id, (inst_id, name) in resolved.items()
     ]
-    for row in rows:
-        LOGGER.info(
-            "Resolved SST identity pdp_id=%s inst_id=%s name=%r",
-            row["institution_id"],
-            row["inst_id"],
-            row["institution_name"],
-        )
     spark.createDataFrame(rows).createOrReplaceTempView("plan_identity_backfill")
     spark.sql(
         f"""
@@ -516,7 +604,56 @@ def backfill_plan_institution_identity(
           t.institution_name = s.institution_name
         """
     )
+    LOGGER.info("Backfilled SST identity for %s PDP id(s)", len(rows))
     return len(rows)
+
+
+_PLAN_ROW_SCHEMA = T.StructType(
+    [
+        T.StructField("file_fingerprint", T.StringType(), False),
+        T.StructField("file_name", T.StringType(), False),
+        T.StructField("local_path", T.StringType(), False),
+        T.StructField("institution_id", T.StringType(), False),
+        T.StructField("inst_id", T.StringType(), True),
+        T.StructField("institution_name", T.StringType(), True),
+        T.StructField("inst_col", T.StringType(), False),
+        T.StructField("file_size", T.LongType(), True),
+        T.StructField("file_modified_time", T.TimestampType(), True),
+        T.StructField("planned_at", T.TimestampType(), False),
+    ]
+)
+
+
+def merge_institution_plan_rows(
+    spark: pyspark.sql.SparkSession,
+    plan_table: str,
+    work_items: list[dict],
+) -> int:
+    """MERGE plan rows keyed by ``(file_fingerprint, institution_id)``."""
+    if not work_items:
+        return 0
+    ensure_plan_table(spark, plan_table)
+    spark.createDataFrame(work_items, schema=_PLAN_ROW_SCHEMA).createOrReplaceTempView(
+        "incoming_plan_rows"
+    )
+    spark.sql(
+        f"""
+        MERGE INTO {plan_table} AS t
+        USING incoming_plan_rows AS s
+        ON t.file_fingerprint = s.file_fingerprint AND t.institution_id = s.institution_id
+        WHEN MATCHED THEN UPDATE SET
+          t.file_name = s.file_name,
+          t.local_path = s.local_path,
+          t.inst_id = s.inst_id,
+          t.institution_name = s.institution_name,
+          t.inst_col = s.inst_col,
+          t.file_size = s.file_size,
+          t.file_modified_time = s.file_modified_time,
+          t.planned_at = s.planned_at
+        WHEN NOT MATCHED THEN INSERT *
+        """
+    )
+    return len(work_items)
 
 
 def _normalize_header_map(
@@ -706,10 +843,15 @@ def job_edvise_api_client(
     db_workspace: str,
     secret_scope: str,
     sst_api_key_secret_key: str,
-    token_path: str,
-    institution_lookup_path: str,
+    token_path: Optional[str] = None,
+    institution_lookup_path: Optional[str] = None,
 ) -> "EdviseAPIClient":
     """Build API client from Databricks secret scope/key names (job params)."""
+    from edvise.ingestion.nsc_sftp.constants import (
+        INSTITUTION_LOOKUP_PATH,
+        SST_TOKEN_PATH,
+    )
+
     api_key = dbutils_obj.secrets.get(  # type: ignore[attr-defined]
         scope=secret_scope, key=sst_api_key_secret_key
     ).strip()
@@ -720,8 +862,8 @@ def job_edvise_api_client(
     return build_edvise_api_client(
         api_key=api_key,
         db_workspace=db_workspace,
-        token_path=token_path,
-        institution_lookup_path=institution_lookup_path,
+        token_path=token_path or SST_TOKEN_PATH,
+        institution_lookup_path=institution_lookup_path or INSTITUTION_LOOKUP_PATH,
     )
 
 
