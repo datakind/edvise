@@ -8,7 +8,7 @@ resources:
     edvise_genai_mapping_pin_reference_pipeline:
       name: edvise_genai_mapping_pin_reference
       timeout_seconds: 1800
-      max_concurrent_runs: 1
+      max_concurrent_runs: 5
       queue:
         enabled: true
 
