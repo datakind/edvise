@@ -159,4 +159,8 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # Databricks exec()s this file in an IPython kernel, where even SystemExit(0)
+    # is reported as a failed workload; only surface non-zero exits.
+    _rc = main()
+    if _rc:
+        raise SystemExit(_rc)
