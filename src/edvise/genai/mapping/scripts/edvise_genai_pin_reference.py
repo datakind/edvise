@@ -2,28 +2,20 @@
 """
 Publish or pull a gold GenAI mapping reference under ``genai_mapping.references``.
 
-Modes
------
-``publish`` (canonical catalog, ``dev_sst_02``)
-    Copy that institution's ``genai_mapping/active/`` →
-    ``references/<reference_id>/current/`` + ``reference_pins`` row.
-    Use when blessing a new/updated gold few-shot set.
+Action is selected by ``--catalog`` (not a separate mode flag):
 
-``pull`` (replica catalog, ``staging_sst_01``)
-    Copy ``references/<reference_id>/current/`` from the fixed canonical catalog
-    (``dev_sst_02``) into this catalog. Does **not** read local ``active/``
-    (avoids divergent active overwriting the library). Requires volume read access
-    to the canonical catalog.
+* ``dev_sst_02`` — **publish** from that institution's ``genai_mapping/active/``
+* ``staging_sst_01`` — **pull** pinned bytes from ``dev_sst_02`` (ignores local ``active/``)
 
 Examples::
 
-    # Dev — publish from active/ (canonical)
+    # Dev — publish from active/
     python .../edvise_genai_pin_reference.py \\
-      --mode publish --catalog dev_sst_02 --reference_id my_school
+      --catalog dev_sst_02 --reference_id my_school
 
-    # Staging — pull fixed canonical catalog's pinned bytes (parity)
+    # Staging — pull from fixed canonical catalog
     python .../edvise_genai_pin_reference.py \\
-      --mode pull --catalog staging_sst_01 --reference_id my_school
+      --catalog staging_sst_01 --reference_id my_school
 """
 
 from __future__ import annotations
@@ -58,26 +50,25 @@ def main(argv: list[str] | None = None) -> int:
         DEFAULT_CANONICAL_REFERENCE_CATALOG,
         pin_reference_snapshot,
         pull_reference_snapshot,
+        resolve_pin_mode,
         upsert_reference_pin_row,
     )
 
     parser = argparse.ArgumentParser(
         description=(
-            "Publish (from active/) or pull (from canonical catalog) "
-            "GenAI mapping reference few-shot artifacts"
+            "Publish or pull GenAI mapping reference few-shot artifacts. "
+            f"catalog={DEFAULT_CANONICAL_REFERENCE_CATALOG} publishes; "
+            "catalog=staging_sst_01 pulls from the canonical catalog."
         )
     )
     parser.add_argument(
-        "--mode",
+        "--catalog",
         required=True,
-        choices=["publish", "pull"],
         help=(
-            "publish: pin from local active/ (canonical). "
-            f"pull: copy references/current/ from {DEFAULT_CANONICAL_REFERENCE_CATALOG} "
-            "(replica; no local active/)."
+            f"UC catalog for this job: {DEFAULT_CANONICAL_REFERENCE_CATALOG} "
+            "(publish) or staging_sst_01 (pull)"
         ),
     )
-    parser.add_argument("--catalog", required=True, help="UC catalog for this job run")
     parser.add_argument(
         "--reference_id",
         required=True,
@@ -108,8 +99,9 @@ def main(argv: list[str] | None = None) -> int:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
 
+    mode = resolve_pin_mode(args.catalog)
     write_history = not args.no_history_copy
-    if args.mode == "publish":
+    if mode == "publish":
         pin = pin_reference_snapshot(
             catalog=args.catalog,
             reference_id=args.reference_id,
@@ -150,7 +142,7 @@ def main(argv: list[str] | None = None) -> int:
         args.catalog,
         pin["reference_id"],
         pin["content_hash"],
-        args.mode,
+        mode,
     )
     return 0
 

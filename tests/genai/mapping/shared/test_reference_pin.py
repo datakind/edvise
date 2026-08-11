@@ -250,3 +250,10 @@ def test_pull_rejects_same_catalog() -> None:
             reference_id="x",
             source_catalog="dev_sst_02",
         )
+
+
+def test_resolve_pin_mode() -> None:
+    assert rp.resolve_pin_mode("dev_sst_02") == "publish"
+    assert rp.resolve_pin_mode("staging_sst_01") == "pull"
+    with pytest.raises(ValueError, match="catalog must be"):
+        rp.resolve_pin_mode("other_cat")

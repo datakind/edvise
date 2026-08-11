@@ -1,8 +1,8 @@
 # Admin: publish (canonical) or pull (replica) gold few-shot refs under genai_mapping.references.
 #
-# dev (canonical):     mode=publish — copy institution active/ → references/<id>/current/
-# staging (replica):   mode=pull    — copy references/ from fixed canonical catalog (dev_sst_02);
-#                                    does not read local active/
+# Action is derived from catalog (no mode param):
+#   catalog=dev_sst_02      → publish from institution active/
+#   catalog=staging_sst_01  → pull references/ from fixed canonical catalog (dev_sst_02)
 resources:
   jobs:
     edvise_genai_mapping_pin_reference_pipeline:
@@ -18,8 +18,6 @@ resources:
             python_file: src/edvise/genai/mapping/scripts/edvise_genai_pin_reference.py
             source: GIT
             parameters:
-              - --mode
-              - "{{job.parameters.mode}}"
               - --catalog
               - "{{job.parameters.catalog}}"
               - --reference_id
@@ -53,8 +51,6 @@ resources:
             num_workers: 0
 
       parameters:
-        - name: mode
-          default: "publish"
         - name: catalog
           default: ${var.DB_workspace}
         - name: reference_id

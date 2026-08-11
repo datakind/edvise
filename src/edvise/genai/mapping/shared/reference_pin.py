@@ -9,11 +9,11 @@ explicit copy into::
 plus ``genai_reference_pin.json`` (local hash metadata) and a row in
 ``{catalog}.genai_mapping.reference_pins``.
 
-Two job modes:
+Two job modes (selected by ``catalog``, not a CLI flag):
 
-* ``publish`` — copy from local ``active/`` (canonical catalog, ``dev_sst_02``).
-* ``pull`` — copy ``references/<id>/current/`` from ``source_catalog`` into this catalog
-  (replica, e.g. ``staging_sst_01``); does not read local ``active/`` (parity).
+* ``publish`` — ``catalog=dev_sst_02``: copy from local ``active/``.
+* ``pull`` — ``catalog=staging_sst_01``: copy ``references/<id>/current/`` from
+  ``dev_sst_02``; does not read local ``active/`` (parity).
 """
 
 from __future__ import annotations
@@ -51,8 +51,27 @@ REFERENCE_PIN_OPTIONAL_ARTIFACTS: tuple[str, ...] = ("enriched_schema_contract.j
 SourceKind = Literal["active", "onboard_run"]
 PinMode = Literal["publish", "pull"]
 
-# Canonical catalog for gold references; pull mode defaults to this as source.
+# Canonical catalog for gold references (publish writes here; pull reads from here).
 DEFAULT_CANONICAL_REFERENCE_CATALOG: str = "dev_sst_02"
+# Replica catalog that pulls from the canonical catalog.
+DEFAULT_REPLICA_REFERENCE_CATALOG: str = "staging_sst_01"
+
+
+def resolve_pin_mode(catalog: str) -> PinMode:
+    """
+    Map UC catalog to pin action.
+
+    ``dev_sst_02`` → publish; ``staging_sst_01`` → pull. Any other catalog is rejected.
+    """
+    c = str(catalog).strip()
+    if c == DEFAULT_CANONICAL_REFERENCE_CATALOG:
+        return "publish"
+    if c == DEFAULT_REPLICA_REFERENCE_CATALOG:
+        return "pull"
+    raise ValueError(
+        f"catalog must be {DEFAULT_CANONICAL_REFERENCE_CATALOG!r} (publish) or "
+        f"{DEFAULT_REPLICA_REFERENCE_CATALOG!r} (pull); got {c!r}"
+    )
 
 
 def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
