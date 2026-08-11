@@ -12,8 +12,10 @@ deterministic ``validate_manifest`` pass as post–Step 2a generate (scratch man
 and all TERMINAL options within an item are checked for exact-duplicate sourcing;
 failures trigger :func:`~edvise.utils.llm_utils.llm_complete_with_parse_retry`.
 
-Also includes :func:`run_sma_refinement` (two-pass LLM calls) and
-:func:`apply_refinement_review_status_safety_net` (``review_status`` enforcement).
+Also includes :func:`run_sma_refinement` (two-pass LLM calls),
+:func:`apply_refinement_review_status_safety_net` (``review_status`` enforcement),
+and post–Pass 1 ``validate_manifest`` re-check that forces remaining structural
+errors onto HITL (incomplete ``refined_by_llm`` fixes cannot skip review).
 
 Pass 1 runs after:
   1. Original 2a LLM produces sma_manifest_output.json
@@ -74,7 +76,12 @@ from ..schemas import (
     ReviewStatus,
     get_compact_manifest_schema_reference,
 )
-from ..validation import ManifestValidationError, infer_manifest_base_table
+from ..validation import (
+    ManifestValidationError,
+    ManifestValidationErrorCode,
+    infer_manifest_base_table,
+    validate_manifest,
+)
 
 from edvise.genai.mapping.shared.utilities import strip_json_fences
 from edvise.utils.llm_utils import llm_complete_with_parse_retry
@@ -1078,6 +1085,145 @@ def _hitl_target_fields(
     return out
 
 
+def _failure_mode_for_validation_errors(
+    errors: list[ManifestValidationError],
+) -> str:
+    """Map remaining ManifestValidationError codes to SMAFailureMode values."""
+    codes = {e.error_code for e in errors}
+    join_codes = {
+        ManifestValidationErrorCode.JOIN_BASE_TABLE_NOT_FOUND,
+        ManifestValidationErrorCode.JOIN_LOOKUP_TABLE_NOT_FOUND,
+        ManifestValidationErrorCode.JOIN_KEY_NOT_IN_BASE_TABLE,
+        ManifestValidationErrorCode.JOIN_KEY_NOT_IN_LOOKUP_TABLE,
+        ManifestValidationErrorCode.MISSING_COLUMN_ALIAS,
+        ManifestValidationErrorCode.JOIN_DECLARED_ON_SAME_TABLE,
+        ManifestValidationErrorCode.JOIN_KEY_PARTIAL_IA_TERM_LABEL,
+        ManifestValidationErrorCode.CROSS_TABLE_REQUIRES_JOIN,
+    }
+    if codes & join_codes:
+        return "join_structure"
+    if codes & {
+        ManifestValidationErrorCode.SOURCE_TABLE_NOT_FOUND,
+        ManifestValidationErrorCode.SOURCE_COLUMN_NOT_FOUND,
+    }:
+        return "column_not_found"
+    row_codes = {
+        ManifestValidationErrorCode.ROW_SELECTION_ORDER_BY_NOT_FOUND,
+        ManifestValidationErrorCode.ROW_SELECTION_ORDER_BY_NOT_CHRONOLOGICAL,
+        ManifestValidationErrorCode.ROW_SELECTION_CONDITION_COL_NOT_FOUND,
+        ManifestValidationErrorCode.ROW_SELECTION_FILTER_COL_NOT_FOUND,
+    }
+    if codes & row_codes:
+        return "row_selection"
+    if codes & {
+        ManifestValidationErrorCode.MAPPED_FIELD_MISSING_SOURCE,
+        ManifestValidationErrorCode.UNMAPPED_FIELD_HAS_SOURCE,
+    }:
+        return "map_unmap"
+    return "low_confidence"
+
+
+def _revalidate_pass1_and_force_hitl(
+    institution_id: str,
+    entity_type: str,
+    refined_manifest: FieldMappingManifest,
+    hitl_flags: list[dict[str, Any]],
+    schema_contract: EnrichedSchemaContractForSMA,
+    refined_corrections: Mapping[str, Any],
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """
+    Re-run ``validate_manifest`` on the Pass 1 refined manifest.
+
+    Any field that still has structural errors cannot remain ``refined_by_llm`` or
+    ``auto_approved`` — downgrade review_status and synthesize / refresh a Pass 1
+    ``hitl_flags`` entry so Pass 2 (and human review) still run.
+
+    Returns the (possibly extended) hitl_flags list and warning strings.
+    """
+    remaining = validate_manifest(refined_manifest, schema_contract)
+    if not remaining:
+        return hitl_flags, []
+
+    by_field: dict[str, list[ManifestValidationError]] = {}
+    for err in remaining:
+        by_field.setdefault(err.target_field, []).append(err)
+
+    flags_by_field = {
+        str(f.get("target_field")): f
+        for f in hitl_flags
+        if isinstance(f.get("target_field"), str)
+    }
+    warnings: list[str] = []
+    record_by_field = {m.target_field: m for m in refined_manifest.mappings}
+
+    for target_field, errs in by_field.items():
+        record = record_by_field.get(target_field)
+        if record is None:
+            continue
+        detail_strs = [e.detail for e in errs]
+        failure_mode = _failure_mode_for_validation_errors(errs)
+        status = record.review_status
+
+        if status == ReviewStatus.refined_by_llm:
+            has_correction = target_field in refined_corrections
+            new_status = (
+                ReviewStatus.refined_and_proposed_for_hitl
+                if has_correction
+                else ReviewStatus.proposed_for_hitl
+            )
+            warnings.append(
+                f"[post-pass1 validation] '{target_field}' marked refined_by_llm but "
+                f"still has {len(errs)} validation error(s). Forcing to {new_status.value}."
+            )
+            record.review_status = new_status
+        elif status == ReviewStatus.auto_approved:
+            warnings.append(
+                f"[post-pass1 validation] '{target_field}' marked auto_approved but "
+                f"still has {len(errs)} validation error(s). Forcing to proposed_for_hitl."
+            )
+            record.review_status = ReviewStatus.proposed_for_hitl
+
+        existing = flags_by_field.get(target_field)
+        if existing is not None:
+            prev = existing.get("validation_errors") or []
+            if not isinstance(prev, list):
+                prev = []
+            merged = list(prev)
+            for d in detail_strs:
+                if d not in merged:
+                    merged.append(d)
+            existing["validation_errors"] = merged
+            if (
+                existing.get("failure_mode") in (None, "low_confidence")
+                and failure_mode != "low_confidence"
+            ):
+                existing["failure_mode"] = failure_mode
+            continue
+
+        warnings.append(
+            f"[post-pass1 validation] Synthesizing HITL flag for '{target_field}' "
+            f"({failure_mode})."
+        )
+        flag = {
+            "item_id": f"{institution_id}_{entity_type}_{target_field}_{failure_mode}",
+            "institution_id": institution_id,
+            "entity_type": entity_type,
+            "target_field": target_field,
+            "failure_mode": failure_mode,
+            "hitl_question": (
+                f"{target_field} still fails deterministic validation after Pass 1 "
+                f"refinement — review the join/source mapping. First error: {detail_strs[0]}"
+            ),
+            "hitl_context": "\n".join(detail_strs),
+            "current_field_mapping": record.model_dump(mode="json"),
+            "validation_errors": detail_strs,
+        }
+        hitl_flags.append(flag)
+        flags_by_field[target_field] = flag
+
+    return hitl_flags, warnings
+
+
 def _enforce_review_status_contract(
     manifest: FieldMappingManifest,
     validation_errors: list[ManifestValidationError],
@@ -1366,6 +1512,17 @@ def run_sma_refinement(
     for w in warnings:
         print(f"⚠  {w}")
 
+    hitl_flags, post_val_warnings = _revalidate_pass1_and_force_hitl(
+        institution_id,
+        entity_type,
+        refined_manifest,
+        hitl_flags,
+        schema_contract,
+        refined_corrections_pass1,
+    )
+    for w in post_val_warnings:
+        print(f"⚠  {w}")
+
     if not hitl_flags:
         print(
             f"✓ No HITL flags for {entity_type} — all fields auto-approved or refined."
@@ -1403,6 +1560,7 @@ def run_sma_refinement(
 
 __all__ = [
     "_enforce_review_status_contract",
+    "_revalidate_pass1_and_force_hitl",
     "apply_refinement_review_status_safety_net",
     "build_refinement_combined_pass1_system_prompt",
     "build_refinement_combined_pass1_user_prompt",
