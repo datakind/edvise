@@ -1,7 +1,7 @@
 # Admin: publish (canonical) or pull (replica) gold few-shot refs under genai_mapping.references.
 #
 # dev (canonical):     mode=publish — copy institution active/ → references/<id>/current/
-# staging (replica):   mode=pull    — copy references/ from source_catalog (default dev_sst_02);
+# staging (replica):   mode=pull    — copy references/ from fixed canonical catalog (dev_sst_02);
 #                                    does not read local active/
 resources:
   jobs:
@@ -24,8 +24,6 @@ resources:
               - "{{job.parameters.catalog}}"
               - --reference_id
               - "{{job.parameters.reference_id}}"
-              - --source_catalog
-              - "{{job.parameters.source_catalog}}"
               - --pipeline_version
               - "{{job.parameters.pipeline_version}}"
           job_cluster_key: edvise-genai-mapping-pin-reference-cluster
@@ -61,8 +59,6 @@ resources:
           default: ${var.DB_workspace}
         - name: reference_id
           default: ""
-        - name: source_catalog
-          default: "dev_sst_02"
         - name: pipeline_version
           default: ${var.pipeline_version}
 

@@ -10,9 +10,10 @@ Modes
     Use when blessing a new/updated gold few-shot set.
 
 ``pull`` (replica catalog, ``staging_sst_01``)
-    Copy ``references/<reference_id>/current/`` from ``source_catalog`` into this
-    catalog. Does **not** read local ``active/`` (avoids divergent active overwriting
-    the library). Requires volume read access to the source catalog.
+    Copy ``references/<reference_id>/current/`` from the fixed canonical catalog
+    (``dev_sst_02``) into this catalog. Does **not** read local ``active/``
+    (avoids divergent active overwriting the library). Requires volume read access
+    to the canonical catalog.
 
 Examples::
 
@@ -20,10 +21,9 @@ Examples::
     python .../edvise_genai_pin_reference.py \\
       --mode publish --catalog dev_sst_02 --reference_id my_school
 
-    # Staging — pull dev's pinned bytes (parity)
+    # Staging — pull fixed canonical catalog's pinned bytes (parity)
     python .../edvise_genai_pin_reference.py \\
-      --mode pull --catalog staging_sst_01 --reference_id my_school \\
-      --source_catalog dev_sst_02
+      --mode pull --catalog staging_sst_01 --reference_id my_school
 """
 
 from __future__ import annotations
@@ -73,7 +73,8 @@ def main(argv: list[str] | None = None) -> int:
         choices=["publish", "pull"],
         help=(
             "publish: pin from local active/ (canonical). "
-            "pull: copy references/current/ from source_catalog (replica; no local active/)."
+            f"pull: copy references/current/ from {DEFAULT_CANONICAL_REFERENCE_CATALOG} "
+            "(replica; no local active/)."
         ),
     )
     parser.add_argument("--catalog", required=True, help="UC catalog for this job run")
@@ -81,14 +82,6 @@ def main(argv: list[str] | None = None) -> int:
         "--reference_id",
         required=True,
         help="Institution id / library slot under references/",
-    )
-    parser.add_argument(
-        "--source_catalog",
-        default=DEFAULT_CANONICAL_REFERENCE_CATALOG,
-        help=(
-            "pull only: catalog to copy references/ from "
-            f"(default: {DEFAULT_CANONICAL_REFERENCE_CATALOG})"
-        ),
     )
     parser.add_argument(
         "--pipeline_version",
@@ -128,10 +121,14 @@ def main(argv: list[str] | None = None) -> int:
         pin = pull_reference_snapshot(
             catalog=args.catalog,
             reference_id=args.reference_id,
-            source_catalog=args.source_catalog,
+            source_catalog=DEFAULT_CANONICAL_REFERENCE_CATALOG,
             write_history_copy=write_history,
         )
-        LOGGER.info("Pulled reference:\n%s", json.dumps(pin, indent=2))
+        LOGGER.info(
+            "Pulled reference from %s:\n%s",
+            DEFAULT_CANONICAL_REFERENCE_CATALOG,
+            json.dumps(pin, indent=2),
+        )
 
     if args.skip_uc_registry:
         LOGGER.warning("Skipped UC reference_pins upsert (--skip_uc_registry)")
