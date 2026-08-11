@@ -193,3 +193,60 @@ def test_upsert_reference_pin_row_sql(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "school_a" in insert
     assert "sha256:abc" in insert
     assert "active" in insert
+
+
+def test_pull_reference_snapshot_copies_bytes_not_active(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    src_cat = "staging_sst_01"
+    dest_cat = "dev_sst_02"
+    ref = "demo_col"
+    volumes = tmp_path / "Volumes"
+    _patch_volume_roots(monkeypatch, volumes)
+
+    # Publish on staging from active/
+    _seed_active(tmp_path, catalog=src_cat, institution_id=ref)
+    published = rp.pin_reference_snapshot(
+        catalog=src_cat, reference_id=ref, write_history_copy=False
+    )
+
+    # Divergent active on dest must not affect pull
+    dest_active = (
+        volumes
+        / dest_cat
+        / f"{ref}_silver"
+        / "silver_volume"
+        / "genai_mapping"
+        / "active"
+    )
+    dest_active.mkdir(parents=True)
+    (dest_active / "manifest_map.json").write_text('{"m": "WRONG"}', encoding="utf-8")
+    (dest_active / "transformation_map.json").write_text(
+        '{"t": "WRONG"}', encoding="utf-8"
+    )
+
+    pulled = rp.pull_reference_snapshot(
+        catalog=dest_cat,
+        reference_id=ref,
+        source_catalog=src_cat,
+        write_history_copy=False,
+    )
+
+    dest_current = Path(rp.genai_reference_current_root(ref, catalog=dest_cat))
+    assert (dest_current / "manifest_map.json").read_text(
+        encoding="utf-8"
+    ) == '{"m": 1}'
+    assert pulled["content_hash"] == published["content_hash"]
+    assert pulled["pulled_from_catalog"] == src_cat
+    assert pulled["uc_catalog"] == dest_cat
+    assert pulled["source_onboard_run_id"] == "school_20260101_1"
+    assert rp.verify_reference_pin_hash(dest_current) == published["content_hash"]
+
+
+def test_pull_rejects_same_catalog() -> None:
+    with pytest.raises(ValueError, match="source_catalog != catalog"):
+        rp.pull_reference_snapshot(
+            catalog="dev_sst_02",
+            reference_id="x",
+            source_catalog="dev_sst_02",
+        )

@@ -8,6 +8,12 @@ explicit copy into::
 
 plus ``genai_reference_pin.json`` (local hash metadata) and a row in
 ``{catalog}.genai_mapping.reference_pins``.
+
+Two job modes:
+
+* ``publish`` — copy from local ``active/`` (canonical catalog, e.g. staging).
+* ``pull`` — copy ``references/<id>/current/`` from ``source_catalog`` into this catalog;
+  does not read local ``active/`` (replica parity).
 """
 
 from __future__ import annotations
@@ -43,6 +49,10 @@ REFERENCE_PIN_REQUIRED_ARTIFACTS: tuple[str, ...] = (
 REFERENCE_PIN_OPTIONAL_ARTIFACTS: tuple[str, ...] = ("enriched_schema_contract.json",)
 
 SourceKind = Literal["active", "onboard_run"]
+PinMode = Literal["publish", "pull"]
+
+# Canonical catalog for gold references; pull mode defaults to this as source.
+DEFAULT_CANONICAL_REFERENCE_CATALOG: str = "staging_sst_01"
 
 
 def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
@@ -51,10 +61,6 @@ def _atomic_write_json(path: Path, payload: dict[str, Any]) -> None:
     tmp = path.with_name(f".{path.name}.tmp")
     tmp.write_text(text, encoding="utf-8")
     tmp.replace(path)
-
-
-def _sha256_bytes(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()
 
 
 def compute_reference_content_hash(
@@ -294,6 +300,102 @@ def pin_reference_snapshot(
         shutil.copytree(current, hist)
         LOGGER.info("Wrote history snapshot %s", hist)
 
+    return payload
+
+
+def pull_reference_snapshot(
+    *,
+    catalog: str,
+    reference_id: str,
+    source_catalog: str,
+    write_history_copy: bool = True,
+) -> dict[str, Any]:
+    """
+    Copy a pinned reference from ``source_catalog`` into ``catalog`` (replica).
+
+    Does **not** read local ``active/`` — that is intentional so divergent school
+    active state cannot overwrite the gold few-shot library.
+
+    Requires readable
+    ``/Volumes/<source_catalog>/genai_mapping/references/<reference_id>/current/``.
+    Verifies the source pin hash, copies bytes, re-verifies on the destination, and
+    returns the destination pin payload (with ``pulled_from_catalog`` set).
+    """
+    dest_cat = str(catalog).strip()
+    src_cat = str(source_catalog).strip()
+    ref = str(reference_id).strip()
+    if not dest_cat or not src_cat or not ref:
+        raise ValueError("catalog, source_catalog, and reference_id must be non-empty")
+    if dest_cat == src_cat:
+        raise ValueError(
+            f"pull mode requires source_catalog != catalog (both are {dest_cat!r})"
+        )
+
+    source_current = Path(genai_reference_current_root(ref, catalog=src_cat))
+    if not source_current.is_dir():
+        raise FileNotFoundError(
+            f"Cannot pull reference {ref!r}: source current/ missing at {source_current}. "
+            f"Publish on {src_cat} first, and ensure this job can read that catalog's volumes."
+        )
+
+    source_hash = verify_reference_pin_hash(source_current)
+    source_pin = read_genai_reference_pin(source_current)
+    if source_pin is None:
+        raise FileNotFoundError(
+            f"Missing {GENAI_REFERENCE_PIN_BASENAME} under {source_current}"
+        )
+
+    dest_current = Path(genai_reference_current_root(ref, catalog=dest_cat))
+    dest_current.mkdir(parents=True, exist_ok=True)
+
+    # Replace destination current/ contents with source artifacts + pin sidecar.
+    for existing in dest_current.iterdir():
+        if existing.is_file():
+            existing.unlink()
+        elif existing.is_dir():
+            shutil.rmtree(existing)
+
+    for src in source_current.iterdir():
+        if not src.is_file():
+            continue
+        shutil.copy2(src, dest_current / src.name)
+        LOGGER.info("Pulled %s -> %s", src, dest_current / src.name)
+
+    pulled_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    payload = dict(source_pin)
+    payload["uc_catalog"] = dest_cat
+    payload["pulled_from_catalog"] = src_cat
+    payload["pulled_at"] = pulled_at
+    # Keep original content_hash / source_onboard_run_id / artifacts from canonical pin.
+    if str(payload.get("content_hash") or "").strip() != source_hash:
+        payload["content_hash"] = source_hash
+
+    pin_path = dest_current / GENAI_REFERENCE_PIN_BASENAME
+    _atomic_write_json(pin_path, payload)
+
+    dest_hash = verify_reference_pin_hash(dest_current)
+    if dest_hash != source_hash:
+        raise ValueError(
+            f"Pull hash mismatch for {ref!r}: source {source_hash!r} vs dest {dest_hash!r}"
+        )
+
+    if write_history_copy:
+        hist = dest_current.parent / _history_dirname(
+            pinned_at=str(payload.get("pinned_at") or pulled_at),
+            content_hash=dest_hash,
+        )
+        if hist.exists():
+            shutil.rmtree(hist)
+        shutil.copytree(dest_current, hist)
+        LOGGER.info("Wrote history snapshot %s", hist)
+
+    LOGGER.info(
+        "Pulled reference_id=%r %s -> %s content_hash=%r",
+        ref,
+        src_cat,
+        dest_cat,
+        dest_hash,
+    )
     return payload
 
 

@@ -1,5 +1,8 @@
-# Admin: pin gold few-shot artifacts into shared genai_mapping.references volume + registry.
-# reference_id = institution id; always copies that school's genai_mapping/active/.
+# Admin: publish (canonical) or pull (replica) gold few-shot refs under genai_mapping.references.
+#
+# staging (canonical): mode=publish — copy institution active/ → references/<id>/current/
+# dest (replica):      mode=pull    — copy references/ from source_catalog (default staging_sst_01);
+#                                    does not read local active/
 resources:
   jobs:
     edvise_genai_mapping_pin_reference_pipeline:
@@ -15,10 +18,14 @@ resources:
             python_file: src/edvise/genai/mapping/scripts/edvise_genai_pin_reference.py
             source: GIT
             parameters:
+              - --mode
+              - "{{job.parameters.mode}}"
               - --catalog
               - "{{job.parameters.catalog}}"
               - --reference_id
               - "{{job.parameters.reference_id}}"
+              - --source_catalog
+              - "{{job.parameters.source_catalog}}"
               - --pipeline_version
               - "{{job.parameters.pipeline_version}}"
           job_cluster_key: edvise-genai-mapping-pin-reference-cluster
@@ -48,10 +55,14 @@ resources:
             num_workers: 0
 
       parameters:
+        - name: mode
+          default: "publish"
         - name: catalog
           default: ${var.DB_workspace}
         - name: reference_id
           default: ""
+        - name: source_catalog
+          default: "staging_sst_01"
         - name: pipeline_version
           default: ${var.pipeline_version}
 
