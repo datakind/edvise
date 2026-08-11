@@ -53,28 +53,42 @@ def warn_if(cond: bool, msg: str, logger: logging.Logger | None = None) -> None:
         (logger or logging.getLogger(__name__)).warning(msg)
 
 
+def is_boolean_like(series: pd.Series) -> bool:
+    """True if non-null values are boolean or in {0, 1, True, False}."""
+    if pd.api.types.is_bool_dtype(series):
+        return True
+    valid = series.dropna()
+    return (not valid.empty) and bool(valid.isin([0, 1, True, False]).all())
+
+
 def validate_tables_exist(spark: SparkSession, tables: list[ExpectedTable]) -> None:
-    for t in tables:
+    for table in tables:
         ok = False
         try:
-            ok = bool(spark.catalog.tableExists(t.path))
+            ok = bool(spark.catalog.tableExists(table.path))
         except Exception:
             ok = False
 
-        msg_missing = f"Missing expected table [{t.label}]: {t.path}"
-        (require if t.required else warn_if)(ok, msg_missing)
+        msg_missing = f"Missing expected table [{table.label}]: {table.path}"
+        (require if table.required else warn_if)(ok, msg_missing)
 
         if not ok:
             continue
 
         try:
-            if t.min_rows is None:
-                spark.sql(f"SELECT 1 FROM {t.path} LIMIT 1").collect()
+            if table.min_rows is None:
+                spark.sql(f"SELECT 1 FROM {table.path} LIMIT 1").collect()
             else:
-                n = spark.sql(f"SELECT COUNT(1) AS n FROM {t.path}").collect()[0]["n"]
-                msg_rows = f"Table [{t.label}] has {n} rows (<{t.min_rows}): {t.path}"
-                (require if t.required else warn_if)(n >= t.min_rows, msg_rows)
+                n = spark.sql(f"SELECT COUNT(1) AS n FROM {table.path}").collect()[0][
+                    "n"
+                ]
+                msg_rows = (
+                    f"Table [{table.label}] has {n} rows (<{table.min_rows}): "
+                    f"{table.path}"
+                )
+                (require if table.required else warn_if)(n >= table.min_rows, msg_rows)
         except Exception as e:
             raise RuntimeError(
-                f"Table exists but is not queryable [{t.label}]: {t.path}. Error: {e}"
+                f"Table exists but is not queryable [{table.label}]: {table.path}. "
+                f"Error: {e}"
             )
