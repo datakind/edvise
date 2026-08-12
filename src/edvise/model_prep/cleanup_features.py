@@ -28,10 +28,6 @@ class BaseCleanup:
     """
 
     cols_to_drop: t.ClassVar[list[str]] = []
-    # Cohort first-term duplicates; prefer checkpoint-relative counterparts.
-    redundant_first_term_cols: t.ClassVar[list[str]] = [
-        "enrollment_intensity_first_term",  # prefer student_term_enrollment_intensity
-    ]
     # Used by masking below; dropped from the modeling dataset afterward.
     cols_to_drop_after_masking: t.ClassVar[list[str]] = [
         "year_of_enrollment_at_cohort_inst",
@@ -60,9 +56,7 @@ class BaseCleanup:
                 if credit_pattern.search(col):
                     df[col] = df[col].mask(df[num_credits_col] < num_credit_check)
 
-        df = drop_columns_safely(
-            df, cols_to_drop=self.cols_to_drop + self.redundant_first_term_cols
-        )
+        df = drop_columns_safely(df, cols_to_drop=self.cols_to_drop)
 
         df = df.assign(
             **{
