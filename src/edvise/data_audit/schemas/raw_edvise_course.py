@@ -183,7 +183,7 @@ class RawEdviseCourseDataSchema(pda.DataFrameModel):
         nullable=True,
         description="Catalog section when available; optional when not provided by the institution.",
     )
-    grade: pt.Series[pd.StringDtype] = pda.Field(nullable=False)
+    grade: pt.Series[pd.StringDtype] = pda.Field(nullable=True)
     course_credits_attempted: pt.Series[pd.Float64Dtype] = CreditsField()
     course_credits_earned: pt.Series[pd.Float64Dtype] = CreditsField()
 

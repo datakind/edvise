@@ -49,7 +49,7 @@ exclude_pre_cohort_terms = true
 [preprocessing.target]
 name = "retention"
 type_ = "retention"
-max_academic_year = "2024"
+max_academic_year = "infer"
 
 [modeling.feature_selection]
 incomplete_threshold = 0.2
