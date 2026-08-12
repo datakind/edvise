@@ -12,6 +12,17 @@ from edvise.modeling.features_table_mapping import map_feature_col_for_features_
 
 LOGGER = logging.getLogger(__name__)
 
+DEFAULT_DISPLAY_DECIMALS = 2
+DEFAULT_INDICATOR_COLUMN_LABEL = "Indicator"
+SUPPORT_SCORE_COL = "Support Score"
+
+
+def _format_display_number(
+    value: float, decimals: int = DEFAULT_DISPLAY_DECIMALS
+) -> str:
+    """Format a number as a fixed-decimal string for left-aligned CSV display."""
+    return f"{round(float(value), decimals):.{decimals}f}"
+
 
 def select_top_features_for_display(
     features: pd.DataFrame,
@@ -19,9 +30,15 @@ def select_top_features_for_display(
     predicted_probabilities: list[float],
     shap_values: npt.NDArray[np.float64],
     n_features: int = 3,
-    needs_support_threshold_prob: t.Optional[float] = 0.5,
+    needs_support_threshold_prob: t.Optional[float] = None,
     features_table: t.Optional[dict[str, dict[str, str]]] = None,
     schema_type: str | None = None,
+    *,
+    support_score_decimals: int = DEFAULT_DISPLAY_DECIMALS,
+    importance_decimals: int = DEFAULT_DISPLAY_DECIMALS,
+    column_label: str = DEFAULT_INDICATOR_COLUMN_LABEL,
+    sort_by_support_score: bool = True,
+    format_numerics_as_strings: bool = True,
 ) -> pd.DataFrame:
     """
     Select most important features from SHAP for each student
@@ -34,40 +51,40 @@ def select_top_features_for_display(
             order as unique_ids, of shape len(unique_ids)
         shap_values: array of arrays of SHAP values, of shape len(unique_ids)
         n_features: number of important features to return
-        needs_support_threshold_prob: Minimum probability in [0.0, 1.0] used to compute
-            a boolean "needs support" field added to output records. Values in
-            ``predicted_probabilities`` greater than or equal to this threshold result in
-            a True value, otherwise it's False; if this threshold is set to null,
-            then no "needs support" values are added to the output records.
-            Note that this doesn't have to be the "optimal" decision threshold for
-            the trained model that produced ``predicted_probabilities`` , it can
-            be tailored to a school's preferences and use case.
+        needs_support_threshold_prob: Deprecated and ignored. Retained for call-site
+            compatibility; the "Support Needed" column is no longer emitted.
         features_table: Optional mapping of column to human-friendly feature name/desc,
             loaded via :func:`utils.load_features_table()`
+        support_score_decimals: Decimal places for Support Score display.
+        importance_decimals: Decimal places for indicator importance display.
+        column_label: Prefix for per-rank columns (e.g. ``Indicator_1_Name``).
+        sort_by_support_score: If True, sort rows by Support Score descending.
+        format_numerics_as_strings: If True, emit Support Score and importance as
+            fixed-decimal strings so CSV consumers (e.g. Excel) left-align all columns.
 
     Returns:
         explainability dataframe for display
 
     TODO: refactor this functionality so it's vectorized and aggregates by student
     """
-    pred_probs = np.asarray(predicted_probabilities)
+    del needs_support_threshold_prob  # deprecated; Support Needed column removed
+
+    pred_probs = np.asarray(predicted_probabilities, dtype=float)
+    feature_columns = features.columns.to_numpy()
+    features_values = features.to_numpy()
 
     top_features_info = []
     for i, (unique_id, predicted_proba) in enumerate(zip(unique_ids, pred_probs)):
         instance_shap_values = shap_values[i]
         top_indices = np.argsort(-np.abs(instance_shap_values))[:n_features]
-        top_features = features.columns[top_indices]
-        top_feature_values = features.iloc[i][top_features]
+        top_features = feature_columns[top_indices]
+        top_feature_values = features_values[i, top_indices]
         top_shap_values = instance_shap_values[top_indices]
 
-        student_output = {
+        student_output: dict[str, t.Any] = {
             "Student ID": unique_id,
-            "Support Score": predicted_proba,
+            SUPPORT_SCORE_COL: float(predicted_proba),
         }
-        if needs_support_threshold_prob is not None:
-            student_output["Support Needed"] = (
-                predicted_proba >= needs_support_threshold_prob
-            )
 
         for feature_rank, (feature, feature_value, shap_value) in enumerate(
             zip(top_features, top_feature_values, top_shap_values), start=1
@@ -79,19 +96,48 @@ def select_top_features_for_display(
                 if features_table is not None
                 else feature
             )
-            feature_value = (
-                str(round(feature_value, 2))
-                if isinstance(feature_value, float)
-                else str(feature_value)
-            )
+            if isinstance(feature_value, (float, np.floating)) and not isinstance(
+                feature_value, (bool, np.bool_)
+            ):
+                feature_value_display = str(round(float(feature_value), 2))
+            else:
+                feature_value_display = str(feature_value)
             student_output |= {
-                f"Feature_{feature_rank}_Name": feature_name,
-                f"Feature_{feature_rank}_Value": feature_value,
-                f"Feature_{feature_rank}_Importance": round(shap_value, 2),
+                f"{column_label}_{feature_rank}_Name": feature_name,
+                f"{column_label}_{feature_rank}_Value": feature_value_display,
+                f"{column_label}_{feature_rank}_Importance": float(shap_value),
             }
 
         top_features_info.append(student_output)
-    return pd.DataFrame(top_features_info)
+
+    df = pd.DataFrame(top_features_info)
+    if df.empty:
+        return df
+
+    if sort_by_support_score:
+        df = df.sort_values(
+            by=SUPPORT_SCORE_COL, ascending=False, kind="mergesort"
+        ).reset_index(drop=True)
+
+    importance_cols = [
+        c
+        for c in df.columns
+        if c.startswith(f"{column_label}_") and c.endswith("_Importance")
+    ]
+    if format_numerics_as_strings:
+        df[SUPPORT_SCORE_COL] = df[SUPPORT_SCORE_COL].map(
+            lambda v: _format_display_number(v, support_score_decimals)
+        )
+        for col in importance_cols:
+            df[col] = df[col].map(
+                lambda v: _format_display_number(v, importance_decimals)
+            )
+    else:
+        df[SUPPORT_SCORE_COL] = df[SUPPORT_SCORE_COL].round(support_score_decimals)
+        for col in importance_cols:
+            df[col] = df[col].round(importance_decimals)
+
+    return df
 
 
 def generate_ranked_feature_table(
@@ -427,18 +473,16 @@ def support_score_distribution_table(
     schema_type: str | None = None,
 ) -> pd.DataFrame:
     """
-    Selects top SHAP features for each student, and bins the support scores.
+    Bin support scores for histogram display.
 
     Args:
-        df_serving (pd.DataFrame): Input features used for prediction.
-        unique_ids (pd.Series): Unique ids (student_id) for each student.
+        df_serving (pd.DataFrame): Unused; retained for call-site compatibility.
+        unique_ids (pd.Series): Unused; retained for call-site compatibility.
         pred_probs (list or np.ndarray): Predicted probabilities from the model.
-        shap_values (np.ndarray or pd.DataFrame): SHAP values for the input features.
-        inference_params (dict): Dictionary containing configuration for:
-            - "num_top_features" (int): Number of top features to display.
-            - "min_prob_pos_label" (float): Threshold to determine if support is needed.
-        features_table (dict): Optional dictionary mapping feature names to understandable format.
-        model_feature_names (list): List of feature names used by the model.
+        shap_values (np.ndarray or pd.DataFrame): Unused; retained for call-site compatibility.
+        inference_params (dict): Unused; retained for call-site compatibility.
+        features_table (dict): Unused; retained for call-site compatibility.
+        schema_type: Unused; retained for call-site compatibility.
 
     Returns:
         pd.DataFrame: A DataFrame with the following columns:
@@ -449,31 +493,28 @@ def support_score_distribution_table(
             - pct: Percentage of total students in the bin.
 
     """
+    _ = (
+        df_serving,
+        unique_ids,
+        shap_values,
+        inference_params,
+        features_table,
+        schema_type,
+    )
 
     try:
-        result = select_top_features_for_display(
-            features=df_serving,
-            unique_ids=unique_ids,
-            predicted_probabilities=pred_probs,
-            shap_values=shap_values.values,
-            n_features=inference_params["num_top_features"],
-            needs_support_threshold_prob=inference_params["min_prob_pos_label"],
-            features_table=features_table,
-            schema_type=schema_type,
-        )
-
-        # --- Bin support scores for histogram (e.g., 0.0 to 1.0 in 0.1 steps) ---
+        # Bin raw probabilities for histogram (display formatting is handled separately).
         bin_width = 0.2 / 5  # 0.04
         bins = np.arange(0.0, 1.0 + bin_width, bin_width)  # 0.00 ... 1.00
 
-        counts, bin_edges = np.histogram(result["Support Score"], bins=bins)
+        counts, bin_edges = np.histogram(np.asarray(pred_probs, dtype=float), bins=bins)
 
         bin_lower = bin_edges[:-1]
         bin_upper = bin_edges[1:]
         support_score = (bin_lower + bin_upper) / 2
         pct = counts / counts.sum()
 
-        bin_summary = pd.DataFrame(
+        return pd.DataFrame(
             {
                 "bin_lower": bin_lower,
                 "bin_upper": bin_upper,
@@ -482,8 +523,6 @@ def support_score_distribution_table(
                 "pct": pct,
             }
         )
-
-        return bin_summary
 
     except Exception:
         import traceback
