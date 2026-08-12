@@ -349,6 +349,40 @@ class ManifestValidationError(BaseModel):
 # ---------------------------------------------------------------------------
 # Alias resolution helpers
 # ---------------------------------------------------------------------------
+# JoinConfig.join_keys are *canonical* names (same convention as the field
+# executor). ColumnAlias maps physical ``source_column`` → ``canonical_column``
+# on one table. Existence checks must reverse that map (canonical → physical);
+# bridge checks must confirm both physicals share the join key as canonical.
+
+
+def _physical_column_for_join_key(
+    table: str,
+    join_key: str,
+    column_aliases: list[ColumnAlias],
+) -> str:
+    """
+    Map a canonical join key to the physical column name on ``table``.
+
+    If an alias declares ``canonical_column == join_key`` for ``table``, return
+    its ``source_column``; otherwise the join key is assumed to be the physical
+    name (same as :func:`~edvise.genai.mapping.schema_mapping_agent.execution.field_executor._resolve_join_keys`).
+    """
+    for alias in column_aliases:
+        if alias.table == table and alias.canonical_column == join_key:
+            return alias.source_column
+    return join_key
+
+
+def _canonical_column_for_physical(
+    table: str,
+    physical_column: str,
+    column_aliases: list[ColumnAlias],
+) -> str:
+    """Map a physical column to its canonical join-key name on ``table``."""
+    for alias in column_aliases:
+        if alias.table == table and alias.source_column == physical_column:
+            return alias.canonical_column
+    return physical_column
 
 
 def _resolve_column_via_aliases(
@@ -357,13 +391,13 @@ def _resolve_column_via_aliases(
     column_aliases: list[ColumnAlias],
 ) -> str:
     """
-    Return canonical_column if a ColumnAlias entry exists for (table, column),
-    otherwise return column unchanged.
+    Resolve a join-key name to the physical column on ``table``.
+
+    ``column`` is a canonical ``join_keys`` entry. Prefer
+    :func:`_physical_column_for_join_key`; this name is kept for call-site
+    compatibility with older docs/tests.
     """
-    for alias in column_aliases:
-        if alias.table == table and alias.source_column == column:
-            return alias.canonical_column
-    return column
+    return _physical_column_for_join_key(table, column, column_aliases)
 
 
 def _alias_bridges_join(
@@ -373,14 +407,23 @@ def _alias_bridges_join(
     column_aliases: list[ColumnAlias],
 ) -> bool:
     """
-    Returns True if column_aliases resolves join_key to the same canonical name
-    across base_table and lookup_table.
+    Return True when both tables' physical columns for ``join_key`` share that
+    key as their canonical name (via identity or ColumnAlias).
     """
-    base_resolved = _resolve_column_via_aliases(base_table, join_key, column_aliases)
-    lookup_resolved = _resolve_column_via_aliases(
+    base_physical = _physical_column_for_join_key(base_table, join_key, column_aliases)
+    lookup_physical = _physical_column_for_join_key(
         lookup_table, join_key, column_aliases
     )
-    return base_resolved == lookup_resolved
+    if base_physical == lookup_physical:
+        return True
+    return (
+        _canonical_column_for_physical(base_table, base_physical, column_aliases)
+        == join_key
+        and _canonical_column_for_physical(
+            lookup_table, lookup_physical, column_aliases
+        )
+        == join_key
+    )
 
 
 # ---------------------------------------------------------------------------
