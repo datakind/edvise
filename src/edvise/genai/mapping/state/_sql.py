@@ -11,6 +11,8 @@ GENAI_MAPPING_SCHEMA: str = "genai_mapping"
 PIPELINE_RUNS: str = "pipeline_runs"
 PIPELINE_PHASES: str = "pipeline_phases"
 HITL_REVIEWS: str = "hitl_reviews"
+REFERENCE_PINS: str = "reference_pins"
+REFERENCES_VOLUME: str = "references"
 
 
 def get_spark_session() -> Any:
