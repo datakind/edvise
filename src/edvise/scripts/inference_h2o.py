@@ -13,9 +13,11 @@ Writes results to Unity Catalog Delta tables and exports CSV.
 
 from __future__ import annotations
 import argparse
+import csv
 import json
 import logging
 import os
+import shutil
 import sys
 import typing as t
 from email.headerregistry import Address
@@ -494,12 +496,23 @@ class ModelInferenceTask:
     def _export_csv_with_spark(
         self, df: pd.DataFrame, dest_dir: str, basename: str
     ) -> None:
+        """
+        Write school-facing inference CSV under ``{dest_dir}/{basename}/``.
+
+        Uses pandas (not Spark) so we can emit Excel/Sheets text formulas that keep
+        numeric-looking values left-aligned. Publish still picks up ``*.csv`` in
+        that folder.
+        """
         os.makedirs(dest_dir, exist_ok=True)
-        spark_df = self.spark_session.createDataFrame(df)
-        spark_df.coalesce(1).write.format("csv").option("header", "true").mode(
-            "overwrite"
-        ).save(os.path.join(dest_dir, basename))
-        logging.info("Exported CSV to %s", os.path.join(dest_dir, basename))
+        out_dir = os.path.join(dest_dir, basename)
+        if os.path.isdir(out_dir):
+            shutil.rmtree(out_dir)
+        os.makedirs(out_dir, exist_ok=True)
+
+        export_df = modeling.inference.format_dataframe_for_excel_csv(df)
+        out_path = os.path.join(out_dir, f"{basename}.csv")
+        export_df.to_csv(out_path, index=False, quoting=csv.QUOTE_ALL)
+        logging.info("Exported CSV to %s", out_path)
 
 
 # ------------------------------

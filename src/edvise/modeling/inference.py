@@ -15,27 +15,40 @@ LOGGER = logging.getLogger(__name__)
 DEFAULT_DISPLAY_DECIMALS = 2
 DEFAULT_INDICATOR_COLUMN_LABEL = "Indicator"
 SUPPORT_SCORE_COL = "Support Score"
-# Leading tab keeps Excel/Sheets from coercing numeric-looking values to numbers
-# (which would right-align them). The tab is not shown in the cell.
-CSV_LEFT_ALIGN_PREFIX = "\t"
 
 
 def _format_display_number(
     value: float, decimals: int = DEFAULT_DISPLAY_DECIMALS
 ) -> str:
-    """Format a number as a fixed-decimal string for left-aligned CSV display."""
+    """Format a number as a fixed-decimal string for display."""
     return f"{round(float(value), decimals):.{decimals}f}"
 
 
-def _as_left_aligned_csv_text(value: object) -> str:
-    """Stringify ``value`` and prefix so CSV apps left-align the cell as text."""
+def _as_excel_csv_text(value: object) -> str:
+    """
+    Wrap ``value`` as an Excel/Sheets text formula so CSV apps left-align the cell.
+
+    Plain strings like ``\"0.90\"`` are still auto-detected as numbers (right-aligned).
+    ``=\"0.90\"`` forces text. Leading tabs are stripped if present from older exports.
+    """
     if value is None or (isinstance(value, float) and np.isnan(value)):
         text = ""
     else:
         text = str(value)
-    if text.startswith(CSV_LEFT_ALIGN_PREFIX):
-        return text
-    return f"{CSV_LEFT_ALIGN_PREFIX}{text}"
+        if text.startswith("\t"):
+            text = text[1:]
+        # Already formula-wrapped from a prior pass.
+        if text.startswith('="') and text.endswith('"'):
+            return text
+    escaped = text.replace('"', '""')
+    return f'="{escaped}"'
+
+
+def format_dataframe_for_excel_csv(df: pd.DataFrame) -> pd.DataFrame:
+    """Return a copy with every cell wrapped for left-aligned Excel/Sheets CSV text."""
+    if df.empty:
+        return df.copy()
+    return df.apply(lambda col: col.map(_as_excel_csv_text))
 
 
 def select_top_features_for_display(
@@ -53,7 +66,6 @@ def select_top_features_for_display(
     column_label: str = DEFAULT_INDICATOR_COLUMN_LABEL,
     sort_by_support_score: bool = True,
     format_numerics_as_strings: bool = True,
-    force_left_align: bool = True,
 ) -> pd.DataFrame:
     """
     Select most important features from SHAP for each student
@@ -76,8 +88,6 @@ def select_top_features_for_display(
         sort_by_support_score: If True, sort rows by Support Score descending.
         format_numerics_as_strings: If True, emit Support Score and importance as
             fixed-decimal strings.
-        force_left_align: If True, prefix all cell values so Excel/Sheets treat them
-            as text and left-align (numeric-looking strings are otherwise right-aligned).
 
     Returns:
         explainability dataframe for display
@@ -154,9 +164,6 @@ def select_top_features_for_display(
         df[SUPPORT_SCORE_COL] = df[SUPPORT_SCORE_COL].round(support_score_decimals)
         for col in importance_cols:
             df[col] = df[col].round(importance_decimals)
-
-    if force_left_align:
-        df = df.apply(lambda col: col.map(_as_left_aligned_csv_text))
 
     return df
 
