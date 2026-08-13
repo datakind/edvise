@@ -501,7 +501,7 @@
           "grade": {
             "dtype": "string",
             "coerce": true,
-            "nullable": false,
+            "nullable": true,
             "required": true,
             "aliases": ["course_grade", "grade_code"],
             "checks": [{"type": "str_length", "args": [], "kwargs": {"min_value": 1}}]
