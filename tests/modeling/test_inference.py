@@ -3,6 +3,7 @@ import pandas as pd
 import pytest
 
 from edvise.modeling.inference import (
+    CSV_LEFT_ALIGN_PREFIX,
     _get_mapped_feature_name,
     is_feature_defined_in_table,
     select_top_features_for_display,
@@ -10,6 +11,10 @@ from edvise.modeling.inference import (
     top_shap_features,
     support_score_distribution_table,
 )
+
+
+def _left(value: object) -> str:
+    return f"{CSV_LEFT_ALIGN_PREFIX}{value}"
 
 
 @pytest.mark.parametrize(
@@ -47,17 +52,41 @@ from edvise.modeling.inference import (
             },
             pd.DataFrame(
                 {
-                    "Student ID": [1, 3, 2],
-                    "Support Score": ["0.90", "0.50", "0.10"],
-                    "Indicator_1_Name": ["feature #1", "x4", "feature #2"],
-                    "Indicator_1_Value": ["val1", "3", "False"],
-                    "Indicator_1_Importance": ["1.00", "0.75", "-1.00"],
-                    "Indicator_2_Name": ["feature #2", "feature #3", "feature #3"],
-                    "Indicator_2_Value": ["True", "0.5", "1.0"],
-                    "Indicator_2_Importance": ["0.90", "-0.50", "0.90"],
-                    "Indicator_3_Name": ["feature #3", "feature #1", "x4"],
-                    "Indicator_3_Value": ["2.0", "val3", "2"],
-                    "Indicator_3_Importance": ["0.80", "0.25", "-0.80"],
+                    "Student ID": [_left("1"), _left("3"), _left("2")],
+                    "Support Score": [_left("0.90"), _left("0.50"), _left("0.10")],
+                    "Indicator_1_Name": [
+                        _left("feature #1"),
+                        _left("x4"),
+                        _left("feature #2"),
+                    ],
+                    "Indicator_1_Value": [_left("val1"), _left("3"), _left("False")],
+                    "Indicator_1_Importance": [
+                        _left("1.00"),
+                        _left("0.75"),
+                        _left("-1.00"),
+                    ],
+                    "Indicator_2_Name": [
+                        _left("feature #2"),
+                        _left("feature #3"),
+                        _left("feature #3"),
+                    ],
+                    "Indicator_2_Value": [_left("True"), _left("0.5"), _left("1.0")],
+                    "Indicator_2_Importance": [
+                        _left("0.90"),
+                        _left("-0.50"),
+                        _left("0.90"),
+                    ],
+                    "Indicator_3_Name": [
+                        _left("feature #3"),
+                        _left("feature #1"),
+                        _left("x4"),
+                    ],
+                    "Indicator_3_Value": [_left("2.0"), _left("val3"), _left("2")],
+                    "Indicator_3_Importance": [
+                        _left("0.80"),
+                        _left("0.25"),
+                        _left("-0.80"),
+                    ],
                 }
             ),
         ),
@@ -80,11 +109,15 @@ from edvise.modeling.inference import (
             None,
             pd.DataFrame(
                 {
-                    "Student ID": [1, 3, 2],
-                    "Support Score": ["0.90", "0.50", "0.10"],
-                    "Indicator_1_Name": ["x1", "x4", "x2"],
-                    "Indicator_1_Value": ["val1", "3", "False"],
-                    "Indicator_1_Importance": ["1.00", "0.75", "-1.00"],
+                    "Student ID": [_left("1"), _left("3"), _left("2")],
+                    "Support Score": [_left("0.90"), _left("0.50"), _left("0.10")],
+                    "Indicator_1_Name": [_left("x1"), _left("x4"), _left("x2")],
+                    "Indicator_1_Value": [_left("val1"), _left("3"), _left("False")],
+                    "Indicator_1_Importance": [
+                        _left("1.00"),
+                        _left("0.75"),
+                        _left("-1.00"),
+                    ],
                 }
             ),
         ),

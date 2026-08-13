@@ -15,6 +15,9 @@ LOGGER = logging.getLogger(__name__)
 DEFAULT_DISPLAY_DECIMALS = 2
 DEFAULT_INDICATOR_COLUMN_LABEL = "Indicator"
 SUPPORT_SCORE_COL = "Support Score"
+# Leading tab keeps Excel/Sheets from coercing numeric-looking values to numbers
+# (which would right-align them). The tab is not shown in the cell.
+CSV_LEFT_ALIGN_PREFIX = "\t"
 
 
 def _format_display_number(
@@ -22,6 +25,17 @@ def _format_display_number(
 ) -> str:
     """Format a number as a fixed-decimal string for left-aligned CSV display."""
     return f"{round(float(value), decimals):.{decimals}f}"
+
+
+def _as_left_aligned_csv_text(value: object) -> str:
+    """Stringify ``value`` and prefix so CSV apps left-align the cell as text."""
+    if value is None or (isinstance(value, float) and np.isnan(value)):
+        text = ""
+    else:
+        text = str(value)
+    if text.startswith(CSV_LEFT_ALIGN_PREFIX):
+        return text
+    return f"{CSV_LEFT_ALIGN_PREFIX}{text}"
 
 
 def select_top_features_for_display(
@@ -39,6 +53,7 @@ def select_top_features_for_display(
     column_label: str = DEFAULT_INDICATOR_COLUMN_LABEL,
     sort_by_support_score: bool = True,
     format_numerics_as_strings: bool = True,
+    force_left_align: bool = True,
 ) -> pd.DataFrame:
     """
     Select most important features from SHAP for each student
@@ -60,7 +75,9 @@ def select_top_features_for_display(
         column_label: Prefix for per-rank columns (e.g. ``Indicator_1_Name``).
         sort_by_support_score: If True, sort rows by Support Score descending.
         format_numerics_as_strings: If True, emit Support Score and importance as
-            fixed-decimal strings so CSV consumers (e.g. Excel) left-align all columns.
+            fixed-decimal strings.
+        force_left_align: If True, prefix all cell values so Excel/Sheets treat them
+            as text and left-align (numeric-looking strings are otherwise right-aligned).
 
     Returns:
         explainability dataframe for display
@@ -132,10 +149,14 @@ def select_top_features_for_display(
             df[col] = df[col].map(
                 lambda v: _format_display_number(v, importance_decimals)
             )
+        df["Student ID"] = df["Student ID"].map(str)
     else:
         df[SUPPORT_SCORE_COL] = df[SUPPORT_SCORE_COL].round(support_score_decimals)
         for col in importance_cols:
             df[col] = df[col].round(importance_decimals)
+
+    if force_left_align:
+        df = df.apply(lambda col: col.map(_as_left_aligned_csv_text))
 
     return df
 
