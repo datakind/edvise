@@ -115,6 +115,41 @@ from edvise.targets import retention
                 dtype="boolean",
             ),
         ),
+        # Summer rolls to end year (like Fall 2025); Spring keeps start year
+        (
+            pd.DataFrame(
+                {
+                    "student_id": ["01", "02", "03", "04", "05", "06"],
+                    "retention": [True, False, True, False, True, False],
+                    "cohort_id": [
+                        "2023-24 FALL",
+                        "2024-25 WINTER",
+                        "2024-25 SPRING",
+                        "2024-25 SUMMER",
+                        "2024-25 FALL",
+                        "2025-26 FALL",
+                    ],
+                    "term_id": [
+                        "2023-24 FALL",
+                        "2024-25 WINTER",
+                        "2024-25 SPRING",
+                        "2024-25 SUMMER",
+                        "2024-25 FALL",
+                        "2025-26 SUMMER",
+                    ],
+                },
+            ).astype({"student_id": "string", "retention": "boolean"}),
+            "2025",
+            # kept: FALL/WINTER/SPRING 2024-25 (and earlier); excluded: SUMMER 2024-25, FALL 2025-26
+            pd.Series(
+                data=[False, True, False, False],
+                index=pd.Index(
+                    ["01", "02", "03", "05"], dtype="string", name="student_id"
+                ),
+                name="target",
+                dtype="boolean",
+            ),
+        ),
     ],
 )
 def test_compute_target(df, max_academic_year, exp):
