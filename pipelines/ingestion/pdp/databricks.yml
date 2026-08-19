@@ -28,6 +28,8 @@ variables:
     description: "Databricks secret scope holding NSC SFTP + SST API credentials (from GitHub Secrets at deploy)"
   sst_api_key_secret_key:
     description: "Key name within nsc_sftp_secret_scope for the SST API key (from GitHub Secrets at deploy)"
+  sst_iap_audience:
+    description: "IAP OAuth 2.0 Client ID (audience) for SST (GCP APIs & Services → Credentials)"
 
 run_as:
   service_principal_name: ${var.ds_run_as}
@@ -39,6 +41,8 @@ targets:
     variables:
       DB_workspace: "dev_sst_02"
       ingestion_slack_webhook_id: "1e30ca91-8d95-4324-be05-9d20bffd747b"  # edvise-data-crew on dev_sst_02
+      # Backend webapp IAP client ID (dev-sst project credentials)
+      sst_iap_audience: "30046184227-2m85fgcbqnn0pumps46f1ltl6es7889a.apps.googleusercontent.com"
     resources:
       jobs:
         nsc_sftp_automated_ingestion:
@@ -52,6 +56,8 @@ targets:
     variables:
       DB_workspace: "staging_sst_01"
       ingestion_slack_webhook_id: "c51b737e-988d-45dd-ad9b-6f9024a6b56b"  # edvise-support on staging_sst_01
+      # Staging IAP client ID: GCP APIs & Services → Credentials (backend webapp)
+      sst_iap_audience: ""  # TODO: set staging OAuth client ID before prod deploy
     workspace:
       root_path: /Workspace/Shared/bundles/${bundle.name}/${bundle.target}
     resources:

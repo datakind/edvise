@@ -137,10 +137,15 @@ resources:
             spark_conf:
               spark.master: local[*, 4]
               spark.databricks.cluster.profile: singleNode
+            spark_env_vars:
+              # Required to mint an IAP identity token for SST (dev-sst / staging-sst).
+              SST_IAP_AUDIENCE: ${var.sst_iap_audience}
             gcp_attributes:
               use_preemptible_executors: false
               availability: ON_DEMAND_GCP
               zone_id: HA
+              # Used for ADC / IAP ID tokens (IAP accessor role may still need Emma/GCP).
+              google_service_account: ${var.service_account_executer}
             node_type_id: n2-standard-16
             custom_tags:
               ResourceClass: SingleNode
