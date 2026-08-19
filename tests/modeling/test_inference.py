@@ -1,10 +1,11 @@
 import numpy as np
 import pandas as pd
 import pytest
-from unittest.mock import patch
 
 from edvise.modeling.inference import (
+    _as_excel_csv_text,
     _get_mapped_feature_name,
+    format_dataframe_for_excel_csv,
     is_feature_defined_in_table,
     select_top_features_for_display,
     generate_ranked_feature_table,
@@ -48,18 +49,17 @@ from edvise.modeling.inference import (
             },
             pd.DataFrame(
                 {
-                    "Student ID": [1, 2, 3],
-                    "Support Score": [0.9, 0.1, 0.5],
-                    "Support Needed": [True, False, True],
-                    "Feature_1_Name": ["feature #1", "feature #2", "x4"],
-                    "Feature_1_Value": ["val1", "False", "3"],
-                    "Feature_1_Importance": [1.0, -1.0, 0.75],
-                    "Feature_2_Name": ["feature #2", "feature #3", "feature #3"],
-                    "Feature_2_Value": ["True", "1.0", "0.5"],
-                    "Feature_2_Importance": [0.9, 0.9, -0.5],
-                    "Feature_3_Name": ["feature #3", "x4", "feature #1"],
-                    "Feature_3_Value": ["2.0", "2", "val3"],
-                    "Feature_3_Importance": [0.8, -0.8, 0.25],
+                    "Student ID": ["1", "3", "2"],
+                    "Support Score": ["0.90", "0.50", "0.10"],
+                    "Indicator_1_Name": ["feature #1", "x4", "feature #2"],
+                    "Indicator_1_Value": ["val1", "3", "False"],
+                    "Indicator_1_Importance": ["1.00", "0.75", "-1.00"],
+                    "Indicator_2_Name": ["feature #2", "feature #3", "feature #3"],
+                    "Indicator_2_Value": ["True", "0.5", "1.0"],
+                    "Indicator_2_Importance": ["0.90", "-0.50", "0.90"],
+                    "Indicator_3_Name": ["feature #3", "feature #1", "x4"],
+                    "Indicator_3_Value": ["2.0", "val3", "2"],
+                    "Indicator_3_Importance": ["0.80", "0.25", "-0.80"],
                 }
             ),
         ),
@@ -82,11 +82,11 @@ from edvise.modeling.inference import (
             None,
             pd.DataFrame(
                 {
-                    "Student ID": [1, 2, 3],
-                    "Support Score": [0.9, 0.1, 0.5],
-                    "Feature_1_Name": ["x1", "x2", "x4"],
-                    "Feature_1_Value": ["val1", "False", "3"],
-                    "Feature_1_Importance": [1.0, -1.0, 0.75],
+                    "Student ID": ["1", "3", "2"],
+                    "Support Score": ["0.90", "0.50", "0.10"],
+                    "Indicator_1_Name": ["x1", "x4", "x2"],
+                    "Indicator_1_Value": ["val1", "3", "False"],
+                    "Indicator_1_Importance": ["1.00", "0.75", "-1.00"],
                 }
             ),
         ),
@@ -113,6 +113,20 @@ def test_select_top_features_for_display(
     )
     assert isinstance(obs, pd.DataFrame) and not obs.empty
     assert pd.testing.assert_frame_equal(obs, exp) is None
+
+
+def test_as_excel_csv_text_forces_text_formula():
+    assert _as_excel_csv_text("0.90") == '="0.90"'
+    assert _as_excel_csv_text("PART-TIME") == '="PART-TIME"'
+    assert _as_excel_csv_text("\t3") == '="3"'
+    assert _as_excel_csv_text('="already"') == '="already"'
+
+
+def test_format_dataframe_for_excel_csv():
+    df = pd.DataFrame({"Support Score": ["0.90"], "Indicator_1_Value": ["PART-TIME"]})
+    out = format_dataframe_for_excel_csv(df)
+    assert out.loc[0, "Support Score"] == '="0.90"'
+    assert out.loc[0, "Indicator_1_Value"] == '="PART-TIME"'
 
 
 @pytest.fixture
@@ -565,88 +579,17 @@ def test_empty_input():
         top_shap_features(features, unique_ids, shap_values)
 
 
-@patch("edvise.modeling.inference.select_top_features_for_display")
-@pytest.mark.parametrize(
-    [
-        "features",
-        "unique_ids",
-        "predicted_probabilities",
-        "shap_values",
-        "n_features",
-        "needs_support_threshold_prob",
-        "features_table",
-        "exp",
-    ],
-    [
-        (
-            pd.DataFrame(
-                {
-                    "x1": ["val1", "val2", "val3"],
-                    "x2": [True, False, True],
-                    "x3": [2.0, 1.0001, 0.5],
-                    "x4": [1, 2, 3],
-                }
-            ),
-            pd.Series([1, 2, 3]),
-            [0.9, 0.1, 0.5],
-            np.array(
-                [
-                    [1.0, 0.9, 0.8, 0.7],
-                    [0.0, -1.0, 0.9, -0.8],
-                    [0.25, 0.0, -0.5, 0.75],
-                ]
-            ),
-            3,
-            0.5,
-            {
-                "x1": {"name": "feature #1"},
-                "x2": {"name": "feature #2"},
-                "x3": {"name": "feature #3"},
-            },
-            pd.DataFrame(
-                {
-                    "Student ID": [1, 2, 3],
-                    "Support Score": [0.9, 0.1, 0.5],
-                    "Support Needed": [True, False, True],
-                    "Feature_1_Name": ["feature #1", "feature #2", "x4"],
-                    "Feature_1_Value": ["val1", "False", "3"],
-                    "Feature_1_Importance": [1.0, -1.0, 0.75],
-                    "Feature_2_Name": ["feature #2", "feature #3", "feature #3"],
-                    "Feature_2_Value": ["True", "1.0", "0.5"],
-                    "Feature_2_Importance": [0.9, 0.9, -0.5],
-                    "Feature_3_Name": ["feature #3", "x4", "feature #1"],
-                    "Feature_3_Value": ["2.0", "2", "val3"],
-                    "Feature_3_Importance": [0.8, -0.8, 0.25],
-                }
-            ),
-        )
-    ],
-)
-def test_support_score_distribution_table(
-    mock_select_top_features_for_display,
-    features,
-    unique_ids,
-    predicted_probabilities,
-    shap_values,
-    n_features,
-    needs_support_threshold_prob,
-    features_table,
-    exp,
-):
-    inference_params = {
-        "num_top_features": n_features,
-        "min_prob_pos_label": needs_support_threshold_prob or 0.0,
-    }
-
-    mock_select_top_features_for_display.return_value = exp
+def test_support_score_distribution_table():
+    unique_ids = pd.Series([1, 2, 3])
+    predicted_probabilities = [0.9, 0.1, 0.5]
 
     result = support_score_distribution_table(
-        df_serving=features,
+        df_serving=pd.DataFrame({"x1": [1, 2, 3]}),
         unique_ids=unique_ids,
         pred_probs=predicted_probabilities,
-        shap_values=pd.DataFrame(shap_values),
-        inference_params=inference_params,
-        features_table=features_table,
+        shap_values=pd.DataFrame(np.zeros((3, 1))),
+        inference_params={"num_top_features": 3, "min_prob_pos_label": 0.5},
+        features_table=None,
     )
 
     assert isinstance(result, pd.DataFrame)
