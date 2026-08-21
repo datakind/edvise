@@ -225,6 +225,31 @@ def resolve_reference_sma_active_paths(
     )
 
 
+def compute_reference_few_shot_content_hash(
+    manifest_path: Path, transformation_map_path: Path
+) -> str | None:
+    """
+    Stable sha256 over the few-shot JSON files SMA will load, or None if either is missing.
+
+    Format ``sha256:<hex>``; same mixing order as reference pin hashes when both files exist.
+    """
+    import hashlib
+
+    items = (
+        ("manifest_map.json", Path(manifest_path)),
+        ("transformation_map.json", Path(transformation_map_path)),
+    )
+    if not all(p.is_file() for _, p in items):
+        return None
+    h = hashlib.sha256()
+    for name, path in items:
+        h.update(name.encode("utf-8"))
+        h.update(b"\0")
+        h.update(path.read_bytes())
+        h.update(b"\0")
+    return f"sha256:{h.hexdigest()}"
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -1497,12 +1522,20 @@ def run(
             )
 
         onboard_run_id_s = cast(str, onboard_run_id)
+        ref_manifest_path, ref_tm_path = resolve_reference_sma_active_paths(
+            reference_id, catalog=catalog
+        )
+        reference_content_hash = compute_reference_few_shot_content_hash(
+            ref_manifest_path, ref_tm_path
+        )
         _pipeline_job_state.on_sma_onboard_begin(
             catalog,
             onboard_run_id_s,
             resume_from=resume_from,
             institution_id=institution_id,
             input_file_paths_json=input_file_paths_json,
+            reference_id=reference_id,
+            reference_content_hash=reference_content_hash,
         )
 
         client = _build_openai_client(catalog)

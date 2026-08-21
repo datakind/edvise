@@ -174,6 +174,8 @@ def create_state_tables(catalog: str, spark: Any | None = None) -> None:
           db_run_id STRING,
           execute_run_id STRING,
           input_file_paths STRING,
+          reference_id STRING,
+          reference_content_hash STRING,
           created_at TIMESTAMP,
           updated_at TIMESTAMP
         ) USING DELTA
@@ -184,6 +186,8 @@ def create_state_tables(catalog: str, spark: Any | None = None) -> None:
         ("db_run_id", "STRING"),
         ("execute_run_id", "STRING"),
         ("input_file_paths", "STRING"),
+        ("reference_id", "STRING"),
+        ("reference_content_hash", "STRING"),
     ):
         _add_column_if_missing(spark, pr, _col, _typ)
     spark.sql(
