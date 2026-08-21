@@ -53,6 +53,26 @@ def test_build_es_to_pdp_feature_token_map_includes_course_and_cohort_tokens():
             "edvise",
             "num_courses_math_or_english_gateway_m",
         ),
+        (
+            "num_courses_course_grade_s",
+            "edvise",
+            "num_courses_course_grade_p",
+        ),
+        (
+            "cumfrac_num_courses_course_grade_ng",
+            "edvise",
+            "cumfrac_num_courses_course_grade_m",
+        ),
+        (
+            "frac_courses_course_grade_u",
+            "edvise",
+            "frac_courses_course_grade_f",
+        ),
+        (
+            "num_courses_course_grade_s",
+            "pdp",
+            "num_courses_course_grade_s",
+        ),
     ],
 )
 def test_map_feature_col_for_features_table(feature_col, schema_type, exp):
