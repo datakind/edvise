@@ -23,6 +23,14 @@ _ES_EXACT_COLUMN_ALIASES: dict[str, str] = {
     "pell_recipient_year1": "student_is_pell_recipient_first_year",
 }
 
+# Dummy-value suffixes after get_dummies (column token is already mapped).
+# ES ``gateway_or_developmental_flag`` uses ``gateway_english`` / ``gateway_math``;
+# PDP ``math_or_english_gateway`` uses ``e`` / ``m``.
+_ES_DUMMY_VALUE_ALIASES: dict[str, str] = {
+    "gateway_english": "e",
+    "gateway_math": "m",
+}
+
 # Edvise-only columns that pass through to the modeling dataset (see ESCleanup).
 ES_ONLY_FEATURES_TABLE_COLUMNS: tuple[str, ...] = (
     "intended_program_type",
@@ -72,7 +80,8 @@ def map_feature_col_for_features_table(
 
     For Edvise schema types, replace embedded Edvise physical column tokens with their
     PDP equivalents (e.g. ``instructional_modality`` -> ``delivery_method`` in
-    ``num_courses_instructional_modality_f``).
+    ``num_courses_instructional_modality_f``), then dummy-value suffixes
+    (e.g. ``gateway_english`` -> ``e``).
     """
     col = feature_col.lower()
     if not schema_type or not is_edvise_schema(schema_type):
@@ -85,4 +94,7 @@ def map_feature_col_for_features_table(
     for es_token in sorted(token_map, key=len, reverse=True):
         if es_token in col:
             col = col.replace(es_token, token_map[es_token])
+    for es_val in sorted(_ES_DUMMY_VALUE_ALIASES, key=len, reverse=True):
+        if es_val in col:
+            col = col.replace(es_val, _ES_DUMMY_VALUE_ALIASES[es_val])
     return col

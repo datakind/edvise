@@ -43,6 +43,16 @@ def test_build_es_to_pdp_feature_token_map_includes_course_and_cohort_tokens():
             "edvise",
             "student_is_pell_recipient_first_year",
         ),
+        (
+            "frac_courses_gateway_or_developmental_flag_gateway_english",
+            "edvise",
+            "frac_courses_math_or_english_gateway_e",
+        ),
+        (
+            "num_courses_gateway_or_developmental_flag_gateway_math",
+            "edvise",
+            "num_courses_math_or_english_gateway_m",
+        ),
     ],
 )
 def test_map_feature_col_for_features_table(feature_col, schema_type, exp):
