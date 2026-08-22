@@ -513,34 +513,35 @@ class EdviseAPIClient:
 
 def _fetch_bearer_token_for_client(client: EdviseAPIClient) -> str:
     """
-    Fetch bearer token from API key using X-API-KEY header.
+    Fetch bearer token from API key (same contract as ``get_access_tokens``).
 
-    Assumes token endpoint returns JSON containing one of: access_token, token, bearer_token, jwt.
-
-    Args:
-        client: EdviseAPIClient instance
-
-    Returns:
-        Bearer token string
-
-    Raises:
-        PermissionError: If API key is invalid (401 response)
-        ValueError: If token response is missing expected token field
-        requests.HTTPError: For other HTTP errors
+    Sends ``X-API-KEY`` and, when ``SST_IAP_AUDIENCE`` is set, an IAP bearer token.
     """
     token_url = (
         client.token_endpoint
         if client.token_endpoint.startswith(("http://", "https://"))
         else urljoin(f"{client.base_url}/", client.token_endpoint)
     )
-    resp = client.session.post(
-        token_url,
-        headers={"accept": "application/json", "X-API-KEY": client.api_key},
-        timeout=30,
-    )
+    headers: dict[str, str] = {
+        "accept": "application/json",
+        "X-API-KEY": client.api_key,
+    }
+    # Match get_access_tokens: IAP is required in front of SST in some environments.
+    if os.getenv("SST_IAP_AUDIENCE"):
+        headers["Authorization"] = f"Bearer {fetch_iap_token(get_iap_audience())}"
+
+    resp = client.session.post(token_url, headers=headers, timeout=30)
+    body_preview = (resp.text or "")[:300]
     if resp.status_code == 401:
+        if "Invalid IAP credentials" in body_preview:
+            raise PermissionError(
+                "Blocked by IAP calling token endpoint. Set SST_IAP_AUDIENCE on the "
+                "cluster and ensure the job identity has IAP access. "
+                f"url={token_url} body={body_preview!r}"
+            )
         raise PermissionError(
-            "Unauthorized calling token endpoint (check X-API-KEY secret)."
+            "Unauthorized calling token endpoint (invalid X-API-KEY or credentials). "
+            f"url={token_url} body={body_preview!r}"
         )
     resp.raise_for_status()
 

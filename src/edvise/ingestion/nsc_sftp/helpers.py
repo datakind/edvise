@@ -1,5 +1,5 @@
 """
-NSC SFTP ingestion helpers.
+NSC SFTP ingestion helpers (manifest, queue, plan, staging, bronze writes).
 
 NSC-specific utilities for processing SFTP files, extracting institution IDs,
 managing ingestion manifests, and working with Databricks schemas/volumes.
@@ -12,20 +12,22 @@ import math
 import os
 import re
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Mapping, Optional, Sequence
 
 if TYPE_CHECKING:
     import paramiko
+    from edvise.utils.api_requests import EdviseAPIClient
 
 import pandas as pd
 import pyspark.sql
 from pyspark.sql import functions as F
 from pyspark.sql import types as T
 
-from edvise.ingestion.constants import (
+from edvise.ingestion.nsc_sftp.constants import (
     CATALOG,
     DEFAULT_SCHEMA,
     MANIFEST_TABLE_PATH,
+    PLAN_TABLE_PATH,
     QUEUE_TABLE_PATH,
     SFTP_DOWNLOAD_CHUNK_MB,
     SFTP_TMP_DIR,
@@ -176,6 +178,60 @@ def build_listing_df(
     )
 
     return df
+
+
+def reset_files_for_reingest(
+    spark: pyspark.sql.SparkSession, file_fingerprints: Sequence[str]
+) -> int:
+    """
+    Clear queue/plan rows and reset manifest to NEW for the given fingerprints.
+
+    Used when ``force_reingest=true`` so previously BRONZE_WRITTEN files can be
+    staged and processed again.
+    """
+    fps = sorted({str(fp).strip() for fp in file_fingerprints if str(fp).strip()})
+    if not fps:
+        return 0
+
+    spark.createDataFrame(
+        [(fp,) for fp in fps],
+        schema=T.StructType([T.StructField("file_fingerprint", T.StringType(), False)]),
+    ).createOrReplaceTempView("_nsc_reingest_fps")
+
+    if spark.catalog.tableExists(QUEUE_TABLE_PATH):
+        spark.sql(
+            f"""
+            DELETE FROM {QUEUE_TABLE_PATH}
+            WHERE file_fingerprint IN (SELECT file_fingerprint FROM _nsc_reingest_fps)
+            """
+        )
+    if spark.catalog.tableExists(PLAN_TABLE_PATH):
+        spark.sql(
+            f"""
+            DELETE FROM {PLAN_TABLE_PATH}
+            WHERE file_fingerprint IN (SELECT file_fingerprint FROM _nsc_reingest_fps)
+            """
+        )
+    if spark.catalog.tableExists(MANIFEST_TABLE_PATH):
+        cols = set(spark.table(MANIFEST_TABLE_PATH).columns)
+        set_parts = ["status = 'NEW'"]
+        for col, expr in (
+            ("error_message", "NULL"),
+            ("ingested_at", "NULL"),
+            ("processed_at", "NULL"),
+            ("run_id", "NULL"),
+        ):
+            if col in cols:
+                set_parts.append(f"{col} = {expr}")
+        spark.sql(
+            f"""
+            UPDATE {MANIFEST_TABLE_PATH}
+            SET {", ".join(set_parts)}
+            WHERE file_fingerprint IN (SELECT file_fingerprint FROM _nsc_reingest_fps)
+            """
+        )
+    LOGGER.info("force_reingest reset %s fingerprint(s)", len(fps))
+    return len(fps)
 
 
 def upsert_new_to_manifest(
@@ -388,13 +444,14 @@ def download_new_files_and_queue(
     return len(queued)
 
 
+_PLAN_IDENTITY_COLS = ("inst_id", "institution_name")
+
+
 def ensure_plan_table(spark: pyspark.sql.SparkSession, plan_table: str) -> None:
     """
-    Create institution_ingest_plan table if it doesn't exist.
+    Create institution_ingest_plan if missing; add SST identity columns if needed.
 
-    Args:
-        spark: Spark session
-        plan_table: Full table path (e.g., "catalog.schema.table")
+    ``institution_id`` = PDP id from file; ``inst_id`` / ``institution_name`` = SST API.
     """
     spark.sql(
         f"""
@@ -403,6 +460,8 @@ def ensure_plan_table(spark: pyspark.sql.SparkSession, plan_table: str) -> None:
           file_name STRING,
           local_path STRING,
           institution_id STRING,
+          inst_id STRING,
+          institution_name STRING,
           inst_col STRING,
           file_size BIGINT,
           file_modified_time TIMESTAMP,
@@ -411,6 +470,298 @@ def ensure_plan_table(spark: pyspark.sql.SparkSession, plan_table: str) -> None:
         USING DELTA
         """
     )
+    existing = {f.name for f in spark.table(plan_table).schema.fields}
+    missing = [c for c in _PLAN_IDENTITY_COLS if c not in existing]
+    if missing:
+        spark.sql(
+            f"ALTER TABLE {plan_table} ADD COLUMNS ({', '.join(f'{c} STRING' for c in missing)})"
+        )
+
+
+def resolve_sst_institution(
+    api_client: "EdviseAPIClient", pdp_id: str
+) -> tuple[str, str]:
+    """Return ``(inst_id, institution_name)`` from SST institutions API."""
+    from edvise.utils.api_requests import fetch_institution_by_pdp_id
+
+    info = fetch_institution_by_pdp_id(api_client, pdp_id)
+    inst_id = str(info.get("inst_id") or "").strip()
+    name = str(info.get("name") or "").strip()
+    if not inst_id or not name:
+        raise ValueError(
+            f"SST institution response missing inst_id/name for pdp_id={pdp_id}: "
+            f"keys={list(info.keys())}"
+        )
+    return inst_id, name
+
+
+def sst_identity_or_resolve(
+    api_client: "EdviseAPIClient",
+    pdp_id: str,
+    planned: Optional[tuple[str, str]] = None,
+) -> tuple[str, str]:
+    """Use planned ``(inst_id, name)`` when present; otherwise call SST API."""
+    if planned and planned[0] and planned[1]:
+        return planned
+    return resolve_sst_institution(api_client, pdp_id)
+
+
+def group_plan_rows_by_file(
+    plan_rows: Sequence[Any],
+) -> tuple[
+    dict[str, dict[str, str]],
+    dict[str, list[str]],
+    dict[str, dict[str, tuple[str, str]]],
+]:
+    """
+    Group collected plan Rows into per-file metadata, PDP ids, and SST identities.
+
+    Returns ``(by_file, inst_ids_by_fp, identity_by_fp)``.
+    """
+    by_file: dict[str, dict[str, str]] = {}
+    inst_ids_by_fp: dict[str, list[str]] = {}
+    identity_by_fp: dict[str, dict[str, tuple[str, str]]] = {}
+    for row in plan_rows:
+        raw: Mapping[str, Any]
+        if hasattr(row, "asDict"):
+            raw = row.asDict()
+        else:
+            raw = row
+        fp = str(raw["file_fingerprint"])
+        pdp_id = str(raw["institution_id"])
+        inst_ids_by_fp.setdefault(fp, []).append(pdp_id)
+        by_file.setdefault(
+            fp,
+            {
+                "file_name": str(raw["file_name"]),
+                "local_path": str(raw["local_path"]),
+                "inst_col": str(raw["inst_col"]),
+            },
+        )
+        sst_id = str(raw.get("inst_id") or "").strip()
+        sst_name = str(raw.get("institution_name") or "").strip()
+        if sst_id and sst_name:
+            identity_by_fp.setdefault(fp, {})[pdp_id] = (sst_id, sst_name)
+    return by_file, inst_ids_by_fp, identity_by_fp
+
+
+def resolve_sst_institutions(
+    api_client: "EdviseAPIClient", pdp_ids: Sequence[str]
+) -> dict[str, tuple[str, str]]:
+    """Resolve distinct PDP ids → ``(inst_id, institution_name)`` (API-cached)."""
+    return {
+        pdp_id: resolve_sst_institution(api_client, pdp_id)
+        for pdp_id in sorted({str(p).strip() for p in pdp_ids if str(p).strip()})
+    }
+
+
+def backfill_plan_institution_identity(
+    spark: pyspark.sql.SparkSession,
+    api_client: "EdviseAPIClient",
+    plan_table: str,
+) -> int:
+    """Fill blank plan ``inst_id`` / ``institution_name`` via SST API. Soft-fails on auth."""
+    ensure_plan_table(spark, plan_table)
+    blank = F.coalesce(F.length(F.trim(F.col("inst_id"))), F.lit(0)) == 0
+    blank = blank | (
+        F.coalesce(F.length(F.trim(F.col("institution_name"))), F.lit(0)) == 0
+    )
+    pdp_ids = [
+        str(r["institution_id"]).strip()
+        for r in spark.table(plan_table)
+        .where(F.col("institution_id").isNotNull() & blank)
+        .select("institution_id")
+        .distinct()
+        .collect()
+        if r["institution_id"]
+    ]
+    if not pdp_ids:
+        return 0
+    try:
+        resolved = resolve_sst_institutions(api_client, pdp_ids)
+    except Exception:
+        LOGGER.exception(
+            "SST backfill failed for %s PDP id(s); leaving inst_id/name blank",
+            len(pdp_ids),
+        )
+        return 0
+    rows = [
+        {
+            "institution_id": pdp_id,
+            "inst_id": inst_id,
+            "institution_name": name,
+        }
+        for pdp_id, (inst_id, name) in resolved.items()
+    ]
+    spark.createDataFrame(rows).createOrReplaceTempView("plan_identity_backfill")
+    spark.sql(
+        f"""
+        MERGE INTO {plan_table} AS t
+        USING plan_identity_backfill AS s
+        ON t.institution_id = s.institution_id
+        WHEN MATCHED THEN UPDATE SET
+          t.inst_id = s.inst_id,
+          t.institution_name = s.institution_name
+        """
+    )
+    LOGGER.info("Backfilled SST identity for %s PDP id(s)", len(rows))
+    return len(rows)
+
+
+_PLAN_ROW_SCHEMA = T.StructType(
+    [
+        T.StructField("file_fingerprint", T.StringType(), False),
+        T.StructField("file_name", T.StringType(), False),
+        T.StructField("local_path", T.StringType(), False),
+        T.StructField("institution_id", T.StringType(), False),
+        T.StructField("inst_id", T.StringType(), True),
+        T.StructField("institution_name", T.StringType(), True),
+        T.StructField("inst_col", T.StringType(), False),
+        T.StructField("file_size", T.LongType(), True),
+        T.StructField("file_modified_time", T.TimestampType(), True),
+        T.StructField("planned_at", T.TimestampType(), False),
+    ]
+)
+
+
+def merge_institution_plan_rows(
+    spark: pyspark.sql.SparkSession,
+    plan_table: str,
+    work_items: list[dict],
+) -> int:
+    """MERGE plan rows keyed by ``(file_fingerprint, institution_id)``."""
+    if not work_items:
+        return 0
+    ensure_plan_table(spark, plan_table)
+    spark.createDataFrame(work_items, schema=_PLAN_ROW_SCHEMA).createOrReplaceTempView(
+        "incoming_plan_rows"
+    )
+    spark.sql(
+        f"""
+        MERGE INTO {plan_table} AS t
+        USING incoming_plan_rows AS s
+        ON t.file_fingerprint = s.file_fingerprint AND t.institution_id = s.institution_id
+        WHEN MATCHED THEN UPDATE SET
+          t.file_name = s.file_name,
+          t.local_path = s.local_path,
+          t.inst_id = s.inst_id,
+          t.institution_name = s.institution_name,
+          t.inst_col = s.inst_col,
+          t.file_size = s.file_size,
+          t.file_modified_time = s.file_modified_time,
+          t.planned_at = s.planned_at
+        WHEN NOT MATCHED THEN INSERT *
+        """
+    )
+    return len(work_items)
+
+
+def _normalize_header_map(
+    header_cols: list[str], renames: dict[str, str]
+) -> dict[str, str]:
+    """Map raw CSV header -> normalized/renamed column name."""
+    out: dict[str, str] = {}
+    for raw in header_cols:
+        normalized = convert_to_snake_case(raw)
+        out[raw] = renames.get(normalized, normalized)
+    return out
+
+
+def normalize_staged_frame(
+    df: pd.DataFrame, *, renames: dict[str, str]
+) -> pd.DataFrame:
+    """Apply snake_case + COLUMN_RENAMES to a staged PDP frame."""
+    return df.rename(columns=_normalize_header_map(list(df.columns), renames))
+
+
+def load_staged_csv(
+    local_path: str,
+    *,
+    renames: dict[str, str],
+    inst_col: Optional[str] = None,
+) -> pd.DataFrame:
+    """
+    Load a staged CSV once with institution IDs forced to string when possible.
+    """
+    header_cols = pd.read_csv(local_path, nrows=0).columns.tolist()
+    header_map = _normalize_header_map(header_cols, renames)
+    dtype = None
+    if inst_col:
+        raw_inst_col = next(
+            (raw for raw, norm in header_map.items() if norm == inst_col), None
+        )
+        if raw_inst_col:
+            dtype = {raw_inst_col: str}
+    df = pd.read_csv(local_path, on_bad_lines="warn", dtype=dtype)
+    return normalize_staged_frame(df, renames=renames)
+
+
+def summarize_file_metrics(
+    df: pd.DataFrame,
+) -> tuple[Optional[int], Optional[list[str]], Optional[list[dict[str, str]]]]:
+    """Cheap file-level metrics for manifest updates / logging."""
+    student_count = None
+    student_col = next(
+        (c for c in ("student_id", "study_id", "student_guid") if c in df.columns),
+        None,
+    )
+    if student_col:
+        student_count = int(df[student_col].nunique(dropna=True))
+
+    file_cohort = None
+    if "cohort" in df.columns:
+        vals = df["cohort"].dropna().astype(str).str.strip()
+        vals = vals[~vals.str.lower().isin({"", "nan", "none", "null"})]
+        uniq = sorted(vals.unique().tolist())
+        file_cohort = uniq or None
+
+    file_cohort_term_pairs = None
+    if {"cohort", "cohort_term"}.issubset(df.columns):
+        tmp = df.loc[:, ["cohort", "cohort_term"]].dropna().copy()
+        tmp["cohort"] = tmp["cohort"].astype(str).str.strip()
+        tmp["cohort_term"] = tmp["cohort_term"].astype(str).str.strip().str.upper()
+        bad = {"", "nan", "none", "null"}
+        tmp = tmp[
+            ~tmp["cohort"].str.lower().isin(bad)
+            & ~tmp["cohort_term"].str.lower().isin(bad)
+        ]
+        tmp = tmp.drop_duplicates().sort_values(["cohort", "cohort_term"])
+        pairs = [
+            {"cohort": r.cohort, "cohort_term": r.cohort_term}
+            for r in tmp.itertuples(index=False)
+        ]
+        file_cohort_term_pairs = pairs or None
+
+    return student_count, file_cohort, file_cohort_term_pairs
+
+
+def _normalize_institution_id(value: object) -> Optional[str]:
+    try:
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, int):
+            return str(value)
+        if isinstance(value, float):
+            if not math.isfinite(value):
+                return None
+            return str(int(value)) if value.is_integer() else str(value).strip()
+    except Exception:
+        pass
+
+    s = str(value).strip()
+    if s == "" or s.lower() in {
+        "nan",
+        "inf",
+        "+inf",
+        "-inf",
+        "infinity",
+        "+infinity",
+        "-infinity",
+    }:
+        return None
+    if re.fullmatch(r"\d+\.0+", s):
+        return s.split(".", 1)[0]
+    return s
 
 
 def extract_institution_ids(
@@ -420,79 +771,100 @@ def extract_institution_ids(
     inst_col_pattern: re.Pattern,
 ) -> tuple[Optional[str], list[str]]:
     """
-    Extract unique institution IDs from a staged CSV file.
+    Extract unique institution IDs from a staged CSV.
 
-    Reads file, normalizes/renames columns, detects institution column,
-    and returns unique institution IDs.
-
-    Args:
-        local_path: Path to local CSV file
-        renames: Dictionary mapping old column names to new names
-        inst_col_pattern: Compiled regex pattern to match institution column
-
-    Returns:
-        Tuple of (institution_column_name, sorted_list_of_unique_ids).
-        Returns (None, []) if no institution column found.
-
-    Example:
-        >>> pattern = re.compile(r"(?=.*institution)(?=.*id)", re.IGNORECASE)
-        >>> renames = {"inst_id": "institution_id"}
-        >>> col, ids = extract_institution_ids(
-        ...     "/tmp/file.csv", renames=renames, inst_col_pattern=pattern
-        ... )
-        >>> print(col, ids)
-        'institution_id' ['12345', '67890']
+    Only the institution column is fully read (header scan first), which keeps
+    stage-02 cheap for wide PDP files.
     """
-    df = pd.read_csv(local_path, on_bad_lines="warn")
-    # Use convert_to_snake_case from utils instead of normalize_col
-    df = df.rename(columns={c: convert_to_snake_case(c) for c in df.columns})
-    df = df.rename(columns=renames)
-
-    inst_col = detect_institution_column(df.columns.tolist(), inst_col_pattern)
+    header_cols = pd.read_csv(local_path, nrows=0).columns.tolist()
+    header_map = _normalize_header_map(header_cols, renames)
+    inst_col = detect_institution_column(list(header_map.values()), inst_col_pattern)
     if inst_col is None:
         return None, []
 
-    # Make IDs robust: drop nulls, strip whitespace, keep as string
-    series = df[inst_col].dropna()
+    raw_inst_col = next(raw for raw, norm in header_map.items() if norm == inst_col)
+    series = pd.read_csv(local_path, usecols=[raw_inst_col], on_bad_lines="warn")[
+        raw_inst_col
+    ].dropna()
 
-    # Some files store as numeric; normalize to integer-like strings when possible
-    ids = set()
-    for v in series.tolist():
-        # Handle pandas/numpy numeric types
-        try:
-            if isinstance(v, int):
-                ids.add(str(v))
-                continue
-            if isinstance(v, float):
-                # Treat +/-inf as invalid IDs
-                if not math.isfinite(v):
-                    continue
-                # If 323100.0 -> "323100"
-                if v.is_integer():
-                    ids.add(str(int(v)))
-                else:
-                    ids.add(str(v).strip())
-                continue
-        except Exception:
-            pass
-
-        s = str(v).strip()
-        if s == "" or s.lower() in {
-            "nan",
-            "inf",
-            "+inf",
-            "-inf",
-            "infinity",
-            "+infinity",
-            "-infinity",
-        }:
-            continue
-        # If it's "323100.0" as string, coerce safely
-        if re.fullmatch(r"\d+\.0+", s):
-            s = s.split(".")[0]
-        ids.add(s)
-
+    ids: set[str] = set()
+    for value in series.tolist():
+        normalized = _normalize_institution_id(value)
+        if normalized is not None:
+            ids.add(normalized)
     return inst_col, sorted(ids)
+
+
+def resolve_bronze_volume_dir(
+    spark: pyspark.sql.SparkSession, catalog: str, inst_prefix: str
+) -> str:
+    """Return `/Volumes/{catalog}/{schema}/{volume}` for an institution prefix."""
+    from edvise.utils.databricks import find_bronze_schema, find_bronze_volume_name
+
+    bronze_schema = find_bronze_schema(spark, catalog, inst_prefix)
+    bronze_volume_name = find_bronze_volume_name(spark, catalog, bronze_schema)
+    return f"/Volumes/{catalog}/{bronze_schema}/{bronze_volume_name}"
+
+
+def bronze_written_file_names(spark: pyspark.sql.SparkSession) -> set[str]:
+    """file_name values already marked BRONZE_WRITTEN in ingestion_manifest."""
+    if not spark.catalog.tableExists(MANIFEST_TABLE_PATH):
+        return set()
+    rows = (
+        spark.table(MANIFEST_TABLE_PATH)
+        .where(F.col("status") == F.lit("BRONZE_WRITTEN"))
+        .select("file_name")
+        .collect()
+    )
+    return {r["file_name"] for r in rows if r["file_name"]}
+
+
+def build_edvise_api_client(
+    *,
+    api_key: str,
+    db_workspace: str,
+    token_path: str,
+    institution_lookup_path: str,
+) -> "EdviseAPIClient":
+    """Construct EdviseAPIClient with workspace-derived base URL."""
+    from edvise.utils.api_requests import EdviseAPIClient, get_base_url
+
+    return EdviseAPIClient(
+        api_key=api_key,
+        base_url=get_base_url(db_workspace),
+        token_endpoint=token_path,
+        institution_lookup_path=institution_lookup_path,
+    )
+
+
+def job_edvise_api_client(
+    dbutils_obj: object,
+    *,
+    db_workspace: str,
+    secret_scope: str,
+    sst_api_key_secret_key: str,
+    token_path: Optional[str] = None,
+    institution_lookup_path: Optional[str] = None,
+) -> "EdviseAPIClient":
+    """Build API client from Databricks secret scope/key names (job params)."""
+    from edvise.ingestion.nsc_sftp.constants import (
+        INSTITUTION_LOOKUP_PATH,
+        SST_TOKEN_PATH,
+    )
+
+    api_key = dbutils_obj.secrets.get(  # type: ignore[attr-defined]
+        scope=secret_scope, key=sst_api_key_secret_key
+    ).strip()
+    if not api_key:
+        raise RuntimeError(
+            f"Empty SST API key: scope={secret_scope} key={sst_api_key_secret_key}"
+        )
+    return build_edvise_api_client(
+        api_key=api_key,
+        db_workspace=db_workspace,
+        token_path=token_path or SST_TOKEN_PATH,
+        institution_lookup_path=institution_lookup_path or INSTITUTION_LOOKUP_PATH,
+    )
 
 
 def update_manifest(

@@ -1,11 +1,12 @@
 import re
 
-from edvise.ingestion.nsc_sftp_helpers import (
-    detect_institution_column,
+from edvise.ingestion.nsc_sftp.helpers import (
     extract_institution_ids,
+    group_plan_rows_by_file,
+    sst_identity_or_resolve,
 )
 from edvise.utils.institution_naming import databricksify_inst_name
-from edvise.utils.data_cleaning import convert_to_snake_case
+from edvise.utils.data_cleaning import convert_to_snake_case, detect_institution_column
 from edvise.utils.sftp import download_sftp_atomic
 
 
@@ -169,3 +170,35 @@ def test_download_sftp_atomic_resumes_existing_part(tmp_path):
 
     assert local_path.read_bytes() == remote_bytes
     assert not part_path.exists()
+
+
+def test_sst_identity_or_resolve_uses_planned_when_complete() -> None:
+    planned = ("inst-1", "Example University")
+    assert sst_identity_or_resolve(object(), "323100", planned) == planned
+
+
+def test_group_plan_rows_by_file() -> None:
+    rows = [
+        {
+            "file_fingerprint": "fp1",
+            "file_name": "a.csv",
+            "local_path": "/tmp/a.csv",
+            "inst_col": "institution_id",
+            "institution_id": "323100",
+            "inst_id": "i1",
+            "institution_name": "Uni A",
+        },
+        {
+            "file_fingerprint": "fp1",
+            "file_name": "a.csv",
+            "local_path": "/tmp/a.csv",
+            "inst_col": "institution_id",
+            "institution_id": "323101",
+            "inst_id": "",
+            "institution_name": "",
+        },
+    ]
+    by_file, inst_ids, identity = group_plan_rows_by_file(rows)
+    assert by_file["fp1"]["file_name"] == "a.csv"
+    assert inst_ids["fp1"] == ["323100", "323101"]
+    assert identity["fp1"] == {"323100": ("i1", "Uni A")}
