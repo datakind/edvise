@@ -1,15 +1,7 @@
 name: Start Release
 
 on:
-  workflow_dispatch:
-    inputs:
-      version:
-        description: >-
-          Optional override (X.Y.Z). Default is inferred from PR titles since
-          the last tag: feat → minor, type! (e.g. feat! or fix!) → major,
-          otherwise patch.
-        required: false
-        type: string
+  workflow_dispatch: {}
 
 permissions:
   contents: write
@@ -54,7 +46,6 @@ jobs:
 
       - name: Resolve release version
         env:
-          VERSION_INPUT: ${{ github.event.inputs.version }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
@@ -65,12 +56,9 @@ jobs:
 
           from edvise.utils.automate_releases import plan_release
 
-          requested = os.environ.get("VERSION_INPUT", "").strip()
-          requested = requested.lstrip("v") or None
           version, bump = plan_release(
               repo=os.environ["GITHUB_REPOSITORY"],
               token=os.environ.get("GITHUB_TOKEN"),
-              requested_version=requested,
           )
           print(f"VERSION={version}")
           print(f"BUMP_TYPE={bump}")

@@ -1058,12 +1058,8 @@ class TestWorkflowYAMLSyntax:
         on_section = workflow.get(True) or workflow.get("on")
         assert on_section is not None
         assert "workflow_dispatch" in on_section
-        assert "inputs" in on_section["workflow_dispatch"]
-        assert "version" in on_section["workflow_dispatch"]["inputs"]
-        assert (
-            on_section["workflow_dispatch"]["inputs"]["version"].get("required")
-            is not True
-        )
+        dispatch = on_section["workflow_dispatch"] or {}
+        assert "version" not in dispatch.get("inputs", {})
         assert "create-release-branch" in workflow["jobs"]
 
     def test_finish_release_workflow_yaml(self):
