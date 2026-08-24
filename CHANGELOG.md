@@ -1,3 +1,7 @@
+## 1.9.2 (2026-08-24)
+- feat: improving inference output results (#281)
+- fix(es): map ES dummy suffixes onto existing PDP features-table keys (#286)
+
 ## 1.9.1 (2026-08-13)
 - fix(genai): SMA join alias resolution and Pass 1 column_aliases (#269)
 - fix(genai): re-validate SMA manifest after refinement Pass 1 (#270)
