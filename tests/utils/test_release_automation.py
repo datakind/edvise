@@ -252,6 +252,112 @@ class TestReleaseBumpClassification:
         with pytest.raises(ValueError, match="not a forward semver bump"):
             automate_releases.classify_release_bump("1.4.5", "1.4.6")
 
+    @pytest.mark.parametrize(
+        ("titles", "expected"),
+        [
+            ([], "patch"),
+            (["fix: handle nulls (#1)"], "patch"),
+            (["chore: bump deps", "docs: readme"], "patch"),
+            (["feat: add mapping override"], "minor"),
+            (["fix: typo", "feat(schema): new field"], "minor"),
+            (["feat!: drop legacy automl"], "major"),
+            (["feat(api)!: change request shape"], "major"),
+            (["fix!: stop writing secrets to logs"], "major"),
+            (["feat: something", "fix!: breaking bugfix"], "major"),
+            (["feat: foo\n\nBREAKING CHANGE: new config"], "major"),
+        ],
+    )
+    def test_classify_conventional_titles_bump(self, titles, expected):
+        assert automate_releases.classify_conventional_titles_bump(titles) == expected
+
+    @pytest.mark.parametrize(
+        ("previous", "bump", "expected"),
+        [
+            ("1.4.5", "patch", "1.4.6"),
+            ("1.4.5", "minor", "1.5.0"),
+            ("1.4.5", "major", "2.0.0"),
+            ("0.2.3", "minor", "0.3.0"),
+        ],
+    )
+    def test_next_semver(self, previous, bump, expected):
+        assert automate_releases.next_semver(previous, bump) == expected
+
+    def test_resolve_release_version_infers_minor_from_feat(self):
+        version, bump = automate_releases.resolve_release_version(
+            None, "1.4.5", ["feat: new checkpoint"]
+        )
+        assert (version, bump) == ("1.5.0", "minor")
+
+    def test_resolve_release_version_infers_major_from_feat_bang(self):
+        version, bump = automate_releases.resolve_release_version(
+            None, "1.4.5", ["feat!: replace training DAG"]
+        )
+        assert (version, bump) == ("2.0.0", "major")
+
+    def test_resolve_release_version_infers_major_from_fix_bang(self):
+        version, bump = automate_releases.resolve_release_version(
+            None, "1.4.5", ["fix!: change prediction schema"]
+        )
+        assert (version, bump) == ("2.0.0", "major")
+
+    def test_resolve_release_version_infers_patch_without_feat(self):
+        version, bump = automate_releases.resolve_release_version(
+            None, "1.4.5", ["fix: null check"]
+        )
+        assert (version, bump) == ("1.4.6", "patch")
+
+    def test_resolve_release_version_rejects_under_bump(self):
+        with pytest.raises(ValueError, match="require a minor bump"):
+            automate_releases.resolve_release_version(
+                "1.4.6", "1.4.5", ["feat: new checkpoint"]
+            )
+
+    def test_resolve_release_version_allows_higher_explicit_bump(self):
+        version, bump = automate_releases.resolve_release_version(
+            "2.0.0", "1.4.5", ["feat: new checkpoint"]
+        )
+        assert (version, bump) == ("2.0.0", "major")
+
+    def test_resolve_release_version_requires_explicit_initial(self):
+        with pytest.raises(ValueError, match="initial release"):
+            automate_releases.resolve_release_version(None, None, ["feat: first"])
+
+    def test_plan_release_uses_pr_titles(self):
+        with (
+            patch(
+                "edvise.utils.automate_releases.get_last_version_tag",
+                return_value="v1.4.5",
+            ),
+            patch(
+                "edvise.utils.automate_releases.get_pr_numbers_from_git_log",
+                return_value=[10, 11],
+            ),
+            patch(
+                "edvise.utils.automate_releases.fetch_pr_title",
+                side_effect=["fix: typo", "feat: new api"],
+            ),
+        ):
+            version, bump = automate_releases.plan_release("owner/repo", "token")
+        assert (version, bump) == ("1.5.0", "minor")
+
+    def test_plan_release_fails_when_titles_cannot_be_fetched(self):
+        with (
+            patch(
+                "edvise.utils.automate_releases.get_last_version_tag",
+                return_value="v1.4.5",
+            ),
+            patch(
+                "edvise.utils.automate_releases.get_pr_numbers_from_git_log",
+                return_value=[10],
+            ),
+            patch(
+                "edvise.utils.automate_releases.fetch_pr_title",
+                return_value=None,
+            ),
+        ):
+            with pytest.raises(RuntimeError, match="Failed to fetch PR titles"):
+                automate_releases.plan_release("owner/repo", "token")
+
 
 # ============================================================================
 # Version Update Tests (update_version.py)
@@ -954,6 +1060,10 @@ class TestWorkflowYAMLSyntax:
         assert "workflow_dispatch" in on_section
         assert "inputs" in on_section["workflow_dispatch"]
         assert "version" in on_section["workflow_dispatch"]["inputs"]
+        assert (
+            on_section["workflow_dispatch"]["inputs"]["version"].get("required")
+            is not True
+        )
         assert "create-release-branch" in workflow["jobs"]
 
     def test_finish_release_workflow_yaml(self):
@@ -1033,6 +1143,7 @@ class TestWorkflowYAMLSyntax:
                 assert "contents" in workflow["permissions"]
                 assert workflow["permissions"]["contents"] == "write"
                 assert workflow["permissions"]["actions"] == "write"
+                assert workflow["permissions"]["pull-requests"] == "read"
 
             if workflow_file == "finish-release.yml":
                 assert "contents" in workflow["permissions"]
@@ -1042,6 +1153,7 @@ class TestWorkflowYAMLSyntax:
 
             if workflow_file == "release-integration.yml":
                 assert workflow["permissions"]["actions"] == "write"
+                assert workflow["permissions"]["pull-requests"] == "read"
 
     def test_workflow_job_structure(self):
         """Test that finish-release workflow jobs have required structure."""

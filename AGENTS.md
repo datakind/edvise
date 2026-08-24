@@ -117,10 +117,11 @@ and validate them before anything is trusted downstream:
 
 Git-flow, driven end-to-end by chained GitHub Actions — there's no manual tagging:
 
-1. **Start Release** (`start-release.yml`, manual `workflow_dispatch` with a `version` input) branches
-   `release/<version>` off `develop`, runs `python -m edvise.scripts.update_version` to bump `pyproject.toml`
-   and generate `CHANGELOG.md` entries from merged PRs since the last tag, pushes the branch, then dispatches
-   `release-branch-ci-dev`.
+1. **Start Release** (`start-release.yml`, manual `workflow_dispatch`) infers the next version from
+   conventional PR titles since the last tag (`feat` → minor, `type!` / `feat!` / `fix!` → major, otherwise
+   patch; an explicit `version` input may only bump *higher*), branches `release/<version>` off `develop`,
+   runs `python -m edvise.scripts.update_version` to bump `pyproject.toml` and generate `CHANGELOG.md`
+   entries, pushes the branch, then dispatches `release-branch-ci-dev`.
 2. **release-branch-ci-dev** (`release-integration.yml`, on push to `release/*`) classifies the semver bump
    (`major`/`minor`/`patch`/`initial`, via `edvise.utils.automate_releases`). Minor/major/initial bumps get a
    full smoke test: deploy the `pdp` and `es` bundles to `dev_sst_02` and run train+inference against synthetic

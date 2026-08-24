@@ -12,6 +12,14 @@ import urllib.request
 LOGGER = logging.getLogger(__name__)
 
 ReleaseBumpType = Literal["initial", "patch", "minor", "major"]
+ConventionalBumpType = Literal["patch", "minor", "major"]
+
+_BUMP_RANK: dict[str, int] = {"patch": 0, "minor": 1, "major": 2, "initial": 3}
+
+# Conventional Commits title: type(scope)!: description  (same types as semantic-pr)
+_CONVENTIONAL_COMMIT_RE = re.compile(
+    r"^(?P<type>[A-Za-z]+)(?:\([^)]*\))?(?P<breaking>!)?:\s+",
+)
 
 
 def parse_semver(version: str) -> tuple[int, int, int]:
@@ -51,6 +59,130 @@ def should_run_release_integration(
     """Return True when release integration CI should run (major/minor/initial)."""
     bump = classify_release_bump(current_version, previous_version)
     return bump in {"initial", "minor", "major"}
+
+
+def classify_conventional_titles_bump(titles: list[str]) -> ConventionalBumpType:
+    """Classify the highest semver bump implied by conventional PR titles.
+
+    ``feat`` is a minor bump. Any ``type!`` (including ``feat!`` and ``fix!``)
+    or a title containing ``BREAKING CHANGE`` is a major bump. Other types
+    default to patch.
+    """
+    bump: ConventionalBumpType = "patch"
+    for raw in titles:
+        title = raw.strip()
+        if "breaking change" in title.lower():
+            return "major"
+        match = _CONVENTIONAL_COMMIT_RE.match(title)
+        if not match:
+            continue
+        if match.group("breaking"):
+            return "major"
+        if match.group("type").lower() == "feat":
+            bump = "minor"
+    return bump
+
+
+def next_semver(previous_version: str, bump: ConventionalBumpType) -> str:
+    """Return the next X.Y.Z version for a conventional bump."""
+    major, minor, patch = parse_semver(previous_version)
+    if bump == "major":
+        return f"{major + 1}.0.0"
+    if bump == "minor":
+        return f"{major}.{minor + 1}.0"
+    return f"{major}.{minor}.{patch + 1}"
+
+
+def assert_numeric_bump_covers_conventional(
+    numeric_bump: ReleaseBumpType,
+    conventional_bump: ConventionalBumpType,
+    *,
+    version: str,
+    expected_version: Optional[str] = None,
+) -> None:
+    """Fail when the chosen version is a smaller bump than merged PRs require."""
+    if numeric_bump == "initial":
+        return
+    if _BUMP_RANK[numeric_bump] < _BUMP_RANK[conventional_bump]:
+        expected = (
+            f" (expected {expected_version} or higher)" if expected_version else ""
+        )
+        raise ValueError(
+            f"Version {version} is a {numeric_bump} bump, but merged PRs require a "
+            f"{conventional_bump} bump{expected}."
+        )
+
+
+def resolve_release_version(
+    requested_version: Optional[str],
+    previous_version: Optional[str],
+    pr_titles: list[str],
+) -> tuple[str, ReleaseBumpType]:
+    """Pick the release version from conventional PR titles.
+
+    When ``requested_version`` is omitted, bump from ``previous_version`` using
+    ``feat`` → minor and ``type!`` → major. An explicit version may be higher
+    than that, but must not under-bump.
+    """
+    if not previous_version:
+        if not requested_version:
+            raise ValueError("Explicit version is required for the initial release")
+        parse_semver(requested_version)
+        return requested_version.lstrip("v"), "initial"
+
+    inferred = classify_conventional_titles_bump(pr_titles)
+    computed = next_semver(previous_version, inferred)
+    if not requested_version:
+        return computed, inferred
+
+    requested = requested_version.lstrip("v")
+    numeric = classify_release_bump(requested, previous_version)
+    assert_numeric_bump_covers_conventional(
+        numeric,
+        inferred,
+        version=requested,
+        expected_version=computed,
+    )
+    return requested, numeric
+
+
+def plan_release(
+    repo: str,
+    token: Optional[str] = None,
+    requested_version: Optional[str] = None,
+) -> tuple[str, ReleaseBumpType]:
+    """Resolve the next release version from git tags and merged PR titles."""
+    last_tag = get_last_version_tag()
+    previous = last_tag.lstrip("v") if last_tag else None
+
+    titles: list[str] = []
+    if token:
+        pr_numbers = get_pr_numbers_from_git_log(last_tag)
+        fetched = 0
+        for pr_num in pr_numbers:
+            title = fetch_pr_title(repo, pr_num, token)
+            if title:
+                titles.append(title)
+                fetched += 1
+        if pr_numbers and fetched == 0:
+            raise RuntimeError(
+                "Failed to fetch PR titles; cannot infer the release bump from "
+                "conventional commits."
+            )
+    elif not requested_version:
+        raise ValueError(
+            "GitHub token is required to infer the release version from PR titles"
+        )
+
+    version, bump = resolve_release_version(requested_version, previous, titles)
+    LOGGER.info(
+        "Planned release %s (%s) from previous %s using %s PR title(s)",
+        version,
+        bump,
+        previous or "none",
+        len(titles),
+    )
+    return version, bump
 
 
 def get_last_version_tag() -> Optional[str]:
