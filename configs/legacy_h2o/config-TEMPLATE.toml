@@ -35,8 +35,11 @@ non_null_cols = ["acad_year"]
 train_file_path = "/Volumes/CATALOG/INST_ID_bronze/.../FILE_NAME_cohort_train.csv"
 # Explicit path (optional when predict_file_keyword is set):
 predict_file_path = "/Volumes/CATALOG/INST_ID_bronze/.../FILE_NAME_cohort_inference.csv"
-# Legacy inference discovery (resolved in legacy_preprocessing at predict time):
+# Legacy inference discovery (resolved in legacy_preprocessing at predict time). Matching
+# ignores case and separator spelling; pass a list of alternates when an institution
+# respells the extract between drops:
 # predict_file_keyword = "cohort"
+# predict_file_keyword = ["cohort", "student_file"]
 
 [datasets.bronze.raw_course]
 primary_keys = ["student_id", "course_id"]
