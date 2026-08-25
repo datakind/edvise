@@ -1,3 +1,7 @@
+## 1.9.3 (2026-08-25)
+- fix(legacy): setting predict keyword to be batch-scoped & allowing multiple keywords (#290)
+- fix: replace "." with "d" to allow for unity catalog model name with decimals (#291)
+
 ## 1.9.2 (2026-08-24)
 - feat: improving inference output results (#281)
 - fix(es): map ES dummy suffixes onto existing PDP features-table keys (#286)
