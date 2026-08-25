@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -269,11 +270,50 @@ def test_main_ok_yaml_snapshot_only(
         "--release_base_path",
         str(tmp_path),
     ]
-    assert validate_task.main(argv) == 0
+    assert validate_task.main(argv) is None
 
 
 def test_main_requires_institution_model_workspace() -> None:
-    assert validate_task.main(["--DB_workspace", "dev_sst_02"]) == 1
+    with pytest.raises(ValueError, match="Require --databricks_institution_name"):
+        validate_task.main(["--DB_workspace", "dev_sst_02"])
+
+
+def test_main_raises_original_error_and_records_failure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Failures surface the underlying exception, not an exit code."""
+    monkeypatch.setattr(validate_task, "get_spark_session", lambda: object())
+    monkeypatch.setattr(
+        validate_task,
+        "resolve_model_run_and_pipeline_version",
+        lambda **_: ("resolved-mr", "missing_version"),
+    )
+
+    argv = [
+        "--databricks_institution_name",
+        "miles_cc",
+        "--model_name",
+        "retention_into_year_2_associates",
+        "--DB_workspace",
+        "dev_sst_02",
+        "--release_base_path",
+        str(tmp_path),
+        "--launcher_run_id",
+        "439619245566927",
+    ]
+    with patch(
+        "edvise.shared.dashboard_metadata.pipeline_runs.append_pipeline_run_event",
+        return_value=True,
+    ) as append:
+        with pytest.raises(
+            FileNotFoundError, match="Release bundle directory not found"
+        ):
+            validate_task.main(argv)
+
+    kwargs = append.call_args.kwargs
+    assert kwargs["event"] == "failed"
+    assert "Release bundle directory not found" in kwargs["error_message"]
+    assert kwargs["model_run_id"] == "resolved-mr"
 
 
 def test_parse_python_xy() -> None:
