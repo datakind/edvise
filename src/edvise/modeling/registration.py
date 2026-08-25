@@ -233,7 +233,8 @@ def get_model_name(
     if extra_info is not None:
         model_name = f"{model_name}_{extra_info}"
 
-    return model_name
+    # UC three-level names split on `.`; 4.5y would be parsed as extra levels.
+    return model_name.replace(".", "d")
 
 
 def pdp_get_model_name(
