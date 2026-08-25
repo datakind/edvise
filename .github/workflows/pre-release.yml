@@ -7,6 +7,9 @@ on:
 
 jobs:
   check-changelog:
+    # Belt-and-suspenders: only enforce changelog on release PRs into main.
+    # Feature PRs target develop and should not fail this check.
+    if: github.base_ref == 'main'
     runs-on: ubuntu-latest
     permissions:
       pull-requests: read

@@ -365,7 +365,6 @@ def run_predictions(
         shap_values=grouped_contribs_df.to_numpy(),
         n_features=10,
         features_table=ft,
-        needs_support_threshold_prob=pred_cfg.min_prob_pos_label,
         schema_type=pred_cfg.schema_type,
     )
 

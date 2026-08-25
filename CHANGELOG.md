@@ -1,3 +1,15 @@
+## 1.9.2 (2026-08-24)
+- feat: improving inference output results (#281)
+- fix(es): map ES dummy suffixes onto existing PDP features-table keys (#286)
+
+## 1.9.1 (2026-08-13)
+- fix(genai): SMA join alias resolution and Pass 1 column_aliases (#269)
+- fix(genai): re-validate SMA manifest after refinement Pass 1 (#270)
+- fix: treat summer cohorts as end-year for retention max cutoff (#274)
+- feat: removing redundant features from model (#280)
+- feat: making grades nullable for edvise schools (#282)
+- fix: default retention max_academic_year to infer (#283)
+
 ## 1.9.0 (2026-08-10)
 - refactor(dataio): split PDP course load/prepare; try date formats in-memory (#266)
 - feat: model prep target assoc logs (#273)
