@@ -207,6 +207,12 @@ def aggregate_from_course_level_features(
         p_cols["term_program_of_study"] = (prog_src, _first)
     if cols.term_degree and cols.term_degree in df.columns:
         p_cols["term_degree"] = (cols.term_degree, _first)
+    if (
+        cols.term_declared_major
+        and cols.term_declared_major in df.columns
+        and prog_src != cols.term_declared_major
+    ):
+        p_cols["term_declared_major"] = (cols.term_declared_major, _first)
     p_existing = {k: v for k, v in p_cols.items() if v[0] in df.columns}
     if not p_existing:
         raise ValueError(

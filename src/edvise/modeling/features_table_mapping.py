@@ -49,6 +49,7 @@ ES_ONLY_FEATURES_TABLE_COLUMNS: tuple[str, ...] = (
     "credits_earned_dual_enrollment",
     "term_degree",
     "term_degree_changed_prev_term",
+    "term_declared_major",
 )
 
 

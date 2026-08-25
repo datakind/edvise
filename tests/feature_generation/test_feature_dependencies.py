@@ -95,6 +95,70 @@ def test_aggregate_skips_missing_department_columns():
     assert out["term_degree"].iloc[0] == "A.S."
 
 
+def test_aggregate_passthrough_non_cip_term_declared_major():
+    df = pd.DataFrame(
+        {
+            "learner_id": ["s1", "s1"],
+            "term_id": ["t1", "t1"],
+            "institution_id": ["i1", "i1"],
+            "academic_year": ["20-21", "20-21"],
+            "academic_term": ["FALL", "FALL"],
+            "term_start_dt": pd.to_datetime(["2020-09-01", "2020-09-01"]),
+            "term_rank": [1, 1],
+            "term_rank_core": [1, 1],
+            "term_rank_noncore": [1, 1],
+            "term_is_core": [True, True],
+            "term_is_noncore": [False, False],
+            "term_in_peak_covid": [False, False],
+            "term_declared_major": ["Biology", "Biology"],
+            "course_id": ["c1", "c2"],
+            "course_passed": [True, True],
+            "course_completed": [True, True],
+            "course_credits_attempted": [3.0, 3.0],
+            "course_credits_earned": [3.0, 3.0],
+        }
+    )
+    out = student_term.aggregate_from_course_level_features(
+        df,
+        student_term_id_cols=["learner_id", "term_id"],
+        cols=ES_COURSE_INPUT_COLUMNS,
+    )
+    assert out["term_declared_major"].iloc[0] == "Biology"
+    assert "term_program_of_study" not in out.columns
+
+
+def test_aggregate_cip_term_declared_major_becomes_program_of_study():
+    df = pd.DataFrame(
+        {
+            "learner_id": ["s1", "s1"],
+            "term_id": ["t1", "t1"],
+            "institution_id": ["i1", "i1"],
+            "academic_year": ["20-21", "20-21"],
+            "academic_term": ["FALL", "FALL"],
+            "term_start_dt": pd.to_datetime(["2020-09-01", "2020-09-01"]),
+            "term_rank": [1, 1],
+            "term_rank_core": [1, 1],
+            "term_rank_noncore": [1, 1],
+            "term_is_core": [True, True],
+            "term_is_noncore": [False, False],
+            "term_in_peak_covid": [False, False],
+            "term_declared_major": ["24.0101", "24.0101"],
+            "course_id": ["c1", "c2"],
+            "course_passed": [True, True],
+            "course_completed": [True, True],
+            "course_credits_attempted": [3.0, 3.0],
+            "course_credits_earned": [3.0, 3.0],
+        }
+    )
+    out = student_term.aggregate_from_course_level_features(
+        df,
+        student_term_id_cols=["learner_id", "term_id"],
+        cols=ES_COURSE_INPUT_COLUMNS,
+    )
+    assert out["term_program_of_study"].iloc[0] == "24.0101"
+    assert "term_declared_major" not in out.columns
+
+
 def test_multicol_grade_aggs_without_section_mean_column():
     df = pd.DataFrame(
         {

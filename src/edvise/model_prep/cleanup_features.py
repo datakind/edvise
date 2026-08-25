@@ -28,6 +28,9 @@ class BaseCleanup:
     """
 
     cols_to_drop: t.ClassVar[list[str]] = []
+    # Entry / first-term snapshots to drop only when a term-level counterpart
+    # is on the frame (i.e. course data supplied that field).
+    entry_to_term_cols: t.ClassVar[dict[str, tuple[str, ...]]] = {}
     # Used by masking below; dropped from the modeling dataset afterward.
     cols_to_drop_after_masking: t.ClassVar[list[str]] = [
         "year_of_enrollment_at_cohort_inst",
@@ -56,7 +59,13 @@ class BaseCleanup:
                 if credit_pattern.search(col):
                     df[col] = df[col].mask(df[num_credits_col] < num_credit_check)
 
-        df = drop_columns_safely(df, cols_to_drop=self.cols_to_drop)
+        drop_cols = list(self.cols_to_drop)
+        drop_cols.extend(
+            entry
+            for entry, terms in self.entry_to_term_cols.items()
+            if any(term in df.columns for term in terms)
+        )
+        df = drop_columns_safely(df, cols_to_drop=drop_cols)
 
         df = df.assign(
             **{
@@ -181,7 +190,16 @@ class ESCleanup(BaseCleanup):
     feed :func:`edvise.targets.retention_edvise.assign_retention_column` and
     would leak the retention target. Mirrors :class:`PDPCleanup` for metadata
     (term ranks, course id/subject helpers, section counts, etc.).
+
+    Prefers checkpoint-relative course fields over cohort entry snapshots when
+    those term columns are present; keeps the entry columns if course data did
+    not supply a counterpart.
     """
+
+    entry_to_term_cols: t.ClassVar[dict[str, tuple[str, ...]]] = {
+        "intended_program_type": ("term_degree",),
+        "declared_major_at_entry": ("term_declared_major", "term_program_of_study"),
+    }
 
     cols_to_drop: t.ClassVar[list[str]] = [
         # metadata
