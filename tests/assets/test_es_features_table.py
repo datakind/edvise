@@ -24,3 +24,27 @@ def feature_table_data():
 @pytest.mark.parametrize("feature_col", ES_ONLY_FEATURES_TABLE_COLUMNS)
 def test_es_only_columns_defined_in_features_table(feature_table_data, feature_col):
     assert is_feature_defined_in_table(feature_col, feature_table_data)
+
+
+# ES dummy names from the training failure, resolved via PDP features-table keys.
+ES_DUMMY_FEATURES_MAPPED_TO_PDP = (
+    "num_courses_course_grade_s",
+    "num_courses_course_grade_u",
+    "frac_courses_course_grade_nr",
+    "frac_courses_course_grade_s",
+    "frac_courses_course_grade_u",
+    "cumfrac_num_courses_course_grade_ng",
+    "cumfrac_num_courses_course_grade_nr",
+    "cumfrac_num_courses_course_grade_s",
+    "cumfrac_num_courses_course_grade_u",
+    "frac_courses_gateway_or_developmental_flag_gateway_english",
+)
+
+
+@pytest.mark.parametrize("feature_col", ES_DUMMY_FEATURES_MAPPED_TO_PDP)
+def test_es_dummy_features_resolve_to_pdp_features_table(
+    feature_table_data, feature_col
+):
+    assert is_feature_defined_in_table(
+        feature_col, feature_table_data, schema_type="edvise"
+    )
