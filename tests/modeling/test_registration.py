@@ -741,7 +741,7 @@ class TestPDPGetModelName:
             },
             student_criteria={},
         )
-        assert result == "graduation_in_3y_ft_4p5y_pt_checkpoint_30_credits"
+        assert result == "graduation_in_3y_ft_4d5y_pt_checkpoint_30_credits"
 
     @pytest.mark.parametrize("checkpoint_type", ["first", "first_student_terms"])
     def test_graduation_first_student_terms_checkpoint(self, checkpoint_type):

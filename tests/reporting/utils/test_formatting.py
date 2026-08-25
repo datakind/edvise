@@ -21,7 +21,7 @@ def formatter():
         ("3.0", "3.0"),
         ("4", "4"),
         (
-            "graduation_in_3y_ft_4p5y_pt_checkpoint_30_credits",
+            "graduation_in_3y_ft_4d5y_pt_checkpoint_30_credits",
             "Graduation In 3y Ft 4.5y Pt (Checkpoint: 30 Credits)",
         ),
     ],
