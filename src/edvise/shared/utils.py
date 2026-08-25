@@ -137,7 +137,9 @@ def format_enrollment_intensity_time_limits(
        Supported styles:
          - style="underscore" -> meant for unity catalog naming:
              "3y_ft_6y_pt"
-           (lowercase, joined with underscores, ordered by `order`)
+           (lowercase, joined with underscores, ordered by `order`).
+           Decimal durations use `_` instead of `.` so the token stays a
+           single UC identifier (e.g. 4.5 years PT -> "4_5y_pt").
 
          - style="compact" -> meant for front end model name:
              "3Y FT, 6Y PT"
@@ -157,6 +159,7 @@ def format_enrollment_intensity_time_limits(
     Normalization rules:
       - numeric values like 3.0 are rendered as 3
       - non-integer floats are rounded to 2 decimal places
+      - style="underscore" replaces `.` with `_` (UC names are catalog.schema.model)
       - unit abbreviation uses the first letter of the unit ("year"->Y/y, "month"->M/m)
       - intensity abbreviation uses first letters of hyphen-separated words ("FULL-TIME"->FT)
 
@@ -242,7 +245,7 @@ def format_enrollment_intensity_time_limits(
             if isinstance(num, float) and num.is_integer():
                 duration_str = str(int(num))
             else:
-                duration_str = str(num)
+                duration_str = str(num).replace(".", "_")
 
             unit_abbrev = unit[0].lower()
             intensity_abbrev = _intensity_abbrev(k).lower()

@@ -211,6 +211,9 @@ def get_model_name(
     Get a standard model name generated from key components, formatted as
     "[{institution_id}_]{target}[_{checkpoint}][_{extra_info}]"
 
+    Dots are replaced with underscores so the short name is a single Unity
+    Catalog identifier (UC requires ``catalog.schema.model``).
+
     Args:
         institution_id: Optional institution identifier
         target: Target name
@@ -233,7 +236,8 @@ def get_model_name(
     if extra_info is not None:
         model_name = f"{model_name}_{extra_info}"
 
-    return model_name
+    # UC three-level names split on `.`; 4.5y would be parsed as extra levels.
+    return model_name.replace(".", "_")
 
 
 def pdp_get_model_name(
