@@ -5,8 +5,8 @@ resolution-markers = [
     "python_full_version >= '3.12' and sys_platform != 'win32'",
     "python_full_version >= '3.12' and sys_platform == 'win32'",
     "python_full_version == '3.11.*' and sys_platform != 'win32'",
-    "python_full_version < '3.11' and sys_platform != 'win32'",
     "python_full_version == '3.11.*' and sys_platform == 'win32'",
+    "python_full_version < '3.11' and sys_platform != 'win32'",
     "python_full_version < '3.11' and sys_platform == 'win32'",
 ]
 
@@ -484,8 +484,8 @@ version = "16.1.6"
 source = { registry = "https://pypi.org/simple" }
 resolution-markers = [
     "python_full_version == '3.11.*' and sys_platform != 'win32'",
-    "python_full_version < '3.11' and sys_platform != 'win32'",
     "python_full_version == '3.11.*' and sys_platform == 'win32'",
+    "python_full_version < '3.11' and sys_platform != 'win32'",
     "python_full_version < '3.11' and sys_platform == 'win32'",
 ]
 dependencies = [
@@ -607,7 +607,7 @@ wheels = [
 
 [[package]]
 name = "edvise"
-version = "1.9.0"
+version = "1.9.3"
 source = { editable = "." }
 dependencies = [
     { name = "databricks-connect", version = "16.1.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },

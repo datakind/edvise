@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import fields
+from functools import lru_cache
 
 from edvise.configs.schema_type import is_edvise_schema
 from edvise.feature_generation.column_names import (
@@ -21,6 +22,23 @@ from edvise.feature_generation.column_names import (
 _ES_EXACT_COLUMN_ALIASES: dict[str, str] = {
     "pell_recipient_year_1": "student_is_pell_recipient_first_year",
     "pell_recipient_year1": "student_is_pell_recipient_first_year",
+}
+
+# Dummy-value suffixes after get_dummies, mapped onto the PDP features-table set.
+# Applied only as a trailing ``_{token}`` so single-letter codes (s/u) cannot
+# rewrite earlier parts of the column name.
+_ES_DUMMY_VALUE_ALIASES: dict[str, str] = {
+    "gateway_english": "e",
+    "gateway_math": "m",
+    "pass": "p",
+    "sat": "p",
+    "s": "p",
+    "unsat": "f",
+    "u": "f",
+    "wd": "w",
+    "ip": "i",
+    "nr": "m",
+    "ng": "m",
 }
 
 # Edvise-only columns that pass through to the modeling dataset (see ESCleanup).
@@ -50,6 +68,7 @@ def _add_es_to_pdp_tokens(
             mapping[es_val.lower()] = pdp_val.lower()
 
 
+@lru_cache(maxsize=1)
 def build_es_to_pdp_feature_token_map() -> dict[str, str]:
     """
     Build Edvise physical column token -> PDP token replacements for features-table lookup.
@@ -63,6 +82,15 @@ def build_es_to_pdp_feature_token_map() -> dict[str, str]:
     return mapping
 
 
+def _apply_dummy_value_alias(col: str) -> str:
+    """Replace a trailing ES dummy suffix with its PDP features-table counterpart."""
+    for es_val in sorted(_ES_DUMMY_VALUE_ALIASES, key=len, reverse=True):
+        suffix = f"_{es_val}"
+        if col.endswith(suffix):
+            return col[: -len(suffix)] + f"_{_ES_DUMMY_VALUE_ALIASES[es_val]}"
+    return col
+
+
 def map_feature_col_for_features_table(
     feature_col: str,
     schema_type: str | None = None,
@@ -72,7 +100,8 @@ def map_feature_col_for_features_table(
 
     For Edvise schema types, replace embedded Edvise physical column tokens with their
     PDP equivalents (e.g. ``instructional_modality`` -> ``delivery_method`` in
-    ``num_courses_instructional_modality_f``).
+    ``num_courses_instructional_modality_f``), then dummy-value suffixes
+    (e.g. ``gateway_english`` -> ``e``, ``course_grade_s`` -> ``course_grade_p``).
     """
     col = feature_col.lower()
     if not schema_type or not is_edvise_schema(schema_type):
@@ -85,4 +114,4 @@ def map_feature_col_for_features_table(
     for es_token in sorted(token_map, key=len, reverse=True):
         if es_token in col:
             col = col.replace(es_token, token_map[es_token])
-    return col
+    return _apply_dummy_value_alias(col)

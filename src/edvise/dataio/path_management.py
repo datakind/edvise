@@ -1,5 +1,6 @@
 import logging
 import pathlib
+import re
 import typing as t
 
 from edvise.utils.databricks import in_databricks, local_fs_path
@@ -8,6 +9,37 @@ LOGGER = logging.getLogger(__name__)
 
 _BRONZE_PREDICT_FILE_EXTENSIONS = (".csv", ".parquet")
 _LEGACY_BRONZE_GCS_UPLOADS_SUBDIR = "gcs_uploads"
+_MATCH_SEPARATOR_RE = re.compile(r"[^a-z0-9]+")
+
+
+def normalize_predict_file_match_text(raw: str) -> str:
+    """
+    Casefold and collapse every non-alphanumeric run to ``_`` for keyword matching.
+
+    Institutions respell the same extract across drops (``DE-ID Transfer File`` vs
+    ``de_id_transfer_file``), so separators and case must not decide whether a
+    ``predict_file_keyword`` matches.
+    """
+    return _MATCH_SEPARATOR_RE.sub("_", str(raw).lower()).strip("_")
+
+
+def predict_file_keywords(ds: t.Mapping[str, t.Any]) -> list[str]:
+    """
+    Normalized ``predict_file_keyword`` needles for one ``datasets.bronze`` entry.
+
+    Accepts a single string or a list of alternates, so a renamed extract is a config
+    change rather than a failed run. Blank entries are dropped.
+    """
+    raw = ds.get("predict_file_keyword")
+    if raw is None:
+        return []
+    values = raw if isinstance(raw, (list, tuple)) else [raw]
+    needles: list[str] = []
+    for value in values:
+        needle = normalize_predict_file_match_text(value)
+        if needle and needle not in needles:
+            needles.append(needle)
+    return needles
 
 
 def path_exists(p: str) -> bool:
@@ -110,43 +142,55 @@ def _is_bronze_predict_candidate(path: pathlib.Path) -> bool:
     return path.suffix.lower() in _BRONZE_PREDICT_FILE_EXTENSIONS
 
 
+def _keyword_matches_in_directory(
+    directory: str, needles: t.Sequence[str]
+) -> list[pathlib.Path]:
+    """Candidate files in ``directory`` whose normalized name contains any needle."""
+    base = pathlib.Path(local_fs_path(directory))
+    if not base.is_dir():
+        return []
+    matches: list[pathlib.Path] = []
+    for entry in base.iterdir():
+        if not _is_bronze_predict_candidate(entry):
+            continue
+        haystack = normalize_predict_file_match_text(entry.name)
+        if any(needle in haystack for needle in needles):
+            matches.append(entry)
+    matches.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    return matches
+
+
 def find_predict_file_in_directory(
     directory: str,
     *,
-    keyword: str,
+    keyword: str | t.Sequence[str],
     label: str = "dataset",
 ) -> str:
     """
     Resolve a bronze inference file under ``directory`` by filename keyword.
 
-    When multiple files match, returns the newest by modification time.
+    ``keyword`` may be a single needle or a list of alternates. Matching ignores case
+    and separator spelling. When multiple files match, returns the newest by
+    modification time.
     """
     dir_s = (directory or "").strip()
-    kw = (keyword or "").strip()
+    needles = predict_file_keywords({"predict_file_keyword": keyword})
     if not dir_s:
         raise ValueError(f"{label}: search directory must be non-empty.")
-    if not kw:
+    if not needles:
         raise ValueError(f"{label}: predict_file_keyword must be non-empty.")
 
     base = pathlib.Path(local_fs_path(dir_s))
     if not base.is_dir():
         raise FileNotFoundError(f"{label}: search directory not found: {dir_s}")
 
-    matches: list[pathlib.Path] = []
-    needle = kw.lower()
-    for entry in base.iterdir():
-        if not _is_bronze_predict_candidate(entry):
-            continue
-        if needle in entry.name.lower():
-            matches.append(entry)
-
+    matches = _keyword_matches_in_directory(dir_s, needles)
     if not matches:
         raise FileNotFoundError(
-            f"{label}: no matching file under {dir_s} (keyword={kw!r}). "
+            f"{label}: no matching file under {dir_s} (keyword={keyword!r}). "
             f"Expected extensions: {', '.join(_BRONZE_PREDICT_FILE_EXTENSIONS)}."
         )
 
-    matches.sort(key=lambda p: p.stat().st_mtime, reverse=True)
     chosen = matches[0]
     if len(matches) > 1:
         LOGGER.info(
@@ -174,49 +218,47 @@ def resolve_legacy_bronze_predict_file(
 
     Priority:
       1. Existing ``predict_file_path`` (or legacy ``file_path``) when present on disk
-      2. ``predict_file_keyword`` under the batch-scoped ``gcs_uploads/{batch_id}/`` dir
-         (when the batch GCS ingest task ran), then top-level ``gcs_uploads`` and
-         ``train_file_path`` parent
+      2. ``predict_file_keyword`` in the **first** search directory that has a match:
+         the batch-scoped ``gcs_uploads/{batch_id}/`` dir (when the batch GCS ingest
+         task ran), then top-level ``gcs_uploads``, then ``train_file_path`` parent
       3. Otherwise leave unset (school preprocessing may fall back to ``train_file_path``)
+
+    Directory precedence is absolute: a match in the batch dir wins even when a newer
+    file matches in a fallback dir, since the batch dir holds exactly the files
+    validated for this run. Newest-by-mtime only breaks ties **within** one directory.
     """
     explicit = (ds.get("predict_file_path") or ds.get("file_path") or "").strip()
-    keyword = (ds.get("predict_file_keyword") or "").strip()
+    needles = predict_file_keywords(ds)
 
-    if keyword:
+    if needles:
         search_dirs = legacy_bronze_predict_search_dirs(
             db_workspace, institution_id, ds, bronze_batch_dir=bronze_batch_dir
         )
-        all_matches: list[pathlib.Path] = []
-        needle = keyword.lower()
         for dir_ in search_dirs:
-            base = pathlib.Path(local_fs_path(dir_))
-            if not base.is_dir():
+            if not pathlib.Path(local_fs_path(dir_)).is_dir():
                 LOGGER.warning(
                     "%s: search directory not found, skipping: %s", dataset_key, dir_
                 )
                 continue
-            for entry in base.iterdir():
-                if not _is_bronze_predict_candidate(entry):
-                    continue
-                if needle in entry.name.lower():
-                    all_matches.append(entry)
-
-        if all_matches:
-            all_matches.sort(key=lambda p: p.stat().st_mtime, reverse=True)
-            chosen = all_matches[0]
-            if len(all_matches) > 1:
+            matches = _keyword_matches_in_directory(dir_, needles)
+            if not matches:
+                continue
+            chosen = matches[0]
+            if len(matches) > 1:
                 LOGGER.info(
-                    "%s: %d files matched keyword=%r; using newest: %s",
+                    "%s: %d files matched keyword=%r under %s; using newest: %s",
                     dataset_key,
-                    len(all_matches),
-                    keyword,
+                    len(matches),
+                    needles,
+                    dir_,
                     chosen,
                 )
             else:
                 LOGGER.info(
-                    "%s: resolved predict file via keyword=%r: %s",
+                    "%s: resolved predict file via keyword=%r under %s: %s",
                     dataset_key,
-                    keyword,
+                    needles,
+                    dir_,
                     chosen,
                 )
             return str(chosen)
@@ -225,12 +267,12 @@ def resolve_legacy_bronze_predict_file(
             LOGGER.warning(
                 "%s: no file matched keyword=%r; falling back to configured path: %s",
                 dataset_key,
-                keyword,
+                needles,
                 explicit,
             )
             return explicit
         raise FileNotFoundError(
-            f"{dataset_key}: no file matching predict_file_keyword={keyword!r} "
+            f"{dataset_key}: no file matching predict_file_keyword={needles!r} "
             f"under {search_dirs}."
         )
 
