@@ -903,7 +903,6 @@ def on_sma_onboard_begin(
     institution_id: str | None = None,
     input_file_paths_json: str | None = None,
     reference_id: str | None = None,
-    reference_content_hash: str | None = None,
 ) -> None:
     if resume_from == "start":
         _state_safe(
@@ -944,11 +943,6 @@ def on_sma_onboard_begin(
             str(institution_id).strip(),
             onboard_run_id,
             reference_id=str(reference_id).strip(),
-            reference_content_hash=(
-                str(reference_content_hash).strip()
-                if (reference_content_hash or "").strip()
-                else None
-            ),
         )
 
 

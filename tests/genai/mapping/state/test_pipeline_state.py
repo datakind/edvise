@@ -199,9 +199,6 @@ def test_table_setup_runs_ddl(monkeypatch) -> None:
     assert any("ALTER TABLE" in s and "execute_run_id" in s for s in fake.statements)
     assert any("ALTER TABLE" in s and "input_file_paths" in s for s in fake.statements)
     assert any("ALTER TABLE" in s and "reference_id" in s for s in fake.statements)
-    assert any(
-        "ALTER TABLE" in s and "reference_content_hash" in s for s in fake.statements
-    )
     assert (
         sum(
             "RENAME COLUMN pipeline_run_id TO onboard_run_id" in s
@@ -221,13 +218,12 @@ def test_update_onboard_pipeline_run_reference(monkeypatch) -> None:
         "inst1",
         "run1",
         reference_id="ref_school",
-        reference_content_hash="sha256:abc",
     )
     q = fake.statements[-1]
     assert "UPDATE" in q
     assert "reference_id" in q
     assert "ref_school" in q
-    assert "sha256:abc" in q
+    assert "reference_content_hash" not in q
     assert "execute_run_id IS NULL" in q
 
 

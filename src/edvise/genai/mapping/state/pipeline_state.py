@@ -3,8 +3,8 @@ Unity Catalog / Delta state for the GenAI mapping pipeline (infrastructure only)
 
 State tables: ``{catalog}.genai_mapping.pipeline_runs`` (``onboard_run_id`` for onboard runs;
 ``execute_run_id`` + ``onboard_run_id`` = artifact source for execute runs; ``db_run_id`` for
-Databricks job correlation; ``reference_id`` / ``reference_content_hash`` for the few-shot
-reference used during SMA onboard), ``pipeline_phases``, ``hitl_reviews``.
+Databricks job correlation; ``reference_id`` for the few-shot school used during SMA
+onboard), ``pipeline_phases``, ``hitl_reviews``.
 All DML uses :meth:`pyspark.sql.SparkSession.sql` (no Delta Python API, no pandas).
 """
 
@@ -291,13 +291,13 @@ def update_onboard_pipeline_run_reference(
     onboard_run_id: str,
     *,
     reference_id: str,
-    reference_content_hash: str | None = None,
 ) -> None:
     """
-    Record which few-shot ``reference_id`` (and optional content hash) SMA used for this onboard.
+    Record which few-shot ``reference_id`` SMA used for this onboard.
 
-    Ensures ``pipeline_runs`` has the ``reference_id`` / ``reference_content_hash`` columns
-    (idempotent DDL via :func:`create_state_tables`).
+    Content hashes belong on ``reference_pins`` (pin job), not on consumer run rows.
+    Ensures ``pipeline_runs`` has the ``reference_id`` column (idempotent DDL via
+    :func:`create_state_tables`).
     """
     c = str(catalog).strip()
     inst = str(institution_id).strip()
@@ -310,13 +310,10 @@ def update_onboard_pipeline_run_reference(
 
     create_state_tables(c, spark=_spark())
     t = qualified_table(c, PIPELINE_RUNS)
-    href = str(reference_content_hash or "").strip()
-    hash_sql = lit(href) if href else "NULL"
     q = f"""
     UPDATE {t}
     SET
       reference_id = {lit(ref)},
-      reference_content_hash = {hash_sql},
       updated_at = current_timestamp()
     WHERE institution_id = {lit(inst)}
       AND onboard_run_id = {lit(rid)}
