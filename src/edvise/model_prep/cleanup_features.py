@@ -28,9 +28,24 @@ class BaseCleanup:
     """
 
     cols_to_drop: t.ClassVar[list[str]] = []
-    # Entry / first-term snapshots to drop only when a term-level counterpart
-    # is on the frame (i.e. course data supplied that field).
-    entry_to_term_cols: t.ClassVar[dict[str, tuple[str, ...]]] = {}
+    # Frozen term-1 / year-1 / entry snapshots to drop only when a checkpoint-
+    # relative counterpart is on the frame (so H2O cannot select both).
+    entry_to_term_cols: t.ClassVar[dict[str, tuple[str, ...]]] = {
+        "gpa_group_term_1": ("course_grade_numeric_mean",),
+        "gpa_group_year_1": (
+            "cummean_course_grade_numeric_mean",
+            "course_grade_numeric_mean",
+        ),
+        "number_of_credits_earned_year_1": (
+            "cumsum_num_credits_earned",
+            "num_credits_earned",
+        ),
+        "number_of_credits_attempted_year_1": (
+            "cumsum_num_credits_attempted",
+            "num_credits_attempted",
+        ),
+        "frac_credits_earned_year_1": ("frac_credits_earned",),
+    }
     # Used by masking below; dropped from the modeling dataset afterward.
     cols_to_drop_after_masking: t.ClassVar[list[str]] = [
         "year_of_enrollment_at_cohort_inst",
@@ -63,7 +78,7 @@ class BaseCleanup:
         drop_cols.extend(
             entry
             for entry, terms in self.entry_to_term_cols.items()
-            if any(term in df.columns for term in terms)
+            if entry in df.columns and any(term in df.columns for term in terms)
         )
         df = drop_columns_safely(df, cols_to_drop=drop_cols)
 
@@ -197,6 +212,7 @@ class ESCleanup(BaseCleanup):
     """
 
     entry_to_term_cols: t.ClassVar[dict[str, tuple[str, ...]]] = {
+        **BaseCleanup.entry_to_term_cols,
         "intended_program_type": ("term_degree",),
         "declared_major_at_entry": ("term_declared_major", "term_program_of_study"),
     }

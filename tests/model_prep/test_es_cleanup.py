@@ -43,10 +43,15 @@ def test_es_cleanup_canonicalizes_and_drops_raw_pell() -> None:
             [],
             ["intended_program_type", "declared_major_at_entry"],
         ),
+        (
+            {"course_grade_numeric_mean": [3.2], "gpa_group_term_1": [3.0]},
+            ["gpa_group_term_1"],
+            ["course_grade_numeric_mean", "intended_program_type"],
+        ),
     ],
 )
 def test_es_cleanup_drops_entry_cols_only_when_term_counterparts_present(
-    term_cols: dict[str, list[str]],
+    term_cols: dict[str, list[object]],
     drop_entry: list[str],
     keep_entry: list[str],
 ) -> None:
