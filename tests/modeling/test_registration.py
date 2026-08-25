@@ -726,6 +726,23 @@ class TestPDPGetModelName:
         )
         assert result == "graduation_in_3y_ft_6y_pt_checkpoint_30_credits"
 
+    def test_graduation_decimal_part_time_years_is_uc_safe(self):
+        result = pdp_get_model_name(
+            target={
+                "type_": "graduation",
+                "intensity_time_limits": {
+                    "FULL-TIME": [3.0, "year"],
+                    "PART-TIME": [4.5, "year"],
+                },
+            },
+            checkpoint={
+                "type_": "first_at_num_credits_earned",
+                "min_num_credits": 30.0,
+            },
+            student_criteria={},
+        )
+        assert result == "graduation_in_3y_ft_4d5y_pt_checkpoint_30_credits"
+
     @pytest.mark.parametrize("checkpoint_type", ["first", "first_student_terms"])
     def test_graduation_first_student_terms_checkpoint(self, checkpoint_type):
         """Graduation with first term checkpoint"""
