@@ -206,6 +206,8 @@ def test_table_setup_runs_ddl(monkeypatch) -> None:
         == 3
     )
     assert any("hitl_reviews" in s for s in fake.statements)
+    assert any("reference_pins" in s for s in fake.statements)
+    assert any("CREATE VOLUME" in s and "references" in s for s in fake.statements)
 
 
 def test_resolve_onboard_run_id_explicit_override(monkeypatch) -> None:
