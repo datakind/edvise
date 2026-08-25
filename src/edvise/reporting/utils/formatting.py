@@ -132,4 +132,4 @@ class Formatting:
             # Find where to close the parenthesis - before underscore suffix or at end
             result = re.sub(r"(Checkpoint:[^)]+?)\s*(?=$|_)", r"\1)", result)
 
-        return result
+        return re.sub(r"(\d+)p(\d+)", r"\1.\2", result)

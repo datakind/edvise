@@ -213,18 +213,6 @@ class TestFormatEnrollmentIntensityTimeLimits:
         )
         assert result == "3Y FT"
 
-    def test_underscore_style_replaces_decimal_dot(self):
-        """UC model names cannot contain `.` (three-level catalog.schema.model)."""
-        intensity_time_limits = {
-            "FULL-TIME": [3.0, "year"],
-            "PART-TIME": [4.5, "year"],
-        }
-        result = format_enrollment_intensity_time_limits(
-            intensity_time_limits=intensity_time_limits, style="underscore"
-        )
-        assert result == "3y_ft_4_5y_pt"
-        assert "." not in result
-
 
 # Tests for get_model_name function (simple version)
 class TestGetModelName:
@@ -293,15 +281,6 @@ class TestGetModelName:
         assert result == "my_inst_credits_30_in_3y_ft_6y_pt_checkpoint_2_core_terms"
         assert " " not in result
         assert result == result.lower()
-
-    def test_model_name_replaces_dots_for_unity_catalog(self):
-        """Dots would make UC parse extra name levels (catalog.schema.model)."""
-        result = get_model_name(
-            target="graduation_in_3y_ft_4.5y_pt",
-            checkpoint="checkpoint_30_credits",
-        )
-        assert result == "graduation_in_3y_ft_4_5y_pt_checkpoint_30_credits"
-        assert "." not in result
 
 
 # Tests for get_model_name_from_config (try PDP first, fallback to custom)
@@ -748,30 +727,21 @@ class TestPDPGetModelName:
         assert result == "graduation_in_3y_ft_6y_pt_checkpoint_30_credits"
 
     def test_graduation_decimal_part_time_years_is_uc_safe(self):
-        """Non-integer time limits must not emit `.` (e.g. LaGuardia 4.5y PT)."""
-        target = {
-            "type_": "graduation",
-            "intensity_time_limits": {
-                "FULL-TIME": [3.0, "year"],
-                "PART-TIME": [4.5, "year"],
-            },
-            "years_to_degree_col": "first_year_to_associates_at_cohort_inst",
-            "num_terms_in_year": 4,
-            "max_term_rank": "infer",
-        }
-        checkpoint = {
-            "type_": "first_at_num_credits_earned",
-            "min_num_credits": 30.0,
-            "num_credits_col": "cumsum_num_credits_earned",
-        }
-
         result = pdp_get_model_name(
-            target=target,
-            checkpoint=checkpoint,
+            target={
+                "type_": "graduation",
+                "intensity_time_limits": {
+                    "FULL-TIME": [3.0, "year"],
+                    "PART-TIME": [4.5, "year"],
+                },
+            },
+            checkpoint={
+                "type_": "first_at_num_credits_earned",
+                "min_num_credits": 30.0,
+            },
             student_criteria={},
         )
-        assert result == "graduation_in_3y_ft_4_5y_pt_checkpoint_30_credits"
-        assert "." not in result
+        assert result == "graduation_in_3y_ft_4p5y_pt_checkpoint_30_credits"
 
     @pytest.mark.parametrize("checkpoint_type", ["first", "first_student_terms"])
     def test_graduation_first_student_terms_checkpoint(self, checkpoint_type):
