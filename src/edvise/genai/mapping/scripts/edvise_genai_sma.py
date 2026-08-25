@@ -7,11 +7,11 @@ Usage (Databricks job parameters):
     --mode              onboard | execute
     --resume_from       start | gate_2  (onboard only)
     --pipeline_version  Release / git tag for manifests and transformation maps (match edvise_ia job).
-    --reference_id      required for onboard; few-shot from that school's
-                        ``.../<ref_id>_silver/silver_volume/genai_mapping/active/`` (``manifest_map.json``,
-                        ``transformation_map.json``, ``enriched_schema_contract.json``, and optional
-                        ``sma_grain_resolution_cohort.json`` / ``sma_grain_resolution_course.json`` when promoted)
-                        (same ``--catalog`` as the reference institution's volumes).
+    --reference_id      required for onboard; few-shot from the pinned library
+                        ``/Volumes/<catalog>/genai_mapping/references/<reference_id>/current/``
+                        (``manifest_map.json``, ``transformation_map.json``). Pin that slot
+                        with ``edvise_genai_pin_reference`` first. School ``active/`` is not
+                        used for few-shot.
     --inputs_toml_path  Same resolution as edvise_ia (relative under bronze ``genai_mapping/``).
     --override_2a_manifest   false (default) | true — apply post-gate manifest overrides whenever
                              this flag is set (independent of ``resume_from``). Skips Step 2A /
@@ -87,6 +87,7 @@ from edvise.genai.mapping.schema_mapping_agent.grain_resolution import (
     reload_field_manifest_entity,
     run_onboard_gate_2_entity_with_grain_uc,
 )
+from edvise.genai.mapping.shared.reference_pin import resolve_sma_few_shot_pin
 from edvise.genai.mapping.shared.silver_run_paths import sma_pipeline_input_root
 from edvise.genai.mapping.state import job_state as _pipeline_job_state
 from edvise.genai.mapping.state import pipeline_state as _pipeline_state
@@ -208,20 +209,6 @@ def resolve_run_paths(
         active_enriched_schema_contract=active_root / "enriched_schema_contract.json",
         genai_data=genai / "data",
         output_data=sma_pipeline_input_root(genai, mode=segment[0], run_id=segment[1]),
-    )
-
-
-def resolve_reference_sma_active_paths(
-    reference_id: str, *, catalog: str
-) -> tuple[Path, Path]:
-    """Few-shot reference: promoted SMA artifacts under the reference school's ``genai_mapping/active/``."""
-    active = (
-        Path(genai_cfg.silver_genai_mapping_root(reference_id, catalog=catalog))
-        / "active"
-    )
-    return (
-        active / "manifest_map.json",
-        active / "transformation_map.json",
     )
 
 
@@ -498,15 +485,14 @@ def run_onboard_start(
 
     enriched_contract = _load_enriched_contract(paths.ia_enriched_schema_contract)
 
-    # Load reference institution few-shot manifest from reference school's promoted SMA folder
-    ref_manifest_path, _ = resolve_reference_sma_active_paths(
-        reference_id, catalog=catalog
+    # Load reference institution few-shot manifest from the pinned library (not school active/)
+    few_shot = resolve_sma_few_shot_pin(reference_id, catalog=catalog)
+    ref_manifest_path = few_shot.manifest_map
+    LOGGER.info(
+        "[onboard/start] Reference manifest (pin current/ hash=%s): %s",
+        few_shot.content_hash,
+        ref_manifest_path,
     )
-    if not ref_manifest_path.exists():
-        raise FileNotFoundError(
-            f"Reference mapping manifest not found (expected promoted SMA active/): {ref_manifest_path}"
-        )
-    LOGGER.info("[onboard/start] Reference manifest (active): %s", ref_manifest_path)
     reference_manifest = load_json(str(ref_manifest_path))
 
     # Step 2a — mapping manifest LLM
@@ -800,16 +786,15 @@ def run_onboard_gate_2(
 
     # Reload manifest after HITL resolve and/or overrides
     manifest_2a = json.loads(paths.manifest_map.read_text())
-    envelope_2a = MappingManifestEnvelope.model_validate(manifest_2a)
+    MappingManifestEnvelope.model_validate(manifest_2a)
 
-    # Load reference transformation map for 2b few-shot from reference school's promoted SMA folder
-    _, ref_tm_path = resolve_reference_sma_active_paths(reference_id, catalog=catalog)
-    if not ref_tm_path.exists():
-        raise FileNotFoundError(
-            f"Reference transformation map not found (expected promoted SMA active/): {ref_tm_path}"
-        )
+    # Load reference transformation map for 2b few-shot from the pinned library
+    few_shot = resolve_sma_few_shot_pin(reference_id, catalog=catalog)
+    ref_tm_path = few_shot.transformation_map
     LOGGER.info(
-        "[onboard/gate_2] Reference transformation map (active): %s", ref_tm_path
+        "[onboard/gate_2] Reference transformation map (pin current/ hash=%s): %s",
+        few_shot.content_hash,
+        ref_tm_path,
     )
     reference_tm = load_json(str(ref_tm_path))
 
@@ -1497,12 +1482,15 @@ def run(
             )
 
         onboard_run_id_s = cast(str, onboard_run_id)
+        few_shot = resolve_sma_few_shot_pin(reference_id, catalog=catalog)
         _pipeline_job_state.on_sma_onboard_begin(
             catalog,
             onboard_run_id_s,
             resume_from=resume_from,
             institution_id=institution_id,
             input_file_paths_json=input_file_paths_json,
+            reference_id=few_shot.reference_id,
+            reference_content_hash=few_shot.content_hash,
         )
 
         client = _build_openai_client(catalog)
@@ -1569,7 +1557,14 @@ if __name__ == "__main__":
     parser.add_argument("--catalog", required=True)
     parser.add_argument("--mode", required=True, choices=["onboard", "execute"])
     parser.add_argument("--resume_from", default="start", choices=["start", "gate_2"])
-    parser.add_argument("--reference_id", default="")
+    parser.add_argument(
+        "--reference_id",
+        default="",
+        help=(
+            "Onboard: library slot under genai_mapping/references/<id>/current/ "
+            "(must already be pinned). Ignored for execute."
+        ),
+    )
     parser.add_argument(
         "--pipeline_version",
         default="",
