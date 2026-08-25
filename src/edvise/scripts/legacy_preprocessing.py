@@ -24,8 +24,9 @@ Workspace root defaults to
 ``run_type=train`` ignores it and uses the workspace paths above.
 
 For ``run_type=predict``, bronze ``predict_file_path`` values may be resolved at runtime
-from ``predict_file_keyword`` when the explicit path is missing (searches institution
-``gcs_uploads`` and the parent of ``train_file_path``; see ``materialize_legacy_bronze_predict_paths``).
+from ``predict_file_keyword`` when the explicit path is missing (searches the batch dir,
+then institution ``gcs_uploads``, then the parent of ``train_file_path``; see
+``materialize_legacy_bronze_predict_paths``).
 
 For ``run_type=predict``, optional ``--term_filter`` (JSON list of strings) overrides
 ``[inference].term`` in the config when non-empty; omit or null to use the config.
@@ -403,8 +404,9 @@ def materialize_legacy_bronze_predict_paths(
     ``predict_file_keyword`` when the explicit path is missing.
 
     ``bronze_batch_dir`` (from the ``data_ingestion`` task, when a ``batch_id`` was
-    supplied) is searched first; falls back to the institution's top-level
-    ``gcs_uploads`` and ``train_file_path`` parent otherwise.
+    supplied) is searched first and wins outright when it has a match; the institution's
+    top-level ``gcs_uploads`` and the ``train_file_path`` parent are only consulted when
+    it does not.
 
     Writes a temp TOML when any path is resolved or updated; otherwise returns
     ``config_file_path`` unchanged.
