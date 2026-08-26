@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import sys
 
@@ -24,11 +23,13 @@ from edvise.runtime.versioned_inference.model_resolution import (
 from edvise.runtime.versioned_inference.pipeline_version_ref import git_ref_kind
 from edvise.runtime.versioned_inference.dab_layout import resolve_dab_bundle_layout
 from edvise.runtime.versioned_inference.run_metadata import (
+    record_launcher_failures,
     record_versioned_inference_launcher_event,
     resolve_launcher_run_id,
 )
 
 LOGGER = logging.getLogger("trigger_versioned_inference")
+TASK_NAME = "trigger_versioned_inference"
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -58,33 +59,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _fail(
-    *,
-    catalog: str,
-    inst: str,
-    model: str,
-    model_run_id: str | None,
-    archived_pipeline_version: str | None,
-    launcher_run_id: str | None,
-    message: str,
-) -> int:
-    LOGGER.error("%s", message)
-    record_versioned_inference_launcher_event(
-        catalog=catalog,
-        event="failed",
-        databricks_institution_name=inst,
-        model_name=model,
-        model_run_id=model_run_id,
-        archived_pipeline_version=archived_pipeline_version,
-        launcher_run_id=launcher_run_id,
-        error_message=message,
-        payload={"task": "trigger_versioned_inference"},
-        logger=LOGGER,
-    )
-    return 1
-
-
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(
         level=logging.INFO,
         format="%(levelname)s %(name)s: %(message)s",
@@ -95,95 +70,61 @@ def main(argv: list[str] | None = None) -> int:
     model = args.model_name.strip()
     db_ws = args.DB_workspace.strip()
     if not inst or not model or not db_ws:
-        LOGGER.error(
+        raise ValueError(
             "Require --databricks_institution_name, --model_name, and --DB_workspace."
         )
-        return 1
 
     launcher_run_id = resolve_launcher_run_id(getattr(args, "launcher_run_id", ""))
     if not launcher_run_id:
-        return _fail(
-            catalog=db_ws,
-            inst=inst,
-            model=model,
-            model_run_id=None,
-            archived_pipeline_version=None,
-            launcher_run_id=None,
-            message=(
-                "launcher_run_id is required (job parameter launcher_run_id with "
-                "default {{job.run_id}})."
-            ),
-        )
-    try:
-        inputs = build_launcher_trigger_inputs(args, default_git_url=DEFAULT_GIT_URL)
-    except (json.JSONDecodeError, TypeError, ValueError) as exc:
-        return _fail(
-            catalog=db_ws,
-            inst=inst,
-            model=model,
-            model_run_id=None,
-            archived_pipeline_version=None,
-            launcher_run_id=launcher_run_id,
-            message=f"Invalid inference parameter overrides: {exc}",
+        raise ValueError(
+            "launcher_run_id is required (job parameter launcher_run_id with "
+            "default {{job.run_id}})."
         )
 
-    spark = get_spark_session()
-    if spark is None:
-        return _fail(
-            catalog=db_ws,
-            inst=inst,
-            model=model,
-            model_run_id=None,
-            archived_pipeline_version=None,
-            launcher_run_id=launcher_run_id,
-            message="SparkSession is required (run on Databricks).",
-        )
-
-    resolved = resolve_model_run_and_pipeline_version(
-        spark=spark,
-        db_workspace=db_ws,
+    with record_launcher_failures(
+        catalog=db_ws,
         databricks_institution_name=inst,
         model_name=model,
-        model_run_id_override=optional_model_run_id(args),
+        launcher_run_id=launcher_run_id,
+        task=TASK_NAME,
         logger=LOGGER,
-    )
-    if resolved is None:
-        return _fail(
-            catalog=db_ws,
-            inst=inst,
-            model=model,
-            model_run_id=None,
-            archived_pipeline_version=None,
-            launcher_run_id=launcher_run_id,
-            message="Could not resolve model_run_id / pipeline_version",
-        )
-    model_run_id, archived_pipeline_version = resolved
-    layout = resolve_dab_bundle_layout(inputs.schema_type)
-    LOGGER.info(
-        "Triggering inference for model_run_id=%s archived_pipeline_version=%s (git %s)",
-        model_run_id,
-        archived_pipeline_version,
-        git_ref_kind(archived_pipeline_version),
-    )
+    ) as event:
+        inputs = build_launcher_trigger_inputs(args, default_git_url=DEFAULT_GIT_URL)
 
-    release_dir = resolve_release_dir(
-        inputs.release_base_path, archived_pipeline_version
-    )
-    if not release_dir.is_dir():
-        return _fail(
-            catalog=db_ws,
-            inst=inst,
-            model=model,
-            model_run_id=model_run_id,
-            archived_pipeline_version=archived_pipeline_version,
-            launcher_run_id=launcher_run_id,
-            message=(
+        spark = get_spark_session()
+        if spark is None:
+            raise RuntimeError("SparkSession is required (run on Databricks).")
+
+        resolved = resolve_model_run_and_pipeline_version(
+            spark=spark,
+            db_workspace=db_ws,
+            databricks_institution_name=inst,
+            model_name=model,
+            model_run_id_override=optional_model_run_id(args),
+            logger=LOGGER,
+        )
+        if resolved is None:
+            raise ValueError("Could not resolve model_run_id / pipeline_version")
+        model_run_id, archived_pipeline_version = resolved
+        event.model_run_id = model_run_id
+        event.archived_pipeline_version = archived_pipeline_version
+        layout = resolve_dab_bundle_layout(inputs.schema_type)
+        LOGGER.info(
+            "Triggering inference for model_run_id=%s archived_pipeline_version=%s (git %s)",
+            model_run_id,
+            archived_pipeline_version,
+            git_ref_kind(archived_pipeline_version),
+        )
+
+        release_dir = resolve_release_dir(
+            inputs.release_base_path, archived_pipeline_version
+        )
+        if not release_dir.is_dir():
+            raise FileNotFoundError(
                 f"Release bundle not found: {release_dir} "
                 "(run materialize_runtime_bundle first)"
-            ),
-        )
+            )
 
-    try:
         run_id = submit_versioned_inference_from_bundle(
             release_dir,
             pipeline_version=archived_pipeline_version,
@@ -198,18 +139,10 @@ def main(argv: list[str] | None = None) -> int:
             poll_interval_seconds=args.poll_interval_seconds,
             logger=LOGGER,
         )
-    except (OSError, ValueError, RuntimeError) as exc:
-        return _fail(
-            catalog=db_ws,
-            inst=inst,
-            model=model,
-            model_run_id=model_run_id,
-            archived_pipeline_version=archived_pipeline_version,
-            launcher_run_id=launcher_run_id,
-            message=f"Failed to submit or complete versioned inference: {exc}",
-        )
 
-    if not args.dry_run:
+        if args.dry_run:
+            return
+
         db_run_id = inputs.param_overrides.get("db_run_id") or launcher_run_id
         if inputs.extra_param_overrides.get("db_run_id"):
             db_run_id = inputs.extra_param_overrides["db_run_id"]
@@ -225,7 +158,7 @@ def main(argv: list[str] | None = None) -> int:
             cohort_dataset_name=inputs.param_overrides.get("cohort_file_name"),
             course_dataset_name=inputs.param_overrides.get("course_file_name"),
             payload={
-                "task": "trigger_versioned_inference",
+                "task": TASK_NAME,
                 "no_wait": args.no_wait,
                 "parent_launcher_run_id": launcher_run_id,
                 "child_inference_run_id": str(run_id),
@@ -251,4 +184,3 @@ def main(argv: list[str] | None = None) -> int:
                 run_id,
                 db_run_id,
             )
-    return 0
