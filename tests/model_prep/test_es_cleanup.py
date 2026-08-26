@@ -25,8 +25,8 @@ def test_es_cleanup_canonicalizes_and_drops_raw_pell() -> None:
     [
         (
             {"term_degree": ["Associate"]},
-            ["intended_program_type"],
-            ["declared_major_at_entry", "term_degree"],
+            [],
+            ["intended_program_type", "declared_major_at_entry", "term_degree"],
         ),
         (
             {"term_declared_major": ["Biology"]},

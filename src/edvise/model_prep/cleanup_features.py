@@ -198,10 +198,12 @@ class ESCleanup(BaseCleanup):
     Prefers checkpoint-relative course fields over cohort entry snapshots when
     those term columns are present; keeps the entry columns if course data did
     not supply a counterpart.
+
+    ``intended_program_type`` is never dropped: student selection uses it, and
+    GenAI may map ``term_degree`` from a different source column.
     """
 
     entry_to_term_cols: t.ClassVar[dict[str, tuple[str, ...]]] = {
-        "intended_program_type": ("term_degree",),
         "declared_major_at_entry": ("term_declared_major", "term_program_of_study"),
     }
 
