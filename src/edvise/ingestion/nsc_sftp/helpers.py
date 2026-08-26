@@ -548,11 +548,28 @@ def group_plan_rows_by_file(
 def resolve_sst_institutions(
     api_client: "EdviseAPIClient", pdp_ids: Sequence[str]
 ) -> dict[str, tuple[str, str]]:
-    """Resolve distinct PDP ids → ``(inst_id, institution_name)`` (API-cached)."""
-    return {
-        pdp_id: resolve_sst_institution(api_client, pdp_id)
-        for pdp_id in sorted({str(p).strip() for p in pdp_ids if str(p).strip()})
-    }
+    """
+    Resolve distinct PDP ids → ``(inst_id, institution_name)``.
+
+    Soft-skips ids the SST API cannot resolve (e.g. 404); logs a warning per miss.
+    """
+    resolved: dict[str, tuple[str, str]] = {}
+    for pdp_id in sorted({str(p).strip() for p in pdp_ids if str(p).strip()}):
+        try:
+            resolved[pdp_id] = resolve_sst_institution(api_client, pdp_id)
+        except Exception as exc:
+            LOGGER.warning("SST unresolved pdp_id=%s: %s", pdp_id, exc)
+    return resolved
+
+
+def log_labeled_lines(logger: logging.Logger, label: str, lines: Sequence[str]) -> None:
+    """Emit a labeled end-of-task summary block (one line per item)."""
+    logger.info("=== %s (%s) ===", label, len(lines))
+    if not lines:
+        logger.info("%s (none)", label)
+        return
+    for line in lines:
+        logger.info("%s %s", label, line)
 
 
 def backfill_plan_institution_identity(

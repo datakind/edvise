@@ -39,6 +39,7 @@ from edvise.ingestion.nsc_sftp.helpers import (
     download_new_files_and_queue,
     ensure_manifest_and_queue_tables,
     get_files_to_queue,
+    log_labeled_lines,
     reset_files_for_reingest,
     upsert_new_to_manifest,
 )
@@ -125,6 +126,31 @@ try:
         runtime.notebook_exit(dbutils, "QUEUED_FILES=0")
 
     queued_count = download_new_files_and_queue(spark, sftp, df_to_queue, logger)
+    queued_rows = df_to_queue.select(
+        "file_name", "file_fingerprint", "sftp_path", "file_size"
+    ).collect()
+    log_labeled_lines(
+        logger,
+        "SELECTED",
+        [
+            f"cohort={cohort_file_name}",
+            f"course={course_file_name}",
+            f"mode={mode_used} force_reingest={force_reingest}",
+        ],
+    )
+    log_labeled_lines(
+        logger,
+        "QUEUED",
+        [
+            f"file={r['file_name']} fp={r['file_fingerprint']} "
+            f"size={r['file_size']} sftp={r['sftp_path']}"
+            for r in queued_rows
+        ],
+    )
+    logger.info(
+        "Note: institution PDP ids are discovered in file_institution_expand "
+        "(stage 02), not in this scan task."
+    )
     logger.info("Queued %s file(s) into %s", queued_count, QUEUE_TABLE_PATH)
     runtime.notebook_exit(
         dbutils, f"QUEUED_FILES={queued_count};FORCE_REINGEST={force_reingest}"

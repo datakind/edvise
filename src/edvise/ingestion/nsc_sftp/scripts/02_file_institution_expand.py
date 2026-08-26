@@ -39,6 +39,7 @@ from edvise.ingestion.nsc_sftp.helpers import (
     backfill_plan_institution_identity,
     ensure_plan_table,
     extract_institution_ids,
+    log_labeled_lines,
     merge_institution_plan_rows,
     resolve_sst_institutions,
 )
@@ -75,8 +76,11 @@ queued_files = queue_df.select(
     "file_modified_time",
 ).collect()
 
+logger.info("Expanding %s queued file(s) not yet in plan", len(queued_files))
+
 pending: dict[str, tuple[dict[str, Any], list[str], str]] = {}
 missing: list[str] = []
+discovered_lines: list[str] = []
 now_ts = datetime.now(timezone.utc)
 
 for row in queued_files:
@@ -102,43 +106,75 @@ for row in queued_files:
         inst_ids,
         inst_col,
     )
+    for pdp_id in inst_ids:
+        discovered_lines.append(
+            f"file={file_name} pdp_id={pdp_id} inst_col={inst_col} path={local_path}"
+        )
 
 if missing:
     raise FileNotFoundError("Missing staged files: " + "; ".join(missing))
 if not pending:
     runtime.notebook_exit(dbutils, f"NO_WORK_ITEMS;BACKFILLED={backfilled}")
 
-sst_by_pdp = resolve_sst_institutions(
-    api_client, [pid for _, ids, _ in pending.values() for pid in ids]
+log_labeled_lines(logger, "DISCOVERED_PDP_IDS", discovered_lines)
+
+all_pdp_ids = [pid for _, ids, _ in pending.values() for pid in ids]
+sst_by_pdp = resolve_sst_institutions(api_client, all_pdp_ids)
+unresolved = sorted(
+    {str(p).strip() for p in all_pdp_ids if str(p).strip()} - set(sst_by_pdp)
 )
-work_items = [
-    {
-        "file_fingerprint": fp,
-        "file_name": meta["file_name"],
-        "local_path": meta["local_path"],
-        "institution_id": pdp_id,
-        "inst_id": sst_by_pdp[pdp_id][0],
-        "institution_name": sst_by_pdp[pdp_id][1],
-        "inst_col": inst_col,
-        "file_size": meta["file_size"],
-        "file_modified_time": meta["file_modified_time"],
-        "planned_at": now_ts,
-    }
-    for fp, (meta, inst_ids, inst_col) in pending.items()
-    for pdp_id in inst_ids
-]
+
+planned_lines: list[str] = []
+unresolved_lines: list[str] = []
+work_items: list[dict[str, Any]] = []
 for fp, (meta, inst_ids, inst_col) in pending.items():
-    logger.info(
-        "file=%s: %s institution(s) via %s preview=%s",
-        meta["file_name"],
-        len(inst_ids),
-        inst_col,
-        [
-            {"pdp_id": pid, "inst_id": sst_by_pdp[pid][0], "name": sst_by_pdp[pid][1]}
-            for pid in inst_ids[:10]
-        ],
+    for pdp_id in inst_ids:
+        if pdp_id not in sst_by_pdp:
+            unresolved_lines.append(
+                f"file={meta['file_name']} pdp_id={pdp_id} reason=sst_not_found"
+            )
+            continue
+        inst_id, inst_name = sst_by_pdp[pdp_id]
+        work_items.append(
+            {
+                "file_fingerprint": fp,
+                "file_name": meta["file_name"],
+                "local_path": meta["local_path"],
+                "institution_id": pdp_id,
+                "inst_id": inst_id,
+                "institution_name": inst_name,
+                "inst_col": inst_col,
+                "file_size": meta["file_size"],
+                "file_modified_time": meta["file_modified_time"],
+                "planned_at": now_ts,
+            }
+        )
+        planned_lines.append(
+            f"file={meta['file_name']} pdp_id={pdp_id} inst_id={inst_id} "
+            f"institution={inst_name!r}"
+        )
+
+log_labeled_lines(logger, "PLANNED", planned_lines)
+log_labeled_lines(logger, "UNRESOLVED", unresolved_lines)
+
+if not work_items:
+    logger.error(
+        "No institutions resolved via SST API (unresolved=%s). Nothing to plan.",
+        len(unresolved),
+    )
+    runtime.notebook_exit(
+        dbutils,
+        f"WORK_ITEMS=0;UNRESOLVED={len(unresolved)};BACKFILLED={backfilled}",
     )
 
 n = merge_institution_plan_rows(spark, PLAN_TABLE_PATH, work_items)
-logger.info("Wrote/updated %s plan row(s) into %s", n, PLAN_TABLE_PATH)
-runtime.notebook_exit(dbutils, f"WORK_ITEMS={n};BACKFILLED={backfilled}")
+logger.info(
+    "Wrote/updated %s plan row(s) into %s (unresolved_pdp_ids=%s)",
+    n,
+    PLAN_TABLE_PATH,
+    len(unresolved),
+)
+runtime.notebook_exit(
+    dbutils,
+    f"WORK_ITEMS={n};UNRESOLVED={len(unresolved)};BACKFILLED={backfilled}",
+)

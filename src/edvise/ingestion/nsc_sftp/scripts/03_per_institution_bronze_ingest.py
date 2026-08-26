@@ -37,6 +37,7 @@ from edvise.ingestion.nsc_sftp.helpers import (
     ensure_plan_table,
     group_plan_rows_by_file,
     load_staged_csv,
+    log_labeled_lines,
     process_and_save_file,
     resolve_bronze_volume_dir,
     sst_identity_or_resolve,
@@ -122,6 +123,14 @@ logger.info(
     force_reingest,
     run_id,
 )
+expected_lines: list[str] = []
+for row in plan_rows:
+    d = row.asDict()
+    expected_lines.append(
+        f"file={d['file_name']} pdp_id={d['institution_id']} "
+        f"inst_id={d.get('inst_id') or ''} institution={d.get('institution_name')!r}"
+    )
+log_labeled_lines(logger, "EXPECTED", expected_lines)
 
 for fp, meta in by_file.items():
     file_name = meta["file_name"]
@@ -309,15 +318,12 @@ for label, lines in (
     ("SKIPPED", skipped_rows),
     ("FAILED", failed_rows),
 ):
-    logger.info("=== %s (%s) ===", label, len(lines))
-    for line in lines:
-        logger.info("%s %s", label, line)
-logger.info("Done counts=%s", dict(counts))
+    log_labeled_lines(logger, label, lines)
+logger.info("=== INGESTION SUMMARY counts=%s ===", dict(counts))
 runtime.notebook_exit(
     dbutils,
     "PROCESSED={processed_files};FAILED={failed_files};SKIPPED={skipped_files};"
     "WRITTEN={institutions_written};EXISTING={institutions_skipped_existing};"
-    "UNRESOLVED={institutions_unresolved};NO_BRONZE={institutions_no_bronze}".format_map(
-        defaultdict(int, counts)
-    ),
+    "EMPTY={institutions_empty};UNRESOLVED={institutions_unresolved};"
+    "NO_BRONZE={institutions_no_bronze}".format_map(defaultdict(int, counts)),
 )
