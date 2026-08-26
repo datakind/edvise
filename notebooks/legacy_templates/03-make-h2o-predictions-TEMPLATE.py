@@ -249,14 +249,13 @@ selected_features_df
 # COMMAND ----------
 
 # Provide output using top features, SHAP values, and support scores
-result = modeling.automl.inference.select_top_features_for_display(
+result = modeling.inference.select_top_features_for_display(
     grouped_features,
     unique_ids,
     pred_probs,
     grouped_contribs_df.to_numpy(),
     n_features=10,
     features_table=features_table,
-    needs_support_threshold_prob=cfg.inference.min_prob_pos_label,
 )
 result
 

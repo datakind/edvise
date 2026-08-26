@@ -260,13 +260,16 @@ class DatasetConfig(pyd.BaseModel):
         default=None,
         description="Columns to be validated as non-null, if applicable",
     )
-    predict_file_keyword: t.Optional[str] = pyd.Field(
+    predict_file_keyword: t.Optional[t.Union[str, t.List[str]]] = pyd.Field(
         default=None,
         description=(
-            "Legacy inference: case-insensitive substring matched against filenames "
-            "under the institution bronze ``gcs_uploads`` folder (and the parent "
-            "directory of ``train_file_path`` when set). Newest match wins. Resolved "
-            "at predict-time in ``legacy_preprocessing``."
+            "Legacy inference: substring (or list of alternates, for extracts that get "
+            "respelled between drops) matched against filenames in the batch-scoped "
+            "``gcs_uploads/{batch_id}`` folder, then the institution bronze "
+            "``gcs_uploads`` folder, then the parent directory of ``train_file_path``. "
+            "Matching ignores case and separator spelling; the first directory with a "
+            "match wins, newest file within it. Resolved at predict-time in "
+            "``legacy_preprocessing``."
         ),
     )
 
@@ -280,7 +283,9 @@ class DatasetConfig(pyd.BaseModel):
             self.file_path,  # Legacy, not used in pipeline/DB workflow
             self.table_path,  # Legacy, not used in pipeline/DB workflow
         ]
-        has_predict_discovery = bool((self.predict_file_keyword or "").strip())
+        keyword = self.predict_file_keyword
+        keywords = keyword if isinstance(keyword, list) else [keyword or ""]
+        has_predict_discovery = any(str(k).strip() for k in keywords)
         if not any(any_paths) and not has_predict_discovery:
             raise ValueError(
                 "At least one dataset path must be specified: "

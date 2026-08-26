@@ -15,6 +15,8 @@ from edvise.genai.mapping.state._sql import (
     HITL_REVIEWS,
     PIPELINE_PHASES,
     PIPELINE_RUNS,
+    REFERENCE_PINS,
+    REFERENCES_VOLUME,
     get_spark_session,
     qualified_schema,
     qualified_table,
@@ -144,6 +146,10 @@ def create_state_tables(catalog: str, spark: Any | None = None) -> None:
     * ``pipeline_runs`` — top-level run tracking
     * ``pipeline_phases`` — phase transition audit log
     * ``hitl_reviews`` — HITL artifact path + review status
+    * ``reference_pins`` — gold few-shot pin metadata + content hashes
+
+    Also best-effort creates the managed volume ``genai_mapping.references`` used for
+    pinned artifact files (``/Volumes/<catalog>/genai_mapping/references/``).
 
     Pass ``spark`` when the caller already holds the active session (e.g. tests that
     monkeypatch :func:`edvise.genai.mapping.state._sql.get_spark_session`).
@@ -160,9 +166,23 @@ def create_state_tables(catalog: str, spark: Any | None = None) -> None:
     c = str(catalog).strip()
     spark.sql(f"CREATE SCHEMA IF NOT EXISTS {qualified_schema(c)}")
 
+    # Shared few-shot library volume (sibling of state tables under genai_mapping).
+    try:
+        spark.sql(
+            f"CREATE VOLUME IF NOT EXISTS {qualified_schema(c)}.`{REFERENCES_VOLUME}`"
+        )
+    except Exception as e:  # noqa: BLE001 — volume DDL may be unavailable off Databricks
+        LOGGER.warning(
+            "Could not ensure volume %s.%s (%s); create it manually if pinning fails",
+            qualified_schema(c),
+            REFERENCES_VOLUME,
+            e,
+        )
+
     pr = qualified_table(c, PIPELINE_RUNS)
     pp = qualified_table(c, PIPELINE_PHASES)
     hr = qualified_table(c, HITL_REVIEWS)
+    rp = qualified_table(c, REFERENCE_PINS)
 
     spark.sql(
         f"""
@@ -207,6 +227,24 @@ def create_state_tables(catalog: str, spark: Any | None = None) -> None:
           status STRING,
           reviewer STRING,
           reviewed_at TIMESTAMP
+        ) USING DELTA
+        """
+    )
+    spark.sql(
+        f"""
+        CREATE TABLE IF NOT EXISTS {rp} (
+          reference_id STRING,
+          archetype STRING,
+          pipeline_version STRING,
+          content_hash STRING,
+          pinned_at TIMESTAMP,
+          pinned_by STRING,
+          source_onboard_run_id STRING,
+          source_institution_id STRING,
+          status STRING,
+          uc_catalog STRING,
+          artifacts STRING,
+          pin_path STRING
         ) USING DELTA
         """
     )
