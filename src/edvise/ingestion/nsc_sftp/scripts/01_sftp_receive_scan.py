@@ -152,8 +152,12 @@ try:
         "(stage 02), not in this scan task."
     )
     logger.info("Queued %s file(s) into %s", queued_count, QUEUE_TABLE_PATH)
+    queued_names = ",".join(str(r["file_name"]) for r in queued_rows)
     runtime.notebook_exit(
-        dbutils, f"QUEUED_FILES={queued_count};FORCE_REINGEST={force_reingest}"
+        dbutils,
+        f"QUEUED_FILES={queued_count};FORCE_REINGEST={force_reingest};"
+        f"MODE={mode_used};COHORT={cohort_file_name};COURSE={course_file_name};"
+        f"FILES={queued_names}",
     )
 finally:
     for closer in (sftp, transport):

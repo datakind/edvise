@@ -174,7 +174,13 @@ logger.info(
     PLAN_TABLE_PATH,
     len(unresolved),
 )
+# notebook_exit is what Databricks shows in the task Output panel
+planned_summary = "|".join(
+    f"{w['institution_id']}:{w['institution_name']}" for w in work_items[:20]
+)
+unresolved_summary = ",".join(unresolved[:20])
 runtime.notebook_exit(
     dbutils,
-    f"WORK_ITEMS={n};UNRESOLVED={len(unresolved)};BACKFILLED={backfilled}",
+    f"WORK_ITEMS={n};UNRESOLVED={len(unresolved)};BACKFILLED={backfilled};"
+    f"PLANNED={planned_summary};UNRESOLVED_PDP_IDS={unresolved_summary}",
 )
