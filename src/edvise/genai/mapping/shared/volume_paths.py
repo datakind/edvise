@@ -43,6 +43,34 @@ def silver_genai_mapping_root(institution_id: str, *, catalog: str) -> str:
     return f"{_uc_volume_path(institution_id, catalog=catalog, tier='silver')}/genai_mapping"
 
 
+def genai_mapping_schema_volume_root(
+    *, catalog: str, volume: str = "references"
+) -> str:
+    """
+    Shared platform volume under the ``genai_mapping`` UC schema (not per-institution silver).
+
+    Path: ``/Volumes/<catalog>/genai_mapping/<volume>``.
+    """
+    cat = _require_uc_catalog(catalog)
+    vol = str(volume).strip()
+    if not vol:
+        raise ValueError("volume must be non-empty")
+    return f"/Volumes/{cat}/genai_mapping/{vol}"
+
+
+def genai_reference_root(reference_id: str, *, catalog: str) -> str:
+    """``…/genai_mapping/references/<reference_id>`` on the shared references volume."""
+    ref = str(reference_id).strip()
+    if not ref:
+        raise ValueError("reference_id must be non-empty")
+    return f"{genai_mapping_schema_volume_root(catalog=catalog, volume='references')}/{ref}"
+
+
+def genai_reference_current_root(reference_id: str, *, catalog: str) -> str:
+    """Pinned few-shot artifacts: ``…/references/<reference_id>/current``."""
+    return f"{genai_reference_root(reference_id, catalog=catalog)}/current"
+
+
 def resolve_genai_inputs_toml_path(
     institution_id: str,
     *,
