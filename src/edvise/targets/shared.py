@@ -121,6 +121,19 @@ def get_students_with_max_target_term_in_dataset(
     return df_out
 
 
+def validate_retention_into_year(retention_into_year: int) -> int:
+    """Require ``retention_into_year >= 2`` (year 1 is the cohort year, not a persistence target)."""
+    if not isinstance(retention_into_year, int) or isinstance(
+        retention_into_year, bool
+    ):
+        raise TypeError(
+            f"retention_into_year must be int, got {type(retention_into_year).__name__}"
+        )
+    if retention_into_year < 2:
+        raise ValueError(f"retention_into_year must be >= 2, got {retention_into_year}")
+    return retention_into_year
+
+
 def get_students_with_second_year_in_dataset(
     df: pd.DataFrame,
     *,
@@ -128,11 +141,15 @@ def get_students_with_second_year_in_dataset(
     student_id_cols: str | list[str] = "student_id",
     cohort_id_col: str = "cohort_id",
     term_id_col: str = "term_id",
+    retention_into_year: int = 2,
 ) -> pd.DataFrame:
     """
-    Get set of students in ``df`` for which ``df`` includes any records
-    for the academic year after the students' cohort year (i.e. their second year);
-    effectively, this excludes all students in the cohort from the most recent course year.
+    Students whose cohort year leaves room for academic year ``retention_into_year``
+    in ``df`` (default: second year).
+
+    Year 1 is the cohort year. Year ``N`` is in the extract when
+    ``cohort_year + (N - 1) <= max_academic_year``, i.e. ``cohort_year <= max - (N - 1)``.
+    For ``N = 2`` this is ``cohort_year < max_academic_year`` (same as before).
 
     Args:
         df: Student-term dataset.
@@ -145,7 +162,10 @@ def get_students_with_second_year_in_dataset(
         student_id_cols: One or multiple columns uniquely identifying students.
         cohort_id_col: Column used to uniquely identify student cohorts.
         term_id_col: Colum used to uniquely identify academic terms.
+        retention_into_year: Academic year that must be covered to label a student
+            (2 = second year / default).
     """
+    retention_into_year = validate_retention_into_year(retention_into_year)
     if max_academic_year == "infer":
         max_academic_year = _extract_year_from_id(df[term_id_col]).max()
     else:
@@ -167,7 +187,9 @@ def get_students_with_second_year_in_dataset(
             max_academic_year=max_academic_year,  # type: ignore
         )
         .loc[
-            lambda df: df["student_cohort_year"].lt(max_academic_year),
+            lambda df: df["student_cohort_year"].le(
+                max_academic_year - (retention_into_year - 1)
+            ),
             ["student_cohort_year", "max_academic_year"],
         ]
         .astype("Int32")

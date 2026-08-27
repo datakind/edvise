@@ -23,6 +23,7 @@ import typing as t
 
 import pandas as pd
 
+from edvise.targets.shared import validate_retention_into_year
 from edvise.utils import types as type_utils
 
 LOGGER = logging.getLogger(__name__)
@@ -37,15 +38,13 @@ _CREDENTIAL_COLS: tuple[str, ...] = (
     _FIRST_YEAR_CERT,
 )
 
-# Credential completed in academic year 1 or 2 (year index on cohort, values 1–7)
-_Y1_Y2: tuple[int, int] = (1, 2)
-
 
 def assign_retention_column(
     df: pd.DataFrame,
     *,
     student_id_col: str | t.Sequence[str] = "learner_id",
     retention_col: str = "retention",
+    retention_into_year: int = 2,
 ) -> pd.DataFrame:
     """
     Add an integer ``retention`` column (default name ``retention``), **nullable Int8**:
@@ -53,18 +52,20 @@ def assign_retention_column(
 
     **Retained** if **either**
 
-    1. max ``year_of_enrollment_at_cohort_inst`` ≥ 2 (enrollment into second academic
-       year at cohort institution), **or**
-    2. any ``first_year_to_*_at_cohort_inst`` is ``1`` or ``2`` (credential completed
-       in first or second academic year at cohort institution).
+    1. max ``year_of_enrollment_at_cohort_inst`` ≥ ``retention_into_year`` (default 2:
+       enrollment into the second academic year at cohort institution), **or**
+    2. any ``first_year_to_*_at_cohort_inst`` is in ``1 .. retention_into_year``
+       (credential completed by that academic year at cohort institution).
 
     ``student_id_col`` should match the project
     (e.g. :attr:`edvise.configs.es.ESProjectConfig.student_id_col`).
 
     Raises:
-        ValueError: if the enrollment column or id columns are missing, or the frame
-            is empty.
+        ValueError: if the enrollment column or id columns are missing, the frame
+            is empty, or ``retention_into_year`` is not an integer >= 2.
     """
+    retention_into_year = validate_retention_into_year(retention_into_year)
+    cred_years = tuple(range(1, retention_into_year + 1))
     if df.empty:
         raise ValueError("assign_retention_column: dataframe is empty.")
     if YEAR_OF_ENROLLMENT_COL not in df.columns:
@@ -87,13 +88,13 @@ def assign_retention_column(
             "retention uses enrollment leg only (credential leg always false)."
         )
 
-    # --- Leg 1: continued enrollment into the second academic year (at cohort inst) ---
+    # --- Leg 1: continued enrollment into academic year N (at cohort inst) ---
     enroll_max = df.groupby(id_cols, sort=False)[YEAR_OF_ENROLLMENT_COL].max()
-    leg_enroll = enroll_max.ge(2).fillna(False).astype(bool)
+    leg_enroll = enroll_max.ge(retention_into_year).fillna(False).astype(bool)
 
-    # --- Leg 2: credential completed in academic year 1 or 2 (cohort-inst buckets) ---
+    # --- Leg 2: credential completed in academic years 1..N (cohort-inst buckets) ---
     if present_creds:
-        parts = [df[c].isin(_Y1_Y2) for c in present_creds]
+        parts = [df[c].isin(cred_years) for c in present_creds]
         row_has = parts[0]
         for p in parts[1:]:
             row_has = row_has | p
