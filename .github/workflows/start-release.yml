@@ -1,16 +1,12 @@
 name: Start Release
 
 on:
-  workflow_dispatch:
-    inputs:
-      version:
-        description: 'Release version (e.g., 0.1.9)'
-        required: true
-        type: string
+  workflow_dispatch: {}
 
 permissions:
   contents: write
   actions: write
+  pull-requests: read
 
 jobs:
   create-release-branch:
@@ -27,39 +23,11 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Validate version format
-        env:
-          VERSION_INPUT: ${{ github.event.inputs.version }}
-        run: |
-          VERSION="${VERSION_INPUT}"
-          # Strip "v" prefix if provided (e.g., "v0.1.9" -> "0.1.9")
-          VERSION="${VERSION#v}"
-          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Error: Version must be in format X.Y.Z (e.g., 0.1.9 or v0.1.9)"
-            exit 1
-          fi
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
-
-      - name: Check if version already exists
-        run: |
-          git fetch origin --tags --prune
-          if git rev-parse "refs/tags/v${VERSION}" >/dev/null 2>&1; then
-            echo "Error: Tag v${VERSION} already exists"
-            exit 1
-          fi
-          if git show-ref --verify --quiet "refs/remotes/origin/release/${VERSION}"; then
-            echo "Error: Release branch release/${VERSION} already exists"
-            exit 1
-          fi
       - name: Fetch latest changes
         run: |
-          git fetch origin
+          git fetch origin --tags --prune
           git checkout develop
           git pull origin develop
-
-      - name: Create release branch (local only)
-        run: |
-          git checkout -b "release/${{ env.VERSION }}"
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -75,6 +43,42 @@ jobs:
         run: |
           uv venv
           uv pip install .
+
+      - name: Resolve release version
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          uv run python <<'PY' >> "$GITHUB_ENV"
+          import os
+          import sys
+
+          from edvise.utils.automate_releases import plan_release
+
+          version, bump = plan_release(
+              repo=os.environ["GITHUB_REPOSITORY"],
+              token=os.environ.get("GITHUB_TOKEN"),
+          )
+          print(f"VERSION={version}")
+          print(f"BUMP_TYPE={bump}")
+          print(f"Resolved release {version} ({bump})", file=sys.stderr)
+          PY
+
+      - name: Check if version already exists
+        run: |
+          if git rev-parse "refs/tags/v${VERSION}" >/dev/null 2>&1; then
+            echo "Error: Tag v${VERSION} already exists"
+            exit 1
+          fi
+          if git show-ref --verify --quiet "refs/remotes/origin/release/${VERSION}"; then
+            echo "Error: Release branch release/${VERSION} already exists"
+            exit 1
+          fi
+
+      - name: Create release branch (local only)
+        run: |
+          git checkout -b "release/${VERSION}"
 
       - name: Update version metadata
         env:
@@ -111,6 +115,7 @@ jobs:
         run: |
           echo "## Release branch created: release/${VERSION}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Bump type: \`${BUMP_TYPE}\`" >> $GITHUB_STEP_SUMMARY
           echo "✓ Version metadata updated" >> $GITHUB_STEP_SUMMARY
           echo "✓ Release branch pushed" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY

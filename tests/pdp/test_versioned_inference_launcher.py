@@ -45,12 +45,31 @@ def test_sql_select_latest_pipeline_model() -> None:
     assert "model_name = 'retention_into_year_2_associates'" in q
 
 
-def test_silver_training_config_path() -> None:
-    p = mm.silver_training_config_path("dev_sst_02", "miles_cc", "abc123")
-    assert "silver_volume" in p.parts
-    assert "abc123" in p.parts
-    assert p.name == "config.toml"
-    assert p.parent.name == "training"
+def test_resolve_archived_pipeline_version_finds_config_star_toml(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    pytest.importorskip("google.auth")
+    training = tmp_path / "training"
+    training.mkdir()
+    (training / "config_retention.toml").write_text(
+        'pipeline_version = "from_retention"\n', encoding="utf-8"
+    )
+
+    import edvise.utils.databricks as dbx
+
+    real_find = dbx.find_file_in_run_folder
+    monkeypatch.setattr(
+        dbx,
+        "find_file_in_run_folder",
+        lambda root, **kwargs: real_find(str(tmp_path), **kwargs),
+    )
+
+    out = mm.resolve_archived_pipeline_version(
+        db_workspace="dev_sst_02",
+        databricks_institution_name="miles_cc",
+        model_run_id="abc123",
+    )
+    assert out == "from_retention"
 
 
 def test_pipeline_version_from_config_toml() -> None:
@@ -61,15 +80,11 @@ def test_pipeline_version_from_config_toml() -> None:
 def test_resolve_pipeline_version_prefers_config(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    cfg = tmp_path / "config.toml"
-    cfg.write_text('pipeline_version = "from_config_toml"\n', encoding="utf-8")
-
-    def fake_silver_path(
-        db_workspace: str, databricks_institution_name: str, model_run_id: str
-    ) -> Path:
-        return cfg
-
-    monkeypatch.setattr(mm, "silver_training_config_path", fake_silver_path)
+    monkeypatch.setattr(
+        mm,
+        "resolve_archived_pipeline_version",
+        lambda **_: "from_config_toml",
+    )
 
     class _DF:
         def __init__(self, rows):
@@ -98,15 +113,11 @@ def test_resolve_pipeline_version_prefers_config(
 def test_resolve_model_run_fallback_config_toml(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    cfg = tmp_path / "config.toml"
-    cfg.write_text('pipeline_version = "from_config"\n', encoding="utf-8")
-
-    def fake_silver_path(
-        db_workspace: str, databricks_institution_name: str, model_run_id: str
-    ) -> Path:
-        return cfg
-
-    monkeypatch.setattr(mm, "silver_training_config_path", fake_silver_path)
+    monkeypatch.setattr(
+        mm,
+        "resolve_archived_pipeline_version",
+        lambda **_: "from_config",
+    )
 
     class _DF:
         def __init__(self, rows):
@@ -176,19 +187,11 @@ def test_resolve_model_run_no_rows(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_resolve_model_run_from_uc_silver_when_no_pipeline_models_row(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    cfg = tmp_path / "config.toml"
-    cfg.write_text(
-        'pipeline_version = "sha_from_silver_via_uc"\n',
-        encoding="utf-8",
+    monkeypatch.setattr(
+        mm,
+        "resolve_archived_pipeline_version",
+        lambda **_: "sha_from_silver_via_uc",
     )
-
-    def fake_silver_path(
-        db_workspace: str, databricks_institution_name: str, model_run_id: str
-    ) -> Path:
-        assert model_run_id == "uc-run-abc"
-        return cfg
-
-    monkeypatch.setattr(mm, "silver_training_config_path", fake_silver_path)
     monkeypatch.setattr(
         mm,
         "resolve_model_run_id_from_uc_registry",
@@ -215,15 +218,11 @@ def test_resolve_model_run_from_uc_silver_when_no_pipeline_models_row(
 def test_resolve_model_run_explicit_override_skips_lookups(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    cfg = tmp_path / "config.toml"
-    cfg.write_text('pipeline_version = "override_sha"\n', encoding="utf-8")
-
-    def fake_silver_path(
-        db_workspace: str, databricks_institution_name: str, model_run_id: str
-    ) -> Path:
-        return cfg
-
-    monkeypatch.setattr(mm, "silver_training_config_path", fake_silver_path)
+    monkeypatch.setattr(
+        mm,
+        "resolve_archived_pipeline_version",
+        lambda **_: "override_sha",
+    )
 
     def fail_sql(_q):
         raise AssertionError("pipeline_models should not be queried")

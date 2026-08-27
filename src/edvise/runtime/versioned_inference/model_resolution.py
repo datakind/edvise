@@ -40,15 +40,6 @@ def sql_select_latest_pipeline_model(
     )
 
 
-def silver_training_config_path(
-    db_workspace: str, databricks_institution_name: str, model_run_id: str
-) -> Path:
-    return Path(
-        f"/Volumes/{db_workspace}/{databricks_institution_name}_silver/"
-        f"silver_volume/{model_run_id}/training/config.toml"
-    )
-
-
 def pipeline_version_from_config_toml(text: str) -> str | None:
     try:
         data = tomllib.loads(text)
@@ -112,21 +103,26 @@ def resolve_archived_pipeline_version(
     model_run_id: str,
     logger: logging.Logger = LOGGER,
 ) -> str | None:
-    """Read archived ``pipeline_version`` from silver training ``config.toml``."""
-    cfg_path = silver_training_config_path(
-        db_workspace, databricks_institution_name, model_run_id
+    """Read archived ``pipeline_version`` from silver training config (``config*.toml``)."""
+    from edvise.utils.databricks import find_file_in_run_folder
+
+    silver_run_root = (
+        f"/Volumes/{db_workspace}/{databricks_institution_name}_silver/"
+        f"silver_volume/{model_run_id}"
     )
-    if not cfg_path.is_file():
-        logger.error("config.toml not found at %s", cfg_path)
+    try:
+        cfg_path = Path(find_file_in_run_folder(silver_run_root, keyword="config"))
+    except FileNotFoundError:
+        logger.error("No config*.toml found under %s", silver_run_root)
         return None
     try:
         pv = pipeline_version_from_config_toml(cfg_path.read_text(encoding="utf-8"))
     except OSError as exc:
-        logger.warning("Failed to read config.toml: %s", exc)
+        logger.warning("Failed to read config file %s: %s", cfg_path, exc)
         return None
     if pv:
         logger.info(
-            "archived_pipeline_version from silver training config.toml (%s): %s",
+            "archived_pipeline_version from silver training config (%s): %s",
             cfg_path,
             pv,
         )
@@ -151,7 +147,8 @@ def resolve_model_run_and_pipeline_version(
     2. Latest ``pipeline_models`` row for institution + model_name
     3. Unity Catalog registered model (latest version run_id)
 
-    ``archived_pipeline_version`` is read from silver ``.../training/config.toml``.
+    ``archived_pipeline_version`` is read from silver ``config*.toml`` via
+    :func:`edvise.utils.databricks.find_file_in_run_folder` (same as PDP/ES inference).
     """
     model_run_id: str | None = None
 
@@ -202,10 +199,14 @@ def resolve_model_run_and_pipeline_version(
         logger=logger,
     )
     if not archived_pipeline_version:
-        cfg_path = silver_training_config_path(
-            db_workspace, databricks_institution_name, model_run_id
+        silver_run_root = (
+            f"/Volumes/{db_workspace}/{databricks_institution_name}_silver/"
+            f"silver_volume/{model_run_id}"
         )
-        logger.error("Could not resolve archived_pipeline_version from %s", cfg_path)
+        logger.error(
+            "Could not resolve archived_pipeline_version from config under %s",
+            silver_run_root,
+        )
         return None
 
     logger.info(
