@@ -50,7 +50,7 @@ def record_versioned_inference_launcher_event(
     (``parent_launcher_run_id``, ``child_inference_run_id``, ``db_run_id``).
 
     ``archived_pipeline_version`` is the git SHA or release tag from training
-    ``config.toml`` — the ref inference runs at, not the launcher deploy version.
+    config (``config*.toml``) — the ref inference runs at, not the launcher deploy version.
     The same value is written to the ``pipeline_version`` column for dashboard
     compatibility.
 
