@@ -146,29 +146,43 @@ def resolve_release_version(
     return requested, numeric
 
 
+def collect_pr_titles_for_release(
+    repo: str, token: str, since_tag: Optional[str] = None
+) -> list[str]:
+    """Return every merged PR title since ``since_tag``.
+
+    Fails closed: git-history errors and any missing title raise, so bump
+    inference never runs on a partial set of conventional-commit titles.
+    """
+    pr_numbers = get_pr_numbers_from_git_log(since_tag, strict=True)
+    titles: list[str] = []
+    missing: list[int] = []
+    for pr_num in pr_numbers:
+        title = fetch_pr_title(repo, pr_num, token)
+        if title:
+            titles.append(title)
+        else:
+            missing.append(pr_num)
+    if missing:
+        raise RuntimeError(
+            "Failed to fetch PR title(s) for "
+            f"{missing}; cannot infer the release bump from incomplete data."
+        )
+    return titles
+
+
 def plan_release(
     repo: str,
     token: Optional[str] = None,
     requested_version: Optional[str] = None,
 ) -> tuple[str, ReleaseBumpType]:
     """Resolve the next release version from git tags and merged PR titles."""
-    last_tag = get_last_version_tag()
+    last_tag = get_last_version_tag(strict=True)
     previous = last_tag.lstrip("v") if last_tag else None
 
     titles: list[str] = []
     if token:
-        pr_numbers = get_pr_numbers_from_git_log(last_tag)
-        fetched = 0
-        for pr_num in pr_numbers:
-            title = fetch_pr_title(repo, pr_num, token)
-            if title:
-                titles.append(title)
-                fetched += 1
-        if pr_numbers and fetched == 0:
-            raise RuntimeError(
-                "Failed to fetch PR titles; cannot infer the release bump from "
-                "conventional commits."
-            )
+        titles = collect_pr_titles_for_release(repo, token, last_tag)
     elif not requested_version:
         raise ValueError(
             "GitHub token is required to infer the release version from PR titles"
@@ -185,8 +199,12 @@ def plan_release(
     return version, bump
 
 
-def get_last_version_tag() -> Optional[str]:
-    """Get the last version tag from git."""
+def get_last_version_tag(*, strict: bool = False) -> Optional[str]:
+    """Get the last version tag from git.
+
+    Empty tag lists return ``None``. When ``strict`` is True, a failed git
+    command raises instead of looking like "no previous release".
+    """
     try:
         result = subprocess.run(
             ["git", "tag", "--sort=-version:refname", "--list", "v*"],
@@ -196,11 +214,15 @@ def get_last_version_tag() -> Optional[str]:
         )
         tags = [tag.strip() for tag in result.stdout.strip().split("\n") if tag.strip()]
         return tags[0] if tags else None
-    except subprocess.CalledProcessError:
+    except subprocess.CalledProcessError as exc:
+        if strict:
+            raise RuntimeError("Failed to list version tags from git") from exc
         return None
 
 
-def get_pr_numbers_from_git_log(since_tag: Optional[str] = None) -> list[int]:
+def get_pr_numbers_from_git_log(
+    since_tag: Optional[str] = None, *, strict: bool = False
+) -> list[int]:
     if since_tag:
         log_range = f"{since_tag}..origin/develop"
     else:
@@ -221,7 +243,12 @@ def get_pr_numbers_from_git_log(since_tag: Optional[str] = None) -> list[int]:
                 pr_numbers.add(int(m.group(1)))
 
         return sorted(pr_numbers)
-    except subprocess.CalledProcessError:
+    except subprocess.CalledProcessError as exc:
+        if strict:
+            raise RuntimeError(
+                "Failed to read git history for merged PRs; cannot infer the "
+                "release bump from incomplete data."
+            ) from exc
         return []
 
 

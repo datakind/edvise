@@ -93,6 +93,12 @@ class TestPRFetching:
         assert result is None
 
     @patch("edvise.utils.automate_releases.subprocess.run")
+    def test_get_last_version_tag_strict_error(self, mock_run):
+        mock_run.side_effect = subprocess.CalledProcessError(1, "git")
+        with pytest.raises(RuntimeError, match="Failed to list version tags"):
+            automate_releases.get_last_version_tag(strict=True)
+
+    @patch("edvise.utils.automate_releases.subprocess.run")
     def test_get_pr_numbers_success(self, mock_run):
         """Test successful PR number extraction."""
         mock_run.return_value = self._mock_git_log(
@@ -165,6 +171,12 @@ class TestPRFetching:
         mock_run.side_effect = subprocess.CalledProcessError(1, "git")
         result = automate_releases.get_pr_numbers_from_git_log("v0.1.8")
         assert result == []
+
+    @patch("edvise.utils.automate_releases.subprocess.run")
+    def test_get_pr_numbers_strict_error(self, mock_run):
+        mock_run.side_effect = subprocess.CalledProcessError(1, "git")
+        with pytest.raises(RuntimeError, match="Failed to read git history"):
+            automate_releases.get_pr_numbers_from_git_log("v0.1.8", strict=True)
 
     @patch("edvise.utils.automate_releases.urllib.request.urlopen")
     @patch("edvise.utils.automate_releases.json.loads")
@@ -355,7 +367,39 @@ class TestReleaseBumpClassification:
                 return_value=None,
             ),
         ):
-            with pytest.raises(RuntimeError, match="Failed to fetch PR titles"):
+            with pytest.raises(RuntimeError, match="Failed to fetch PR title"):
+                automate_releases.plan_release("owner/repo", "token")
+
+    def test_plan_release_fails_when_any_title_cannot_be_fetched(self):
+        with (
+            patch(
+                "edvise.utils.automate_releases.get_last_version_tag",
+                return_value="v1.4.5",
+            ),
+            patch(
+                "edvise.utils.automate_releases.get_pr_numbers_from_git_log",
+                return_value=[10, 11],
+            ),
+            patch(
+                "edvise.utils.automate_releases.fetch_pr_title",
+                side_effect=["fix: typo", None],
+            ),
+        ):
+            with pytest.raises(RuntimeError, match=r"\[11\]"):
+                automate_releases.plan_release("owner/repo", "token")
+
+    def test_plan_release_fails_when_git_history_cannot_be_read(self):
+        with (
+            patch(
+                "edvise.utils.automate_releases.get_last_version_tag",
+                return_value="v1.4.5",
+            ),
+            patch(
+                "edvise.utils.automate_releases.get_pr_numbers_from_git_log",
+                side_effect=RuntimeError("Failed to read git history for merged PRs"),
+            ),
+        ):
+            with pytest.raises(RuntimeError, match="Failed to read git history"):
                 automate_releases.plan_release("owner/repo", "token")
 
 

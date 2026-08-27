@@ -70,37 +70,36 @@ jobs:
               assert_numeric_bump_covers_conventional,
               classify_conventional_titles_bump,
               classify_release_bump,
-              fetch_pr_title,
+              collect_pr_titles_for_release,
               get_last_version_tag,
-              get_pr_numbers_from_git_log,
               next_semver,
               should_run_release_integration,
           )
           import os
 
           version = '${VER}'
-          previous_tag = get_last_version_tag()
+          previous_tag = get_last_version_tag(strict=True)
           previous_version = previous_tag.lstrip('v') if previous_tag else None
           bump = classify_release_bump(version, previous_version)
 
           token = os.environ.get('GITHUB_TOKEN')
           repo = os.environ.get('GITHUB_REPOSITORY')
-          if token and repo:
-              titles = []
-              for pr_num in get_pr_numbers_from_git_log(previous_tag):
-                  title = fetch_pr_title(repo, pr_num, token)
-                  if title:
-                      titles.append(title)
-              inferred = classify_conventional_titles_bump(titles)
-              expected = (
-                  next_semver(previous_version, inferred) if previous_version else None
+          if not token or not repo:
+              raise RuntimeError(
+                  'GITHUB_TOKEN and GITHUB_REPOSITORY are required to validate '
+                  'the release bump against PR titles.'
               )
-              assert_numeric_bump_covers_conventional(
-                  bump,
-                  inferred,
-                  version=version,
-                  expected_version=expected,
-              )
+          titles = collect_pr_titles_for_release(repo, token, previous_tag)
+          inferred = classify_conventional_titles_bump(titles)
+          expected = (
+              next_semver(previous_version, inferred) if previous_version else None
+          )
+          assert_numeric_bump_covers_conventional(
+              bump,
+              inferred,
+              version=version,
+              expected_version=expected,
+          )
 
           run = should_run_release_integration(version, previous_version)
           if os.environ.get('FORCE_INTEGRATION', 'false').lower() == 'true':
