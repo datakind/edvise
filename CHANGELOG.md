@@ -1,3 +1,9 @@
+## 1.10.0 (2026-08-27)
+- feat(genai): mapping reference pin infrastructure (#276)
+- ci(release): infer release bump from conventional PR titles (#289)
+- fix: surface original exceptions from versioned inference launcher (#293)
+- fix: versioned inference config discovery (#297)
+
 ## 1.9.3 (2026-08-25)
 - fix(legacy): setting predict keyword to be batch-scoped & allowing multiple keywords (#290)
 - fix: replace "." with "d" to allow for unity catalog model name with decimals (#291)
