@@ -5,6 +5,7 @@ bundle:
 include:
   - resources/github_genai_mapping_onboard.yml
   - resources/github_genai_mapping_execute.yml
+  - resources/github_genai_mapping_pin_reference.yml
 
 variables:
   git_commit:
@@ -50,6 +51,11 @@ targets:
             git_url: https://github.com/datakind/edvise
             git_provider: gitHub
             git_commit: ${var.git_commit}
+        edvise_genai_mapping_pin_reference_pipeline:
+          git_source:
+            git_url: https://github.com/datakind/edvise
+            git_provider: gitHub
+            git_commit: ${var.git_commit}
 
   prod:
     mode: production
@@ -65,6 +71,11 @@ targets:
             git_provider: gitHub
             git_tag: ${var.git_tag}
         edvise_genai_mapping_execute_pipeline:
+          git_source:
+            git_url: https://github.com/datakind/edvise
+            git_provider: gitHub
+            git_tag: ${var.git_tag}
+        edvise_genai_mapping_pin_reference_pipeline:
           git_source:
             git_url: https://github.com/datakind/edvise
             git_provider: gitHub
