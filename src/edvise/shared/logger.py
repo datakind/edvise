@@ -5,10 +5,12 @@ import json
 import shutil
 import argparse
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Union
-from edvise.configs.es import ESProjectConfig
-from edvise.configs.legacy import LegacyProjectConfig
-from edvise.configs.pdp import PDPProjectConfig
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+
+if TYPE_CHECKING:
+    from edvise.configs.es import ESProjectConfig
+    from edvise.configs.legacy import LegacyProjectConfig
+    from edvise.configs.pdp import PDPProjectConfig
 
 
 class _FlushTolerantStreamHandler(logging.StreamHandler):
@@ -177,7 +179,7 @@ def resolve_genai_segment_log_path(
 
 def resolve_run_path(
     args: argparse.Namespace,
-    cfg: Union[PDPProjectConfig, ESProjectConfig, LegacyProjectConfig],
+    cfg: Union["PDPProjectConfig", "ESProjectConfig", "LegacyProjectConfig"],
     silver_volume_path: str,
 ) -> str:
     if args.job_type == "training":
