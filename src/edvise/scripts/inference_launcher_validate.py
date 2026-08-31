@@ -26,6 +26,4 @@ if os.path.isdir(_src_root) and os.path.isdir(os.path.join(_src_root, "edvise"))
 from edvise.runtime.versioned_inference.tasks.validate import main  # noqa: E402
 
 if __name__ == "__main__":
-    _rc = main()
-    if _rc:
-        raise SystemExit(_rc)
+    main()
