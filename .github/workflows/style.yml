@@ -48,6 +48,9 @@ jobs:
         with:
           titleOnly: true
           validateSingleCommit: false
+          # Breaking changes use type!: or type(scope)!: — e.g. feat!, fix!.
+          # The bang is part of Conventional Commits, not a separate type, so
+          # those titles pass this check and map to a major release bump.
           types: |
             feat
             fix

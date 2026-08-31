@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -44,12 +45,31 @@ def test_sql_select_latest_pipeline_model() -> None:
     assert "model_name = 'retention_into_year_2_associates'" in q
 
 
-def test_silver_training_config_path() -> None:
-    p = mm.silver_training_config_path("dev_sst_02", "miles_cc", "abc123")
-    assert "silver_volume" in p.parts
-    assert "abc123" in p.parts
-    assert p.name == "config.toml"
-    assert p.parent.name == "training"
+def test_resolve_archived_pipeline_version_finds_config_star_toml(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    pytest.importorskip("google.auth")
+    training = tmp_path / "training"
+    training.mkdir()
+    (training / "config_retention.toml").write_text(
+        'pipeline_version = "from_retention"\n', encoding="utf-8"
+    )
+
+    import edvise.utils.databricks as dbx
+
+    real_find = dbx.find_file_in_run_folder
+    monkeypatch.setattr(
+        dbx,
+        "find_file_in_run_folder",
+        lambda root, **kwargs: real_find(str(tmp_path), **kwargs),
+    )
+
+    out = mm.resolve_archived_pipeline_version(
+        db_workspace="dev_sst_02",
+        databricks_institution_name="miles_cc",
+        model_run_id="abc123",
+    )
+    assert out == "from_retention"
 
 
 def test_pipeline_version_from_config_toml() -> None:
@@ -60,15 +80,11 @@ def test_pipeline_version_from_config_toml() -> None:
 def test_resolve_pipeline_version_prefers_config(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    cfg = tmp_path / "config.toml"
-    cfg.write_text('pipeline_version = "from_config_toml"\n', encoding="utf-8")
-
-    def fake_silver_path(
-        db_workspace: str, databricks_institution_name: str, model_run_id: str
-    ) -> Path:
-        return cfg
-
-    monkeypatch.setattr(mm, "silver_training_config_path", fake_silver_path)
+    monkeypatch.setattr(
+        mm,
+        "resolve_archived_pipeline_version",
+        lambda **_: "from_config_toml",
+    )
 
     class _DF:
         def __init__(self, rows):
@@ -97,15 +113,11 @@ def test_resolve_pipeline_version_prefers_config(
 def test_resolve_model_run_fallback_config_toml(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    cfg = tmp_path / "config.toml"
-    cfg.write_text('pipeline_version = "from_config"\n', encoding="utf-8")
-
-    def fake_silver_path(
-        db_workspace: str, databricks_institution_name: str, model_run_id: str
-    ) -> Path:
-        return cfg
-
-    monkeypatch.setattr(mm, "silver_training_config_path", fake_silver_path)
+    monkeypatch.setattr(
+        mm,
+        "resolve_archived_pipeline_version",
+        lambda **_: "from_config",
+    )
 
     class _DF:
         def __init__(self, rows):
@@ -175,19 +187,11 @@ def test_resolve_model_run_no_rows(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_resolve_model_run_from_uc_silver_when_no_pipeline_models_row(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    cfg = tmp_path / "config.toml"
-    cfg.write_text(
-        'pipeline_version = "sha_from_silver_via_uc"\n',
-        encoding="utf-8",
+    monkeypatch.setattr(
+        mm,
+        "resolve_archived_pipeline_version",
+        lambda **_: "sha_from_silver_via_uc",
     )
-
-    def fake_silver_path(
-        db_workspace: str, databricks_institution_name: str, model_run_id: str
-    ) -> Path:
-        assert model_run_id == "uc-run-abc"
-        return cfg
-
-    monkeypatch.setattr(mm, "silver_training_config_path", fake_silver_path)
     monkeypatch.setattr(
         mm,
         "resolve_model_run_id_from_uc_registry",
@@ -214,15 +218,11 @@ def test_resolve_model_run_from_uc_silver_when_no_pipeline_models_row(
 def test_resolve_model_run_explicit_override_skips_lookups(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    cfg = tmp_path / "config.toml"
-    cfg.write_text('pipeline_version = "override_sha"\n', encoding="utf-8")
-
-    def fake_silver_path(
-        db_workspace: str, databricks_institution_name: str, model_run_id: str
-    ) -> Path:
-        return cfg
-
-    monkeypatch.setattr(mm, "silver_training_config_path", fake_silver_path)
+    monkeypatch.setattr(
+        mm,
+        "resolve_archived_pipeline_version",
+        lambda **_: "override_sha",
+    )
 
     def fail_sql(_q):
         raise AssertionError("pipeline_models should not be queried")
@@ -269,11 +269,50 @@ def test_main_ok_yaml_snapshot_only(
         "--release_base_path",
         str(tmp_path),
     ]
-    assert validate_task.main(argv) == 0
+    assert validate_task.main(argv) is None
 
 
 def test_main_requires_institution_model_workspace() -> None:
-    assert validate_task.main(["--DB_workspace", "dev_sst_02"]) == 1
+    with pytest.raises(ValueError, match="Require --databricks_institution_name"):
+        validate_task.main(["--DB_workspace", "dev_sst_02"])
+
+
+def test_main_raises_original_error_and_records_failure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Failures surface the underlying exception, not an exit code."""
+    monkeypatch.setattr(validate_task, "get_spark_session", lambda: object())
+    monkeypatch.setattr(
+        validate_task,
+        "resolve_model_run_and_pipeline_version",
+        lambda **_: ("resolved-mr", "missing_version"),
+    )
+
+    argv = [
+        "--databricks_institution_name",
+        "miles_cc",
+        "--model_name",
+        "retention_into_year_2_associates",
+        "--DB_workspace",
+        "dev_sst_02",
+        "--release_base_path",
+        str(tmp_path),
+        "--launcher_run_id",
+        "439619245566927",
+    ]
+    with patch(
+        "edvise.shared.dashboard_metadata.pipeline_runs.append_pipeline_run_event",
+        return_value=True,
+    ) as append:
+        with pytest.raises(
+            FileNotFoundError, match="Release bundle directory not found"
+        ):
+            validate_task.main(argv)
+
+    kwargs = append.call_args.kwargs
+    assert kwargs["event"] == "failed"
+    assert "Release bundle directory not found" in kwargs["error_message"]
+    assert kwargs["model_run_id"] == "resolved-mr"
 
 
 def test_parse_python_xy() -> None:

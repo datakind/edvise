@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass
 from typing import Any
 
 LOGGER = logging.getLogger(__name__)
@@ -47,7 +50,7 @@ def record_versioned_inference_launcher_event(
     (``parent_launcher_run_id``, ``child_inference_run_id``, ``db_run_id``).
 
     ``archived_pipeline_version`` is the git SHA or release tag from training
-    ``config.toml`` — the ref inference runs at, not the launcher deploy version.
+    config (``config*.toml``) — the ref inference runs at, not the launcher deploy version.
     The same value is written to the ``pipeline_version`` column for dashboard
     compatibility.
 
@@ -93,3 +96,48 @@ def record_versioned_inference_launcher_event(
         error_message=error_message,
         payload=body,
     )
+
+
+@dataclass
+class LauncherEventContext:
+    """Identifiers a launcher task resolves as it runs, for the ``failed`` event."""
+
+    model_run_id: str | None = None
+    archived_pipeline_version: str | None = None
+
+
+@contextmanager
+def record_launcher_failures(
+    *,
+    catalog: str,
+    databricks_institution_name: str,
+    model_name: str,
+    launcher_run_id: str | None,
+    task: str,
+    logger: logging.Logger = LOGGER,
+) -> Iterator[LauncherEventContext]:
+    """
+    Record a ``failed`` launcher event, then re-raise the original exception.
+
+    Databricks fails a ``spark_python_task`` on any non-zero exit, so re-raising
+    keeps the underlying traceback in the run output instead of replacing it with
+    an exit code.
+    """
+    context = LauncherEventContext()
+    try:
+        yield context
+    except Exception as exc:
+        logger.error("%s failed: %s", task, exc)
+        record_versioned_inference_launcher_event(
+            catalog=catalog,
+            event="failed",
+            databricks_institution_name=databricks_institution_name,
+            model_name=model_name,
+            model_run_id=context.model_run_id,
+            archived_pipeline_version=context.archived_pipeline_version,
+            launcher_run_id=launcher_run_id,
+            error_message=str(exc),
+            payload={"task": task},
+            logger=logger,
+        )
+        raise

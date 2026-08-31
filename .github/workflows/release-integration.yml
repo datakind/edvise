@@ -17,6 +17,7 @@ on:
 permissions:
   contents: read
   actions: write
+  pull-requests: read
 
 concurrency:
   group: release-branch-ci-dev-${{ github.ref }}
@@ -56,6 +57,8 @@ jobs:
       - id: classify
         env:
           FORCE_INTEGRATION: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force_integration || 'false' }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
           BR="${GITHUB_REF#refs/heads/}"
@@ -64,16 +67,40 @@ jobs:
 
           read -r BUMP RUN <<< "$(uv run python -c "
           from edvise.utils.automate_releases import (
+              assert_numeric_bump_covers_conventional,
+              classify_conventional_titles_bump,
               classify_release_bump,
+              collect_pr_titles_for_release,
               get_last_version_tag,
+              next_semver,
               should_run_release_integration,
           )
           import os
 
           version = '${VER}'
-          previous_tag = get_last_version_tag()
+          previous_tag = get_last_version_tag(strict=True)
           previous_version = previous_tag.lstrip('v') if previous_tag else None
           bump = classify_release_bump(version, previous_version)
+
+          token = os.environ.get('GITHUB_TOKEN')
+          repo = os.environ.get('GITHUB_REPOSITORY')
+          if not token or not repo:
+              raise RuntimeError(
+                  'GITHUB_TOKEN and GITHUB_REPOSITORY are required to validate '
+                  'the release bump against PR titles.'
+              )
+          titles = collect_pr_titles_for_release(repo, token, previous_tag)
+          inferred = classify_conventional_titles_bump(titles)
+          expected = (
+              next_semver(previous_version, inferred) if previous_version else None
+          )
+          assert_numeric_bump_covers_conventional(
+              bump,
+              inferred,
+              version=version,
+              expected_version=expected,
+          )
+
           run = should_run_release_integration(version, previous_version)
           if os.environ.get('FORCE_INTEGRATION', 'false').lower() == 'true':
               run = True
