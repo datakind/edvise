@@ -32,7 +32,7 @@ from edvise.ingestion.nsc_sftp.constants import (
     SFTP_SOURCE_SYSTEM,
     SFTP_TMP_DIR,
 )
-from edvise.ingestion.nsc_sftp.file_selection import select_file_pair
+from edvise.ingestion.nsc_sftp.file_selection import classify_pdp_file_role, select_file_pair
 from edvise.ingestion.nsc_sftp.helpers import (
     bronze_written_file_names,
     build_listing_df,
@@ -79,9 +79,14 @@ try:
         runtime.notebook_exit(dbutils, "NO_FILES")
 
     available = sorted({r["file_name"] for r in file_rows_all if r.get("file_name")})
-    logger.info("SFTP files=%s preview=%s", len(available), available[:25])
-    if len(available) > 25:
-        logger.info("SFTP files truncated preview; total=%s", len(available))
+    ar_cohort_files = [
+        name for name in available if classify_pdp_file_role(name) == "cohort"
+    ]
+    ar_course_files = [
+        name for name in available if classify_pdp_file_role(name) == "course"
+    ]
+    log_section(logger, "AR cohort files on SFTP", ar_cohort_files)
+    log_section(logger, "AR course files on SFTP", ar_course_files)
 
     cohort_file_name, course_file_name, mode_used = select_file_pair(
         file_rows_all,
@@ -93,11 +98,14 @@ try:
         if force_reingest
         else bronze_written_file_names(spark),
     )
-    logger.info(
-        "Selected via %s: cohort=%s course=%s",
-        mode_used,
-        cohort_file_name,
-        course_file_name,
+    log_section(
+        logger,
+        "Selected",
+        [
+            f"mode={mode_used}",
+            f"cohort={cohort_file_name}",
+            f"course={course_file_name}",
+        ],
     )
 
     requested = {cohort_file_name, course_file_name}
