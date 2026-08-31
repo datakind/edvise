@@ -39,7 +39,7 @@ from edvise.ingestion.nsc_sftp.helpers import (
     backfill_plan_institution_identity,
     ensure_plan_table,
     extract_institution_ids,
-    log_labeled_lines,
+    log_section,
     merge_institution_plan_rows,
     resolve_sst_institutions,
 )
@@ -52,6 +52,8 @@ INST_COL_PATTERN = re.compile(INSTITUTION_COLUMN_PATTERN, re.IGNORECASE)
 api_client = runtime.require_edvise_api_client(dbutils)
 ensure_plan_table(spark, PLAN_TABLE_PATH)
 backfilled = backfill_plan_institution_identity(spark, api_client, PLAN_TABLE_PATH)
+
+logger.info("Stage 02 — expand queued files into institution plan")
 
 if not spark.catalog.tableExists(QUEUE_TABLE_PATH):
     runtime.notebook_exit(dbutils, f"NO_QUEUE_TABLE;BACKFILLED={backfilled}")
@@ -66,6 +68,7 @@ queue_df = queue_df.join(
     how="left_anti",
 )
 if queue_df.limit(1).count() == 0:
+    logger.info("No new files to expand (all already in plan).")
     runtime.notebook_exit(dbutils, f"NO_NEW_EXPANSION_WORK;BACKFILLED={backfilled}")
 
 queued_files = queue_df.select(
@@ -76,11 +79,10 @@ queued_files = queue_df.select(
     "file_modified_time",
 ).collect()
 
-logger.info("Expanding %s queued file(s) not yet in plan", len(queued_files))
+logger.info("Expanding %s queued file(s)", len(queued_files))
 
 pending: dict[str, tuple[dict[str, Any], list[str], str]] = {}
 missing: list[str] = []
-discovered_lines: list[str] = []
 now_ts = datetime.now(timezone.utc)
 
 for row in queued_files:
@@ -94,7 +96,7 @@ for row in queued_files:
         local_path, renames=COLUMN_RENAMES, inst_col_pattern=INST_COL_PATTERN
     )
     if not inst_col or not inst_ids:
-        logger.warning("No institution IDs for file=%s fp=%s; skipping.", file_name, fp)
+        logger.warning("No institution IDs in file=%s; skipping.", file_name)
         continue
     pending[fp] = (
         {
@@ -106,17 +108,18 @@ for row in queued_files:
         inst_ids,
         inst_col,
     )
-    for pdp_id in inst_ids:
-        discovered_lines.append(
-            f"file={file_name} pdp_id={pdp_id} inst_col={inst_col} path={local_path}"
-        )
+    logger.info(
+        "File %s: found %s unique PDP id(s) in column %s: %s",
+        file_name,
+        len(inst_ids),
+        inst_col,
+        ",".join(inst_ids[:20]) + ("..." if len(inst_ids) > 20 else ""),
+    )
 
 if missing:
     raise FileNotFoundError("Missing staged files: " + "; ".join(missing))
 if not pending:
     runtime.notebook_exit(dbutils, f"NO_WORK_ITEMS;BACKFILLED={backfilled}")
-
-log_labeled_lines(logger, "DISCOVERED_PDP_IDS", discovered_lines)
 
 all_pdp_ids = [pid for _, ids, _ in pending.values() for pid in ids]
 sst_by_pdp = resolve_sst_institutions(api_client, all_pdp_ids)
@@ -124,14 +127,14 @@ unresolved = sorted(
     {str(p).strip() for p in all_pdp_ids if str(p).strip()} - set(sst_by_pdp)
 )
 
-planned_lines: list[str] = []
+planned_unique: dict[str, str] = {}
 unresolved_lines: list[str] = []
 work_items: list[dict[str, Any]] = []
 for fp, (meta, inst_ids, inst_col) in pending.items():
     for pdp_id in inst_ids:
         if pdp_id not in sst_by_pdp:
             unresolved_lines.append(
-                f"file={meta['file_name']} pdp_id={pdp_id} reason=sst_not_found"
+                f"pdp_id={pdp_id} file={meta['file_name']} (not in SST)"
             )
             continue
         inst_id, inst_name = sst_by_pdp[pdp_id]
@@ -149,13 +152,15 @@ for fp, (meta, inst_ids, inst_col) in pending.items():
                 "planned_at": now_ts,
             }
         )
-        planned_lines.append(
-            f"file={meta['file_name']} pdp_id={pdp_id} inst_id={inst_id} "
-            f"institution={inst_name!r}"
-        )
+        planned_unique[str(pdp_id)] = str(inst_name)
 
-log_labeled_lines(logger, "PLANNED", planned_lines)
-log_labeled_lines(logger, "UNRESOLVED", unresolved_lines)
+log_section(
+    logger,
+    "Institutions planned for bronze",
+    [f"pdp_id={pdp_id} {name}" for pdp_id, name in sorted(planned_unique.items())],
+)
+if unresolved_lines:
+    log_section(logger, "Unresolved PDP ids (skipped)", sorted(set(unresolved_lines)))
 
 if not work_items:
     logger.error(
@@ -170,22 +175,17 @@ if not work_items:
     )
 
 n = merge_institution_plan_rows(spark, PLAN_TABLE_PATH, work_items)
-logger.info(
-    "Wrote/updated %s plan row(s) into %s (unresolved_pdp_ids=%s)",
-    n,
-    PLAN_TABLE_PATH,
-    len(unresolved),
-)
-# notebook_exit is what Databricks shows in the task Output panel
-# Deduplicate by PDP id — cohort+course both plan the same schools.
-planned_unique: dict[str, str] = {}
-for w in work_items:
-    planned_unique[str(w["institution_id"])] = str(w["institution_name"])
 planned_summary = (
     "|".join(f"{pdp_id}:{name}" for pdp_id, name in sorted(planned_unique.items()))
     or "None"
 )
 unresolved_summary = ",".join(unresolved[:20]) or "None"
+logger.info(
+    "Stage 02 done — %s plan row(s), %s institution(s), %s unresolved",
+    n,
+    len(planned_unique),
+    len(unresolved),
+)
 runtime.notebook_exit(
     dbutils,
     f"WORK_ITEMS={n};UNRESOLVED={len(unresolved)};BACKFILLED={backfilled};"

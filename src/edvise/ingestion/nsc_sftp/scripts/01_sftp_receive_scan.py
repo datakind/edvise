@@ -39,7 +39,7 @@ from edvise.ingestion.nsc_sftp.helpers import (
     download_new_files_and_queue,
     ensure_manifest_and_queue_tables,
     get_files_to_queue,
-    log_labeled_lines,
+    log_section,
     reset_files_for_reingest,
     upsert_new_to_manifest,
 )
@@ -62,11 +62,9 @@ file_selection_mode = (
 force_reingest = runtime.job_param_bool("force_reingest", False)
 
 logger.info(
-    "Selection inputs: mode=%s force_reingest=%s cohort=%r course=%r staging=%s",
+    "Stage 01 — SFTP scan: mode=%s force_reingest=%s staging=%s",
     file_selection_mode,
     force_reingest,
-    cohort_file_name,
-    course_file_name,
     SFTP_TMP_DIR,
 )
 
@@ -82,6 +80,8 @@ try:
 
     available = sorted({r["file_name"] for r in file_rows_all if r.get("file_name")})
     logger.info("SFTP files=%s preview=%s", len(available), available[:25])
+    if len(available) > 25:
+        logger.info("SFTP files truncated preview; total=%s", len(available))
 
     cohort_file_name, course_file_name, mode_used = select_file_pair(
         file_rows_all,
@@ -122,7 +122,7 @@ try:
 
     df_to_queue = get_files_to_queue(spark, df_listing)
     if df_to_queue.limit(1).count() == 0:
-        logger.info("Nothing NEW to queue; exiting.")
+        logger.info("Nothing new to queue; exiting.")
         runtime.notebook_exit(dbutils, "QUEUED_FILES=0")
 
     # Collect metadata before download: after queue upsert, left_anti makes
@@ -131,29 +131,14 @@ try:
         "file_name", "file_fingerprint", "sftp_path", "file_size"
     ).collect()
     queued_count = download_new_files_and_queue(spark, sftp, df_to_queue, logger)
-    log_labeled_lines(
+    log_section(
         logger,
-        "SELECTED",
-        [
-            f"cohort={cohort_file_name}",
-            f"course={course_file_name}",
-            f"mode={mode_used} force_reingest={force_reingest}",
-        ],
-    )
-    log_labeled_lines(
-        logger,
-        "QUEUED",
-        [
-            f"file={r['file_name']} fp={r['file_fingerprint']} "
-            f"size={r['file_size']} sftp={r['sftp_path']}"
-            for r in queued_rows
-        ],
+        "Queued for expansion",
+        [f"{r['file_name']} (size={r['file_size']})" for r in queued_rows],
     )
     logger.info(
-        "Note: institution PDP ids are discovered in file_institution_expand "
-        "(stage 02), not in this scan task."
+        "Stage 01 done — queued %s file(s) into %s", queued_count, QUEUE_TABLE_PATH
     )
-    logger.info("Queued %s file(s) into %s", queued_count, QUEUE_TABLE_PATH)
     queued_names = ",".join(str(r["file_name"]) for r in queued_rows) or "None"
     runtime.notebook_exit(
         dbutils,

@@ -383,9 +383,7 @@ def download_new_files_and_queue(
 
         # If local already exists (e.g., rerun), skip re-download
         if not os.path.exists(local_path):
-            logger.info(
-                f"Downloading new file from SFTP: {remote_path} -> {local_path}"
-            )
+            logger.info("Downloading %s", file_name)
             download_sftp_atomic(
                 sftp,
                 remote_path,
@@ -394,7 +392,7 @@ def download_new_files_and_queue(
                 verify=SFTP_VERIFY_DOWNLOAD,
             )
         else:
-            logger.info(f"Local file already staged, skipping download: {local_path}")
+            logger.info("Already staged, skipping download: %s", file_name)
 
         queued.append(
             {
@@ -562,14 +560,18 @@ def resolve_sst_institutions(
     return resolved
 
 
-def log_labeled_lines(logger: logging.Logger, label: str, lines: Sequence[str]) -> None:
-    """Emit a labeled end-of-task summary block (one line per item)."""
-    logger.info("=== %s (%s) ===", label, len(lines))
+def log_section(logger: logging.Logger, title: str, lines: Sequence[str]) -> None:
+    """Emit a short operator-facing section (title + indented detail lines)."""
+    logger.info("%s (%s)", title, len(lines))
     if not lines:
-        logger.info("%s (none)", label)
+        logger.info("  (none)")
         return
     for line in lines:
-        logger.info("%s %s", label, line)
+        logger.info("  %s", line)
+
+
+# Back-compat alias used by older call sites / notebooks.
+log_labeled_lines = log_section
 
 
 def backfill_plan_institution_identity(
@@ -698,7 +700,10 @@ def load_staged_csv(
     inst_col: Optional[str] = None,
 ) -> pd.DataFrame:
     """
-    Load a staged CSV once with institution IDs forced to string when possible.
+    Load a staged CSV once with institution IDs forced to normalized strings.
+
+    Normalization matches ``extract_institution_ids`` so stage-03 filters do not
+    miss rows due to float/`345000.0`/whitespace variants of the same PDP id.
     """
     header_cols = pd.read_csv(local_path, nrows=0).columns.tolist()
     header_map = _normalize_header_map(header_cols, renames)
@@ -710,7 +715,30 @@ def load_staged_csv(
         if raw_inst_col:
             dtype = {raw_inst_col: str}
     df = pd.read_csv(local_path, on_bad_lines="warn", dtype=dtype)
-    return normalize_staged_frame(df, renames=renames)
+    df = normalize_staged_frame(df, renames=renames)
+    if inst_col and inst_col in df.columns:
+        df[inst_col] = df[inst_col].map(_normalize_institution_id)
+    return df
+
+
+def group_dataframe_by_institution_id(
+    df: pd.DataFrame, inst_col: str, wanted_ids: Sequence[str]
+) -> dict[str, pd.DataFrame]:
+    """
+    Split ``df`` by normalized institution id, keeping only ``wanted_ids``.
+
+    Keys are normalized PDP id strings (same rules as extract/load).
+    """
+    wanted = {str(x).strip() for x in wanted_ids if str(x).strip()}
+    if not wanted or inst_col not in df.columns:
+        return {}
+    out: dict[str, pd.DataFrame] = {}
+    for key, group in df.groupby(inst_col, sort=False, dropna=True):
+        norm = _normalize_institution_id(key)
+        if norm is None or norm not in wanted:
+            continue
+        out[norm] = group.reset_index(drop=True)
+    return out
 
 
 def summarize_file_metrics(

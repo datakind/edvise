@@ -41,6 +41,29 @@ def test_extract_institution_ids_handles_numeric(tmp_path):
     assert inst_ids == ["323100", "323101", "323102", "323103"]
 
 
+def test_load_and_group_matches_extract_with_floatish_ids(tmp_path):
+    """Stage-03 filter must find the same PDP ids stage-02 extracted."""
+    from edvise.ingestion.nsc_sftp.helpers import (
+        group_dataframe_by_institution_id,
+        load_staged_csv,
+    )
+
+    # NaNs force pandas float inference when dtype is not applied.
+    csv_path = tmp_path / "staged.csv"
+    csv_path.write_text("InstitutionID,other\n345000,1\n,2\n345000.0,3\n 345000 ,4\n")
+
+    inst_col_pattern = re.compile(r"(?=.*institution)(?=.*id)", re.IGNORECASE)
+    inst_col, inst_ids = extract_institution_ids(
+        str(csv_path), renames={}, inst_col_pattern=inst_col_pattern
+    )
+    assert inst_ids == ["345000"]
+
+    df = load_staged_csv(str(csv_path), renames={}, inst_col=inst_col)
+    grouped = group_dataframe_by_institution_id(df, inst_col, inst_ids)
+    assert set(grouped) == {"345000"}
+    assert len(grouped["345000"]) == 3
+
+
 def test_databricksify_inst_name():
     assert databricksify_inst_name("Big State University") == "big_state_uni"
 

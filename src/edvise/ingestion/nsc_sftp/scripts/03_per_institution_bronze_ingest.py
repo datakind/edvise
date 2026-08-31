@@ -20,7 +20,6 @@ for _ in range(8):
         break
     _cur = _nxt
 
-import pandas as pd  # noqa: E402
 from edvise.ingestion.nsc_sftp import runtime  # noqa: E402
 
 runtime.bootstrap_catalog()
@@ -35,9 +34,10 @@ from edvise.ingestion.nsc_sftp.constants import (
 )
 from edvise.ingestion.nsc_sftp.helpers import (
     ensure_plan_table,
+    group_dataframe_by_institution_id,
     group_plan_rows_by_file,
     load_staged_csv,
-    log_labeled_lines,
+    log_section,
     process_and_save_file,
     resolve_bronze_volume_dir,
     sst_identity_or_resolve,
@@ -53,31 +53,6 @@ logger = runtime.get_logger(__name__)
 
 api_client = runtime.require_edvise_api_client(dbutils)
 force_reingest = runtime.job_param_bool("force_reingest", False)
-
-
-def _school_check_log(file_name: str, pdp_id: str, filtered: pd.DataFrame) -> None:
-    if {"cohort", "cohort_term"}.issubset(filtered.columns):
-        latest = filtered["cohort"].max()
-        terms = (
-            filtered.loc[filtered["cohort"] == latest, "cohort_term"]
-            .dropna()
-            .astype(str)
-            .unique()
-            .tolist()
-        )
-        logger.info(
-            "School check file=%s pdp_id=%s rows=%s latest_cohort=%s terms=%s",
-            file_name,
-            pdp_id,
-            len(filtered),
-            latest,
-            terms,
-        )
-    else:
-        logger.info(
-            "School check file=%s pdp_id=%s rows=%s", file_name, pdp_id, len(filtered)
-        )
-
 
 if not spark.catalog.tableExists(PLAN_TABLE_PATH):
     runtime.notebook_exit(dbutils, "NO_PLAN_TABLE")
@@ -115,22 +90,25 @@ ingested_rows: list[str] = []
 skipped_rows: list[str] = []
 failed_rows: list[str] = []
 
-logger.info(
-    "Starting bronze ingest: %s file(s), %s institution-file plan row(s), "
-    "force_reingest=%s run_id=%s",
-    len(by_file),
-    len(plan_rows),
-    force_reingest,
-    run_id,
-)
-expected_lines: list[str] = []
-for row in plan_rows:
-    d = row.asDict()
-    expected_lines.append(
-        f"file={d['file_name']} pdp_id={d['institution_id']} "
-        f"inst_id={d.get('inst_id') or ''} institution={d.get('institution_name')!r}"
+expected_unique: dict[str, str] = {}
+for r in plan_rows:
+    d = r.asDict()
+    expected_unique[str(d.get("institution_id") or "")] = str(
+        d.get("institution_name") or ""
     )
-log_labeled_lines(logger, "EXPECTED", expected_lines)
+expected_unique.pop("", None)
+
+logger.info(
+    "Stage 03 — bronze ingest: %s file(s), %s institution(s), force_reingest=%s",
+    len(by_file),
+    len(expected_unique),
+    force_reingest,
+)
+log_section(
+    logger,
+    "Expected institutions",
+    [f"pdp_id={pdp_id} {name}" for pdp_id, name in sorted(expected_unique.items())],
+)
 
 for fp, meta in by_file.items():
     file_name = meta["file_name"]
@@ -160,19 +138,17 @@ for fp, meta in by_file.items():
 
     if not local_path or not os.path.exists(local_path):
         _fail(f"Staged local file missing: {local_path}")
-        failed_rows.append(f"file={file_name} reason=staged_file_missing")
+        failed_rows.append(f"{file_name}: staged file missing")
         continue
 
     try:
         df_full = load_staged_csv(local_path, renames=COLUMN_RENAMES, inst_col=inst_col)
         student_count, file_cohort, cohort_term_pairs = summarize_file_metrics(df_full)
         logger.info(
-            "Processing file=%s fp=%s students=%s cohorts=%s planned_institutions=%s",
+            "Processing %s (%s students, %s planned institution(s))",
             file_name,
-            fp,
             student_count,
-            len(file_cohort or []),
-            inst_ids,
+            len(inst_ids),
         )
 
         if inst_col not in df_full.columns:
@@ -182,9 +158,7 @@ for fp, meta in by_file.items():
                 cohort_term_pairs=cohort_term_pairs,
                 student_count=student_count,
             )
-            failed_rows.append(
-                f"file={file_name} reason=missing_institution_column col={inst_col}"
-            )
+            failed_rows.append(f"{file_name}: missing institution column {inst_col!r}")
             continue
 
         if not inst_ids:
@@ -200,15 +174,27 @@ for fp, meta in by_file.items():
                 student_count=student_count,
             )
             counts["skipped_files"] += 1
-            skipped_rows.append(f"file={file_name} reason=no_institutions_in_plan")
+            skipped_rows.append(f"{file_name}: no institutions in plan")
             continue
 
         wanted = set(map(str, inst_ids))
-        grouped = {
-            str(k): g.reset_index(drop=True)
-            for k, g in df_full.groupby(inst_col, sort=False)
-            if str(k) in wanted
-        }
+        grouped = group_dataframe_by_institution_id(df_full, inst_col, inst_ids)
+        present_ids = sorted(
+            {
+                str(v)
+                for v in df_full[inst_col].dropna().unique().tolist()
+                if v is not None and str(v).strip() != ""
+            }
+        )
+        missing_from_file = sorted(wanted - set(grouped))
+        if missing_from_file:
+            logger.warning(
+                "File %s: planned PDP id(s) with no rows after normalize: %s "
+                "(sample ids in file: %s)",
+                file_name,
+                ",".join(missing_from_file),
+                ",".join(present_ids[:20]) or "none",
+            )
         file_errors: list[str] = []
         out_name = output_file_name_from_sftp(file_name)
 
@@ -218,11 +204,9 @@ for fp, meta in by_file.items():
                 if filtered is None or filtered.empty:
                     counts["institutions_empty"] += 1
                     skipped_rows.append(
-                        f"file={file_name} pdp_id={pdp_id} reason=no_rows_for_institution"
+                        f"pdp_id={pdp_id} in {file_name}: no matching rows in file"
                     )
                     continue
-
-                _school_check_log(file_name, pdp_id, filtered)
 
                 try:
                     sst_inst_id, inst_name = sst_identity_or_resolve(
@@ -249,43 +233,23 @@ for fp, meta in by_file.items():
                 if os.path.exists(full_path) and not force_reingest:
                     counts["institutions_skipped_existing"] += 1
                     skipped_rows.append(
-                        f"file={file_name} pdp_id={pdp_id} inst_id={sst_inst_id} "
-                        f"institution={inst_name!r} reason=already_exists path={full_path}"
-                    )
-                    logger.info(
-                        "Skip existing file=%s pdp_id=%s inst_id=%s institution=%r path=%s",
-                        file_name,
-                        pdp_id,
-                        sst_inst_id,
-                        inst_name,
-                        full_path,
+                        f"pdp_id={pdp_id} {inst_name}: already exists "
+                        f"(set force_reingest=true to overwrite)"
                     )
                     continue
 
-                logger.info(
-                    "Writing file=%s pdp_id=%s inst_id=%s institution=%r rows=%s "
-                    "force_reingest=%s -> %s",
-                    file_name,
-                    pdp_id,
-                    sst_inst_id,
-                    inst_name,
-                    len(filtered),
-                    force_reingest,
-                    full_path,
-                )
                 process_and_save_file(
                     volume_dir=volume_dir, file_name=out_name, df=filtered
                 )
                 counts["institutions_written"] += 1
                 ingested_rows.append(
-                    f"file={file_name} pdp_id={pdp_id} inst_id={sst_inst_id} "
-                    f"institution={inst_name!r} rows={len(filtered)} path={full_path}"
+                    f"pdp_id={pdp_id} {inst_name}: wrote {len(filtered)} rows -> {full_path}"
                 )
             except Exception as exc:
                 msg = f"inst_ingest_failed file={file_name} fp={fp} pdp_id={pdp_id}: {exc}"
                 logger.exception(msg)
                 file_errors.append(msg)
-                failed_rows.append(f"file={file_name} pdp_id={pdp_id} reason={exc}")
+                failed_rows.append(f"pdp_id={pdp_id} in {file_name}: {exc}")
 
         if file_errors:
             _fail(
@@ -311,23 +275,23 @@ for fp, meta in by_file.items():
     except Exception as exc:
         logger.exception("fatal_file_error file=%s fp=%s: %s", file_name, fp, exc)
         _fail(f"fatal_file_error file={file_name} fp={fp}: {exc}")
-        failed_rows.append(f"file={file_name} reason=fatal_file_error error={exc}")
+        failed_rows.append(f"{file_name}: fatal error — {exc}")
 
-for label, lines in (
-    ("INGESTED", ingested_rows),
-    ("SKIPPED", skipped_rows),
-    ("FAILED", failed_rows),
-):
-    log_labeled_lines(logger, label, lines)
-logger.info("=== INGESTION SUMMARY counts=%s ===", dict(counts))
+log_section(logger, "Written", ingested_rows)
+log_section(logger, "Skipped", skipped_rows)
+log_section(logger, "Failed", failed_rows)
+logger.info(
+    "Stage 03 done — written=%s existing=%s empty=%s unresolved=%s "
+    "no_bronze=%s failed_files=%s force_reingest=%s",
+    counts["institutions_written"],
+    counts["institutions_skipped_existing"],
+    counts["institutions_empty"],
+    counts["institutions_unresolved"],
+    counts["institutions_no_bronze"],
+    counts["failed_files"],
+    force_reingest,
+)
 # notebook_exit is what Databricks shows in the task Output panel
-expected_unique: dict[str, str] = {}
-for r in plan_rows:
-    d = r.asDict()
-    expected_unique[str(d.get("institution_id") or "")] = str(
-        d.get("institution_name") or ""
-    )
-expected_unique.pop("", None)
 expected_summary = (
     "|".join(f"{pdp_id}:{name}" for pdp_id, name in sorted(expected_unique.items()))
     or "None"
@@ -340,7 +304,7 @@ counts_msg = (
 ).format_map(defaultdict(int, counts))
 runtime.notebook_exit(
     dbutils,
-    f"{counts_msg};EXPECTED={expected_summary};"
+    f"{counts_msg};FORCE_REINGEST={force_reingest};EXPECTED={expected_summary};"
     f"INGESTED_N={len(ingested_rows)};SKIPPED_N={len(skipped_rows)};"
     f"FAILED_N={len(failed_rows)}",
 )
