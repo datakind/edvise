@@ -321,10 +321,13 @@ for label, lines in (
     log_labeled_lines(logger, label, lines)
 logger.info("=== INGESTION SUMMARY counts=%s ===", dict(counts))
 # notebook_exit is what Databricks shows in the task Output panel
-expected_summary = "|".join(
-    f"{str(r.asDict().get('institution_id'))}:"
-    f"{str(r.asDict().get('institution_name') or '')}"
-    for r in plan_rows[:20]
+expected_summary = (
+    "|".join(
+        f"{str(r.asDict().get('institution_id'))}:"
+        f"{str(r.asDict().get('institution_name') or '')}"
+        for r in plan_rows[:20]
+    )
+    or "None"
 )
 counts_msg = (
     "PROCESSED={processed_files};FAILED={failed_files};SKIPPED={skipped_files};"

@@ -162,9 +162,11 @@ if not work_items:
         "No institutions resolved via SST API (unresolved=%s). Nothing to plan.",
         len(unresolved),
     )
+    unresolved_summary = ",".join(unresolved[:20]) or "None"
     runtime.notebook_exit(
         dbutils,
-        f"WORK_ITEMS=0;UNRESOLVED={len(unresolved)};BACKFILLED={backfilled}",
+        f"WORK_ITEMS=0;UNRESOLVED={len(unresolved)};BACKFILLED={backfilled};"
+        f"PLANNED=None;UNRESOLVED_PDP_IDS={unresolved_summary}",
     )
 
 n = merge_institution_plan_rows(spark, PLAN_TABLE_PATH, work_items)
@@ -175,10 +177,11 @@ logger.info(
     len(unresolved),
 )
 # notebook_exit is what Databricks shows in the task Output panel
-planned_summary = "|".join(
-    f"{w['institution_id']}:{w['institution_name']}" for w in work_items[:20]
+planned_summary = (
+    "|".join(f"{w['institution_id']}:{w['institution_name']}" for w in work_items[:20])
+    or "None"
 )
-unresolved_summary = ",".join(unresolved[:20])
+unresolved_summary = ",".join(unresolved[:20]) or "None"
 runtime.notebook_exit(
     dbutils,
     f"WORK_ITEMS={n};UNRESOLVED={len(unresolved)};BACKFILLED={backfilled};"
