@@ -1,9 +1,6 @@
-import logging
-
 import pytest
 
 from edvise.ingestion.nsc_sftp import runtime
-from edvise.shared.logger import _FlushTolerantStreamHandler
 
 
 def test_job_param_bool_true(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -22,18 +19,29 @@ def test_job_param_bool_invalid(monkeypatch: pytest.MonkeyPatch) -> None:
         runtime.job_param_bool("force_reingest")
 
 
-def test_configure_logging_enables_info_on_stdout() -> None:
-    root = logging.getLogger()
-    for h in list(root.handlers):
-        root.removeHandler(h)
-    warn_handler = logging.StreamHandler()
-    warn_handler.setLevel(logging.WARNING)
-    root.addHandler(warn_handler)
-    root.setLevel(logging.WARNING)
-
+def test_configure_logging_buffers_info_into_notebook_exit(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     runtime._LOGGING_CONFIGURED = False
+    runtime._LOG_BUFFER.clear()
     runtime.configure_logging()
 
-    assert root.level == logging.INFO
-    assert any(isinstance(h, _FlushTolerantStreamHandler) for h in root.handlers)
-    assert runtime.get_logger("nsc.test.logging").isEnabledFor(logging.INFO)
+    log = runtime.get_logger("nsc.test.logging")
+    log.info("hello-info")
+    log.warning("hello-warn")
+
+    captured = []
+
+    class _Db:
+        class notebook:
+            @staticmethod
+            def exit(msg: str) -> None:
+                captured.append(msg)
+
+    runtime.notebook_exit(_Db(), "SUMMARY")
+    assert captured and "hello-info" in captured[0]
+    assert "hello-warn" in captured[0]
+    assert captured[0].endswith("SUMMARY")
+    out = capsys.readouterr().out
+    assert "hello-info" in out
+    assert "hello-warn" in out

@@ -67,16 +67,47 @@ def resolve_nsc_catalog(argv: list[str] | None = None) -> str:
 
 
 _LOGGING_CONFIGURED = False
+_LOG_BUFFER: list[str] = []
+_LOG_BUFFER_MAX_LINES = 2000
+
+
+class _JobOutputLogHandler(logging.Handler):
+    """
+    Emit log records to stdout and keep a ring buffer for notebook_exit.
+
+    Databricks spark_python_task Output is dominated by ``notebook.exit`` text;
+    buffering lets INFO/WARNING/ERROR also appear there.
+    """
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            msg = self.format(record)
+            print(msg, flush=True)
+            _LOG_BUFFER.append(msg)
+            overflow = len(_LOG_BUFFER) - _LOG_BUFFER_MAX_LINES
+            if overflow > 0:
+                del _LOG_BUFFER[:overflow]
+        except Exception:
+            self.handleError(record)
 
 
 def configure_logging(level: int = logging.INFO) -> None:
-    """Enable INFO/WARNING/ERROR on Databricks via shared console logging setup."""
+    """Wire root logging so INFO/WARNING/ERROR print and land in task Output."""
     global _LOGGING_CONFIGURED
     if _LOGGING_CONFIGURED:
         return
-    from edvise.shared.logger import configure_console_logging
 
-    configure_console_logging(level=level)
+    root = logging.getLogger()
+    root.setLevel(level)
+    for handler in list(root.handlers):
+        root.removeHandler(handler)
+
+    handler = _JobOutputLogHandler()
+    handler.setLevel(level)
+    handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+    root.addHandler(handler)
+    logging.getLogger("py4j").setLevel(logging.WARNING)
+    logging.getLogger("py4j.clientserver").setLevel(logging.WARNING)
     _LOGGING_CONFIGURED = True
 
 
@@ -146,11 +177,17 @@ def require_edvise_api_client(dbutils_obj: Any) -> Any:
 
 
 def notebook_exit(dbutils_obj: Any, message: str) -> None:
-    """Exit a Databricks task; raise SystemExit locally for testability."""
+    """Exit a Databricks task; include buffered INFO/WARNING/ERROR in Output."""
+    configure_logging()
+    parts = []
+    if _LOG_BUFFER:
+        parts.append("\n".join(_LOG_BUFFER))
+    parts.append(message)
+    payload = "\n".join(parts)
     try:
-        dbutils_obj.notebook.exit(message)
+        dbutils_obj.notebook.exit(payload)
     except Exception:
-        raise SystemExit(message) from None
+        raise SystemExit(payload) from None
 
 
 def workflow_run_id(dbutils_obj: Any) -> str | None:
