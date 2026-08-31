@@ -66,8 +66,50 @@ def resolve_nsc_catalog(argv: list[str] | None = None) -> str:
     return os.environ.get("NSC_DB_WORKSPACE", "").strip() or DEFAULT_CATALOG_FOR_LOCAL
 
 
+_LOGGING_CONFIGURED = False
+
+
+def configure_logging(level: int = logging.INFO) -> None:
+    """
+    Ensure INFO/WARNING/ERROR reach the Databricks task log.
+
+    ``logging.basicConfig`` is a no-op when the root logger already has handlers
+    (common on Databricks clusters, often pre-set to WARNING). Force root +
+    existing handlers down to ``level``, and attach a stdout handler if needed.
+    """
+    global _LOGGING_CONFIGURED
+    if _LOGGING_CONFIGURED:
+        return
+
+    root = logging.getLogger()
+    root.setLevel(level)
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+    if root.handlers:
+        for handler in root.handlers:
+            handler.setLevel(level)
+            if not handler.formatter:
+                handler.setFormatter(formatter)
+    else:
+        handler = logging.StreamHandler(sys.stdout)
+        handler.setLevel(level)
+        handler.setFormatter(formatter)
+        root.addHandler(handler)
+
+    # Package loggers used by scripts/helpers
+    logging.getLogger("edvise").setLevel(level)
+    logging.getLogger("edvise.ingestion.nsc_sftp").setLevel(level)
+    # Keep Spark/py4j noise down
+    logging.getLogger("py4j").setLevel(logging.WARNING)
+    logging.getLogger("py4j.clientserver").setLevel(logging.WARNING)
+
+    _LOGGING_CONFIGURED = True
+
+
 def bootstrap_catalog(argv: list[str] | None = None) -> None:
     """Configure UC catalog paths from job argv / widgets / env."""
+    configure_logging()
     configure_nsc_catalog(resolve_nsc_catalog(sys.argv if argv is None else argv))
 
 
@@ -81,11 +123,11 @@ def get_spark():
 
 
 def get_logger(name: str) -> logging.Logger:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    )
-    return logging.getLogger(name)
+    configure_logging()
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.INFO)
+    return logger
+
 
 
 def job_param(name: str, default: str = "", *, argv: list[str] | None = None) -> str:
