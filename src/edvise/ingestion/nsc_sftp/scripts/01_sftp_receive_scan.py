@@ -125,10 +125,12 @@ try:
         logger.info("Nothing NEW to queue; exiting.")
         runtime.notebook_exit(dbutils, "QUEUED_FILES=0")
 
-    queued_count = download_new_files_and_queue(spark, sftp, df_to_queue, logger)
+    # Collect metadata before download: after queue upsert, left_anti makes
+    # df_to_queue empty if we collect again.
     queued_rows = df_to_queue.select(
         "file_name", "file_fingerprint", "sftp_path", "file_size"
     ).collect()
+    queued_count = download_new_files_and_queue(spark, sftp, df_to_queue, logger)
     log_labeled_lines(
         logger,
         "SELECTED",
