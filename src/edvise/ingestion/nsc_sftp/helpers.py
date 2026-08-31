@@ -562,12 +562,17 @@ def resolve_sst_institutions(
 
 def log_section(logger: logging.Logger, title: str, lines: Sequence[str]) -> None:
     """Emit a short operator-facing section (title + indented detail lines)."""
-    logger.info("%s (%s)", title, len(lines))
+    header = f"{title} ({len(lines)})"
+    logger.info("%s", header)
+    print(header, flush=True)
     if not lines:
         logger.info("  (none)")
+        print("  (none)", flush=True)
         return
     for line in lines:
-        logger.info("  %s", line)
+        detail = f"  {line}"
+        logger.info("%s", detail)
+        print(detail, flush=True)
 
 
 # Back-compat alias used by older call sites / notebooks.

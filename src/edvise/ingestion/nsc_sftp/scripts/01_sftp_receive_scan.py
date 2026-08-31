@@ -61,7 +61,8 @@ file_selection_mode = (
 )
 force_reingest = runtime.job_param_bool("force_reingest", False)
 
-logger.info(
+runtime.emit(
+    logger,
     "Stage 01 — SFTP scan: mode=%s force_reingest=%s staging=%s",
     file_selection_mode,
     force_reingest,
@@ -75,14 +76,15 @@ try:
 
     file_rows_all = list_receive_files(sftp, SFTP_REMOTE_FOLDER, SFTP_SOURCE_SYSTEM)
     if not file_rows_all:
-        logger.info("No files in %s; exiting.", SFTP_REMOTE_FOLDER)
+        runtime.emit(logger, "No files in %s; exiting.", SFTP_REMOTE_FOLDER)
         runtime.notebook_exit(dbutils, "NO_FILES")
 
     available = sorted({r["file_name"] for r in file_rows_all if r.get("file_name")})
-    # Full list in the live task log so operators can validate selection.
-    logger.info("SFTP files=%s (full list):", len(available))
+    # Full list in live stdout + logger so operators can validate selection.
+    # Databricks task Output panel only shows notebook_exit, so also echo below.
+    runtime.emit(logger, "SFTP files=%s (full list):", len(available))
     for name in available:
-        logger.info("  SFTP file: %s", name)
+        runtime.emit(logger, "  SFTP file: %s", name)
 
     cohort_file_name, course_file_name, mode_used = select_file_pair(
         file_rows_all,
@@ -94,9 +96,9 @@ try:
         if force_reingest
         else bronze_written_file_names(spark),
     )
-    logger.info("Selected via %s:", mode_used)
-    logger.info("  Selected cohort: %s", cohort_file_name)
-    logger.info("  Selected course: %s", course_file_name)
+    runtime.emit(logger, "Selected via %s:", mode_used)
+    runtime.emit(logger, "  Selected cohort: %s", cohort_file_name)
+    runtime.emit(logger, "  Selected course: %s", course_file_name)
 
     requested = {cohort_file_name, course_file_name}
     file_rows = [r for r in file_rows_all if r.get("file_name") in requested]
@@ -104,7 +106,7 @@ try:
     if missing:
         raise FileNotFoundError(
             f"Requested file(s) missing from {SFTP_REMOTE_FOLDER}: {missing}. "
-            f"Available preview={available[:25]}"
+            f"Available={available}"
         )
 
     df_listing = build_listing_df(spark, file_rows)
@@ -120,8 +122,14 @@ try:
 
     df_to_queue = get_files_to_queue(spark, df_listing)
     if df_to_queue.limit(1).count() == 0:
-        logger.info("Nothing new to queue; exiting.")
-        runtime.notebook_exit(dbutils, "QUEUED_FILES=0")
+        runtime.emit(logger, "Nothing new to queue; exiting.")
+        runtime.notebook_exit(
+            dbutils,
+            f"QUEUED_FILES=0;SFTP_FILE_COUNT={len(available)};"
+            f"SFTP_FILES={','.join(available) or 'None'};"
+            f"MODE={mode_used};COHORT={cohort_file_name or 'None'};"
+            f"COURSE={course_file_name or 'None'}",
+        )
 
     # Collect metadata before download: after queue upsert, left_anti makes
     # df_to_queue empty if we collect again.
@@ -134,15 +142,21 @@ try:
         "Queued for expansion",
         [f"{r['file_name']} (size={r['file_size']})" for r in queued_rows],
     )
-    logger.info(
-        "Stage 01 done — queued %s file(s) into %s", queued_count, QUEUE_TABLE_PATH
+    runtime.emit(
+        logger,
+        "Stage 01 done — queued %s file(s) into %s",
+        queued_count,
+        QUEUE_TABLE_PATH,
     )
     queued_names = ",".join(str(r["file_name"]) for r in queued_rows) or "None"
+    # notebook_exit is what Databricks shows in the task Output panel
     runtime.notebook_exit(
         dbutils,
         f"QUEUED_FILES={queued_count};FORCE_REINGEST={force_reingest};"
         f"MODE={mode_used};COHORT={cohort_file_name or 'None'};"
-        f"COURSE={course_file_name or 'None'};FILES={queued_names}",
+        f"COURSE={course_file_name or 'None'};FILES={queued_names};"
+        f"SFTP_FILE_COUNT={len(available)};"
+        f"SFTP_FILES={','.join(available) or 'None'}",
     )
 finally:
     for closer in (sftp, transport):
