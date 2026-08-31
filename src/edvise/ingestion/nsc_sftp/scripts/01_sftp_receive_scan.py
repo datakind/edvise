@@ -49,6 +49,37 @@ dbutils = runtime.get_dbutils()
 spark = runtime.get_spark()
 logger = runtime.get_logger(__name__)
 
+
+def _stage01_exit_message(
+    *,
+    queued_count: int,
+    force_reingest: bool,
+    mode_used: str,
+    cohort_file_name: str | None,
+    course_file_name: str | None,
+    queued_names: str,
+    available: list[str],
+) -> str:
+    """Multiline summary for the Databricks task Output panel."""
+    sftp_block = "\n".join(f"  {name}" for name in available) or "  (none)"
+    files_block = (
+        "\n".join(
+            f"  {name}" for name in queued_names.split(",") if name and name != "None"
+        )
+        or "  (none)"
+    )
+    return (
+        f"QUEUED_FILES={queued_count}\n"
+        f"FORCE_REINGEST={force_reingest}\n"
+        f"MODE={mode_used}\n"
+        f"COHORT={cohort_file_name or 'None'}\n"
+        f"COURSE={course_file_name or 'None'}\n"
+        f"FILES ({queued_count}):\n{files_block}\n"
+        f"SFTP_FILE_COUNT={len(available)}\n"
+        f"SFTP_FILES:\n{sftp_block}"
+    )
+
+
 secret_scope = runtime.require_job_param("nsc_sftp_secret_scope")
 host = dbutils.secrets.get(scope=secret_scope, key=SFTP_SECRET_KEY_HOST)
 user = dbutils.secrets.get(scope=secret_scope, key=SFTP_SECRET_KEY_USER)
@@ -123,10 +154,15 @@ try:
         logger.info("Nothing new to queue; exiting.")
         runtime.notebook_exit(
             dbutils,
-            f"QUEUED_FILES=0;SFTP_FILE_COUNT={len(available)};"
-            f"SFTP_FILES={','.join(available) or 'None'};"
-            f"MODE={mode_used};COHORT={cohort_file_name or 'None'};"
-            f"COURSE={course_file_name or 'None'}",
+            _stage01_exit_message(
+                queued_count=0,
+                force_reingest=force_reingest,
+                mode_used=mode_used,
+                cohort_file_name=cohort_file_name,
+                course_file_name=course_file_name,
+                queued_names="None",
+                available=available,
+            ),
         )
 
     # Collect metadata before download: after queue upsert, left_anti makes
@@ -147,11 +183,15 @@ try:
     # notebook_exit is what Databricks shows in the task Output panel
     runtime.notebook_exit(
         dbutils,
-        f"QUEUED_FILES={queued_count};FORCE_REINGEST={force_reingest};"
-        f"MODE={mode_used};COHORT={cohort_file_name or 'None'};"
-        f"COURSE={course_file_name or 'None'};FILES={queued_names};"
-        f"SFTP_FILE_COUNT={len(available)};"
-        f"SFTP_FILES={','.join(available) or 'None'}",
+        _stage01_exit_message(
+            queued_count=queued_count,
+            force_reingest=force_reingest,
+            mode_used=mode_used,
+            cohort_file_name=cohort_file_name,
+            course_file_name=course_file_name,
+            queued_names=queued_names,
+            available=available,
+        ),
     )
 finally:
     for closer in (sftp, transport):
