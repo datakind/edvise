@@ -69,66 +69,15 @@ def resolve_nsc_catalog(argv: list[str] | None = None) -> str:
 _LOGGING_CONFIGURED = False
 
 
-class _FlushTolerantStdoutHandler(logging.StreamHandler):
-    """Stdout handler that ignores Databricks/ipykernel flush OSError."""
-
-    def flush(self) -> None:
-        try:
-            super().flush()
-        except OSError:
-            pass
-
-
 def configure_logging(level: int = logging.INFO) -> None:
-    """
-    Configure root logging so INFO/WARNING/ERROR show in Databricks job logs.
-
-    Matches ``edvise.shared.logger.init_file_logging_at_path`` console setup:
-    replace existing root handlers (often WARNING-only on clusters) with a
-    flush-tolerant handler on ``sys.__stdout__``.
-    """
+    """Enable INFO/WARNING/ERROR on Databricks via shared console logging setup."""
     global _LOGGING_CONFIGURED
     if _LOGGING_CONFIGURED:
         return
+    from edvise.shared.logger import configure_console_logging
 
-    root = logging.getLogger()
-    root.setLevel(level)
-    for handler in list(root.handlers):
-        root.removeHandler(handler)
-
-    console = _FlushTolerantStdoutHandler(stream=sys.__stdout__)
-    console.setLevel(level)
-    console.setFormatter(
-        logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-    )
-    root.addHandler(console)
-
-    logging.getLogger("edvise").setLevel(level)
-    logging.getLogger("edvise.ingestion.nsc_sftp").setLevel(level)
-    logging.getLogger("py4j").setLevel(logging.WARNING)
-    logging.getLogger("py4j.clientserver").setLevel(logging.WARNING)
-
+    configure_console_logging(level=level)
     _LOGGING_CONFIGURED = True
-    logging.getLogger(__name__).info(
-        "NSC logging configured level=%s handler=stdout",
-        logging.getLevelName(level),
-    )
-
-
-def emit(logger: logging.Logger, message: str, *args: Any, level: int = logging.INFO) -> None:
-    """Log via the standard logging module (and mirror to stdout as a fallback)."""
-    if args:
-        logger.log(level, message, *args)
-        text = message % args
-    else:
-        logger.log(level, message)
-        text = message
-    # Mirror for Jobs UIs that surface raw stdout more reliably than log4j.
-    try:
-        sys.__stdout__.write(text + "\n")
-        sys.__stdout__.flush()
-    except OSError:
-        print(text, flush=True)
 
 
 def bootstrap_catalog(argv: list[str] | None = None) -> None:
@@ -148,11 +97,7 @@ def get_spark():
 
 def get_logger(name: str) -> logging.Logger:
     configure_logging()
-    logger = logging.getLogger(name)
-    logger.setLevel(logging.INFO)
-    logger.propagate = True
-    return logger
-
+    return logging.getLogger(name)
 
 
 def job_param(name: str, default: str = "", *, argv: list[str] | None = None) -> str:

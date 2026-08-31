@@ -61,8 +61,7 @@ file_selection_mode = (
 )
 force_reingest = runtime.job_param_bool("force_reingest", False)
 
-runtime.emit(
-    logger,
+logger.info(
     "Stage 01 — SFTP scan: mode=%s force_reingest=%s staging=%s",
     file_selection_mode,
     force_reingest,
@@ -76,15 +75,11 @@ try:
 
     file_rows_all = list_receive_files(sftp, SFTP_REMOTE_FOLDER, SFTP_SOURCE_SYSTEM)
     if not file_rows_all:
-        runtime.emit(logger, "No files in %s; exiting.", SFTP_REMOTE_FOLDER)
+        logger.info("No files in %s; exiting.", SFTP_REMOTE_FOLDER)
         runtime.notebook_exit(dbutils, "NO_FILES")
 
     available = sorted({r["file_name"] for r in file_rows_all if r.get("file_name")})
-    # Full list in live stdout + logger so operators can validate selection.
-    # Databricks task Output panel only shows notebook_exit, so also echo below.
-    runtime.emit(logger, "SFTP files=%s (full list):", len(available))
-    for name in available:
-        runtime.emit(logger, "  SFTP file: %s", name)
+    log_section(logger, "SFTP files", available)
 
     cohort_file_name, course_file_name, mode_used = select_file_pair(
         file_rows_all,
@@ -96,9 +91,12 @@ try:
         if force_reingest
         else bronze_written_file_names(spark),
     )
-    runtime.emit(logger, "Selected via %s:", mode_used)
-    runtime.emit(logger, "  Selected cohort: %s", cohort_file_name)
-    runtime.emit(logger, "  Selected course: %s", course_file_name)
+    logger.info(
+        "Selected via %s: cohort=%s course=%s",
+        mode_used,
+        cohort_file_name,
+        course_file_name,
+    )
 
     requested = {cohort_file_name, course_file_name}
     file_rows = [r for r in file_rows_all if r.get("file_name") in requested]
@@ -122,7 +120,7 @@ try:
 
     df_to_queue = get_files_to_queue(spark, df_listing)
     if df_to_queue.limit(1).count() == 0:
-        runtime.emit(logger, "Nothing new to queue; exiting.")
+        logger.info("Nothing new to queue; exiting.")
         runtime.notebook_exit(
             dbutils,
             f"QUEUED_FILES=0;SFTP_FILE_COUNT={len(available)};"
@@ -142,11 +140,8 @@ try:
         "Queued for expansion",
         [f"{r['file_name']} (size={r['file_size']})" for r in queued_rows],
     )
-    runtime.emit(
-        logger,
-        "Stage 01 done — queued %s file(s) into %s",
-        queued_count,
-        QUEUE_TABLE_PATH,
+    logger.info(
+        "Stage 01 done — queued %s file(s) into %s", queued_count, QUEUE_TABLE_PATH
     )
     queued_names = ",".join(str(r["file_name"]) for r in queued_rows) or "None"
     # notebook_exit is what Databricks shows in the task Output panel

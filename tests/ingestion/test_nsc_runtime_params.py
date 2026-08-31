@@ -1,6 +1,9 @@
+import logging
+
 import pytest
 
 from edvise.ingestion.nsc_sftp import runtime
+from edvise.shared.logger import _FlushTolerantStreamHandler
 
 
 def test_job_param_bool_true(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -19,10 +22,7 @@ def test_job_param_bool_invalid(monkeypatch: pytest.MonkeyPatch) -> None:
         runtime.job_param_bool("force_reingest")
 
 
-def test_configure_logging_enables_info_on_stdout(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
-    import logging
-
-    # Simulate a Databricks-like root logger stuck at WARNING.
+def test_configure_logging_enables_info_on_stdout() -> None:
     root = logging.getLogger()
     for h in list(root.handlers):
         root.removeHandler(h)
@@ -35,8 +35,5 @@ def test_configure_logging_enables_info_on_stdout(monkeypatch: pytest.MonkeyPatc
     runtime.configure_logging()
 
     assert root.level == logging.INFO
-    assert any(isinstance(h, runtime._FlushTolerantStdoutHandler) for h in root.handlers)
-    log = runtime.get_logger("nsc.test.logging")
-    log.info("visible-info-line")
-    # Handler should accept INFO
-    assert log.isEnabledFor(logging.INFO)
+    assert any(isinstance(h, _FlushTolerantStreamHandler) for h in root.handlers)
+    assert runtime.get_logger("nsc.test.logging").isEnabledFor(logging.INFO)
