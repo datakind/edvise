@@ -1482,20 +1482,19 @@ def run(
             )
 
         onboard_run_id_s = cast(str, onboard_run_id)
-        few_shot = resolve_sma_few_shot_pin(reference_id, catalog=catalog)
-        _pipeline_job_state.on_sma_onboard_begin(
-            catalog,
-            onboard_run_id_s,
-            resume_from=resume_from,
-            institution_id=institution_id,
-            input_file_paths_json=input_file_paths_json,
-            reference_id=few_shot.reference_id,
-            reference_content_hash=few_shot.content_hash,
-        )
-
         client = _build_openai_client(catalog)
 
         try:
+            few_shot = resolve_sma_few_shot_pin(reference_id, catalog=catalog)
+            _pipeline_job_state.on_sma_onboard_begin(
+                catalog,
+                onboard_run_id_s,
+                resume_from=resume_from,
+                institution_id=institution_id,
+                input_file_paths_json=input_file_paths_json,
+                reference_id=few_shot.reference_id,
+                reference_content_hash=few_shot.content_hash,
+            )
             if resume_from == "start":
                 if override_2a_manifest:
                     # Apply immediately (do not wait for gate_2). Skip Step 2A so we do
