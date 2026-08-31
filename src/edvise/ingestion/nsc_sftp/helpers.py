@@ -806,6 +806,9 @@ def _normalize_institution_id(value: object) -> Optional[str]:
         return None
     if re.fullmatch(r"\d+\.0+", s):
         return s.split(".", 1)[0]
+    # PDP exports often zero-pad IDs (e.g. 00345000). Match SST / float-inferred form.
+    if re.fullmatch(r"0*\d+", s):
+        return str(int(s))
     return s
 
 

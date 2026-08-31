@@ -64,6 +64,28 @@ def test_load_and_group_matches_extract_with_floatish_ids(tmp_path):
     assert len(grouped["345000"]) == 3
 
 
+def test_load_and_group_matches_extract_with_zero_padded_ids(tmp_path):
+    """PDP CSVs zero-pad IDs; float extract drops zeros, string load must match."""
+    from edvise.ingestion.nsc_sftp.helpers import (
+        group_dataframe_by_institution_id,
+        load_staged_csv,
+    )
+
+    csv_path = tmp_path / "staged.csv"
+    csv_path.write_text("Institution ID,other\n00345000,1\n00345000,2\n,3\n")
+
+    inst_col_pattern = re.compile(r"(?=.*institution)(?=.*id)", re.IGNORECASE)
+    inst_col, inst_ids = extract_institution_ids(
+        str(csv_path), renames={}, inst_col_pattern=inst_col_pattern
+    )
+    assert inst_ids == ["345000"]
+
+    df = load_staged_csv(str(csv_path), renames={}, inst_col=inst_col)
+    grouped = group_dataframe_by_institution_id(df, inst_col, inst_ids)
+    assert set(grouped) == {"345000"}
+    assert len(grouped["345000"]) == 2
+
+
 def test_databricksify_inst_name():
     assert databricksify_inst_name("Big State University") == "big_state_uni"
 
