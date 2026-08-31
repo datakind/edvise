@@ -321,12 +321,15 @@ for label, lines in (
     log_labeled_lines(logger, label, lines)
 logger.info("=== INGESTION SUMMARY counts=%s ===", dict(counts))
 # notebook_exit is what Databricks shows in the task Output panel
-expected_summary = (
-    "|".join(
-        f"{str(r.asDict().get('institution_id'))}:"
-        f"{str(r.asDict().get('institution_name') or '')}"
-        for r in plan_rows[:20]
+expected_unique: dict[str, str] = {}
+for r in plan_rows:
+    d = r.asDict()
+    expected_unique[str(d.get("institution_id") or "")] = str(
+        d.get("institution_name") or ""
     )
+expected_unique.pop("", None)
+expected_summary = (
+    "|".join(f"{pdp_id}:{name}" for pdp_id, name in sorted(expected_unique.items()))
     or "None"
 )
 counts_msg = (

@@ -177,8 +177,12 @@ logger.info(
     len(unresolved),
 )
 # notebook_exit is what Databricks shows in the task Output panel
+# Deduplicate by PDP id — cohort+course both plan the same schools.
+planned_unique: dict[str, str] = {}
+for w in work_items:
+    planned_unique[str(w["institution_id"])] = str(w["institution_name"])
 planned_summary = (
-    "|".join(f"{w['institution_id']}:{w['institution_name']}" for w in work_items[:20])
+    "|".join(f"{pdp_id}:{name}" for pdp_id, name in sorted(planned_unique.items()))
     or "None"
 )
 unresolved_summary = ",".join(unresolved[:20]) or "None"
