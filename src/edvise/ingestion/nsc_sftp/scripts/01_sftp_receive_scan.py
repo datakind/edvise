@@ -57,26 +57,13 @@ def _stage01_exit_message(
     mode_used: str,
     cohort_file_name: str | None,
     course_file_name: str | None,
-    queued_names: str,
-    available: list[str],
+    sftp_file_count: int,
 ) -> str:
-    """Multiline summary for the Databricks task Output panel."""
-    sftp_block = "\n".join(f"  {name}" for name in available) or "  (none)"
-    files_block = (
-        "\n".join(
-            f"  {name}" for name in queued_names.split(",") if name and name != "None"
-        )
-        or "  (none)"
-    )
+    """Compact status line; file lists already appear in INFO logs above."""
     return (
-        f"QUEUED_FILES={queued_count}\n"
-        f"FORCE_REINGEST={force_reingest}\n"
-        f"MODE={mode_used}\n"
-        f"COHORT={cohort_file_name or 'None'}\n"
-        f"COURSE={course_file_name or 'None'}\n"
-        f"FILES ({queued_count}):\n{files_block}\n"
-        f"SFTP_FILE_COUNT={len(available)}\n"
-        f"SFTP_FILES:\n{sftp_block}"
+        f"QUEUED_FILES={queued_count};FORCE_REINGEST={force_reingest};"
+        f"MODE={mode_used};COHORT={cohort_file_name or 'None'};"
+        f"COURSE={course_file_name or 'None'};SFTP_FILE_COUNT={sftp_file_count}"
     )
 
 
@@ -160,8 +147,7 @@ try:
                 mode_used=mode_used,
                 cohort_file_name=cohort_file_name,
                 course_file_name=course_file_name,
-                queued_names="None",
-                available=available,
+                sftp_file_count=len(available),
             ),
         )
 
@@ -179,8 +165,6 @@ try:
     logger.info(
         "Stage 01 done — queued %s file(s) into %s", queued_count, QUEUE_TABLE_PATH
     )
-    queued_names = ",".join(str(r["file_name"]) for r in queued_rows) or "None"
-    # notebook_exit is what Databricks shows in the task Output panel
     runtime.notebook_exit(
         dbutils,
         _stage01_exit_message(
@@ -189,8 +173,7 @@ try:
             mode_used=mode_used,
             cohort_file_name=cohort_file_name,
             course_file_name=course_file_name,
-            queued_names=queued_names,
-            available=available,
+            sftp_file_count=len(available),
         ),
     )
 finally:

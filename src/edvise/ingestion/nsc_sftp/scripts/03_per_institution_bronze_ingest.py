@@ -291,11 +291,7 @@ logger.info(
     counts["failed_files"],
     force_reingest,
 )
-# notebook_exit is what Databricks shows in the task Output panel
-expected_summary = (
-    "|".join(f"{pdp_id}:{name}" for pdp_id, name in sorted(expected_unique.items()))
-    or "None"
-)
+# Compact counts only; institution/file detail is already in INFO logs above.
 counts_msg = (
     "PROCESSED={processed_files};FAILED={failed_files};SKIPPED={skipped_files};"
     "WRITTEN={institutions_written};EXISTING={institutions_skipped_existing};"
@@ -304,7 +300,5 @@ counts_msg = (
 ).format_map(defaultdict(int, counts))
 runtime.notebook_exit(
     dbutils,
-    f"{counts_msg};FORCE_REINGEST={force_reingest};EXPECTED={expected_summary};"
-    f"INGESTED_N={len(ingested_rows)};SKIPPED_N={len(skipped_rows)};"
-    f"FAILED_N={len(failed_rows)}",
+    f"{counts_msg};FORCE_REINGEST={force_reingest};EXPECTED_N={len(expected_unique)}",
 )

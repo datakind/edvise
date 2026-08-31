@@ -167,19 +167,12 @@ if not work_items:
         "No institutions resolved via SST API (unresolved=%s). Nothing to plan.",
         len(unresolved),
     )
-    unresolved_summary = ",".join(unresolved[:20]) or "None"
     runtime.notebook_exit(
         dbutils,
-        f"WORK_ITEMS=0;UNRESOLVED={len(unresolved)};BACKFILLED={backfilled};"
-        f"PLANNED=None;UNRESOLVED_PDP_IDS={unresolved_summary}",
+        f"WORK_ITEMS=0;UNRESOLVED={len(unresolved)};BACKFILLED={backfilled}",
     )
 
 n = merge_institution_plan_rows(spark, PLAN_TABLE_PATH, work_items)
-planned_summary = (
-    "|".join(f"{pdp_id}:{name}" for pdp_id, name in sorted(planned_unique.items()))
-    or "None"
-)
-unresolved_summary = ",".join(unresolved[:20]) or "None"
 logger.info(
     "Stage 02 done — %s plan row(s), %s institution(s), %s unresolved",
     n,
@@ -189,5 +182,5 @@ logger.info(
 runtime.notebook_exit(
     dbutils,
     f"WORK_ITEMS={n};UNRESOLVED={len(unresolved)};BACKFILLED={backfilled};"
-    f"PLANNED={planned_summary};UNRESOLVED_PDP_IDS={unresolved_summary}",
+    f"INSTITUTIONS={len(planned_unique)}",
 )
