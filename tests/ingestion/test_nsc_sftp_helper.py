@@ -90,13 +90,6 @@ def test_databricksify_inst_name():
     assert databricksify_inst_name("Big State University") == "big_state_uni"
 
 
-def test_hash_file_sha256(tmp_path):
-    """Test file hashing (internal function, tested via download_sftp_atomic)."""
-    # The _hash_file function is internal to sftp.py, so we test it indirectly
-    # through download_sftp_atomic which uses it for verification
-    pass
-
-
 def test_download_sftp_atomic_downloads_and_cleans_part(tmp_path):
     class _Stat:
         def __init__(self, size: int):

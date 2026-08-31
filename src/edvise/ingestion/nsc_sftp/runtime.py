@@ -16,21 +16,6 @@ from edvise.utils.databricks import (
 )
 
 
-def ensure_src_on_path(start_dir: str | None = None) -> str | None:
-    """Insert repo ``src/`` on ``sys.path`` (needed before ``import edvise`` in jobs)."""
-    current = os.path.abspath(start_dir or os.getcwd())
-    for _ in range(8):
-        if os.path.isdir(os.path.join(current, "edvise")):
-            if current not in sys.path:
-                sys.path.insert(0, current)
-            return current
-        parent = os.path.dirname(current)
-        if parent == current:
-            break
-        current = parent
-    return None
-
-
 def parse_spark_python_task_params(argv: list[str] | None = None) -> dict[str, str]:
     """Parse ``--key value`` pairs from ``spark_python_task.parameters``."""
     argv = sys.argv if argv is None else argv
@@ -71,19 +56,17 @@ _LOG_BUFFER: list[str] = []
 _LOG_BUFFER_MAX_LINES = 2000
 
 
-class _JobOutputLogHandler(logging.Handler):
+class _JobOutputBufferHandler(logging.Handler):
     """
-    Emit log records to stdout and keep a ring buffer for notebook_exit.
+    Ring-buffer log records for ``notebook.exit``.
 
-    Databricks spark_python_task Output is dominated by ``notebook.exit`` text;
-    buffering lets INFO/WARNING/ERROR also appear there.
+    Databricks spark_python_task Output is dominated by exit text; console
+    logging is handled separately via ``configure_console_logging``.
     """
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
-            msg = self.format(record)
-            print(msg, flush=True)
-            _LOG_BUFFER.append(msg)
+            _LOG_BUFFER.append(self.format(record))
             overflow = len(_LOG_BUFFER) - _LOG_BUFFER_MAX_LINES
             if overflow > 0:
                 del _LOG_BUFFER[:overflow]
@@ -92,22 +75,22 @@ class _JobOutputLogHandler(logging.Handler):
 
 
 def configure_logging(level: int = logging.INFO) -> None:
-    """Wire root logging so INFO/WARNING/ERROR print and land in task Output."""
+    """Console INFO via shared logger; buffer lines for task Output."""
     global _LOGGING_CONFIGURED
     if _LOGGING_CONFIGURED:
         return
 
-    root = logging.getLogger()
-    root.setLevel(level)
-    for handler in list(root.handlers):
-        root.removeHandler(handler)
+    from edvise.shared.logger import configure_console_logging
 
-    handler = _JobOutputLogHandler()
-    handler.setLevel(level)
-    handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
-    root.addHandler(handler)
-    logging.getLogger("py4j").setLevel(logging.WARNING)
+    configure_console_logging(level=level)
     logging.getLogger("py4j.clientserver").setLevel(logging.WARNING)
+
+    buffer_handler = _JobOutputBufferHandler()
+    buffer_handler.setLevel(level)
+    buffer_handler.setFormatter(
+        logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+    )
+    logging.getLogger().addHandler(buffer_handler)
     _LOGGING_CONFIGURED = True
 
 

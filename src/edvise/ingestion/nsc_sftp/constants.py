@@ -45,7 +45,6 @@ def configure_nsc_catalog(catalog: str) -> None:
 # SFTP settings
 SFTP_REMOTE_FOLDER = "./receive"
 SFTP_SOURCE_SYSTEM = "NSC"
-SFTP_PORT = 22
 SFTP_DOWNLOAD_CHUNK_MB = 150
 SFTP_VERIFY_DOWNLOAD = "size"  # Options: "size", "sha256", "md5", "none"
 SFTP_SECRET_KEY_HOST = "nsc-sftp-host"

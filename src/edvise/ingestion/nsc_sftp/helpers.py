@@ -570,10 +570,6 @@ def log_section(logger: logging.Logger, title: str, lines: Sequence[str]) -> Non
         logger.info("  %s", line)
 
 
-# Back-compat alias used by older call sites / notebooks.
-log_labeled_lines = log_section
-
-
 def backfill_plan_institution_identity(
     spark: pyspark.sql.SparkSession,
     api_client: "EdviseAPIClient",
