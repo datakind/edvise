@@ -134,7 +134,7 @@ def validate_retention_into_year(retention_into_year: int) -> int:
     return retention_into_year
 
 
-def get_students_with_second_year_in_dataset(
+def get_students_with_retention_year_in_dataset(
     df: pd.DataFrame,
     *,
     max_academic_year: str | t.Literal["infer"] = "infer",

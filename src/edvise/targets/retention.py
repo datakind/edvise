@@ -35,7 +35,7 @@ def compute_target(
         term_id_col: Colum used to uniquely identify academic terms.
         retention_into_year: Academic year that must be covered in ``df`` to label a
             student (2 = second year / default). See
-            :func:`shared.get_students_with_second_year_in_dataset`.
+            :func:`shared.get_students_with_retention_year_in_dataset`.
 
     References:
         - https://help.studentclearinghouse.org/pdp/knowledge-base/cohort-level-analysis-ready-file-data-dictionary/
@@ -55,7 +55,7 @@ def compute_target(
     )
     # get subset of students for which a target label can accurately be computed
     # i.e. the data in df covers academic year ``retention_into_year``
-    df_labelable_students = shared.get_students_with_second_year_in_dataset(
+    df_labelable_students = shared.get_students_with_retention_year_in_dataset(
         df,
         max_academic_year=max_academic_year,
         student_id_cols=student_id_cols,
