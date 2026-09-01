@@ -1,13 +1,13 @@
 """
-Databricks UC Model Serving (external models) via the OpenAI-compatible client.
+Databricks MLflow AI Gateway via the OpenAI-compatible client.
 
 Shared by SchemaMappingAgent execution and IdentityAgent so execution code never imports
 ``identity_agent`` for gateway access only.
 
-Names in this module still say "gateway" (``AI_GATEWAY_BASE_URL``, ``resolve_ai_gateway_base_url``,
-etc.) even though calls now hit ``/serving-endpoints`` (UC-governed Model Serving) rather than the
-deprecated MLflow AI Gateway route (``/ai-gateway/mlflow/v1``). Kept as-is for a minimal diff;
-tracked for a follow-up rename pass.
+``resolve_ai_gateway_base_url`` no longer guesses a base URL from a workspace id + cloud
+segment: the deprecated AI Gateway's replacement endpoint doesn't hang off a predictable
+``{workspace_id}.ai-gateway.<cloud>.databricks.com`` subdomain, so ``AI_GATEWAY_BASE_URL``
+must be set explicitly per environment instead.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from edvise.genai.mapping.shared.utilities import (
     disable_mlflow_side_effects_for_openai_gateway,
 )
 
-MLFLOW_AI_GATEWAY_ON_WORKSPACE_PATH: Final[str] = "/serving-endpoints"
+MLFLOW_AI_GATEWAY_ON_WORKSPACE_PATH: Final[str] = "/ai-gateway/mlflow/v1"
 
 DEFAULT_GATEWAY_CLAUDE_SONNET_MODEL_ID: str = "claude-sonnet-edvise-genai"
 DEFAULT_GATEWAY_CLAUDE_HAIKU_MODEL_ID: str = "claude-haiku-edvise-genai"
@@ -190,12 +190,13 @@ def resolve_databricks_workspace_id() -> str | None:
 
 
 def resolve_ai_gateway_base_url() -> str:
-    """Resolve the UC Model Serving OpenAI base URL for the current workspace.
+    """Resolve the MLflow AI Gateway OpenAI base URL for the current workspace.
 
-    Precedence: ``AI_GATEWAY_BASE_URL``; then ``https://<workspace-host>/serving-endpoints``.
-    No hardcoded org default. (Historically this resolved an MLflow AI Gateway URL at
-    ``/ai-gateway/mlflow/v1``, optionally keyed off a workspace id + cloud subdomain; UC Model
-    Serving endpoints don't need that, they hang off the plain workspace host.)
+    Precedence: ``AI_GATEWAY_BASE_URL``; then ``https://<workspace-host>/ai-gateway/mlflow/v1``.
+    No hardcoded org default. The gateway's per-environment host (including any
+    environment-specific subdomain segment) isn't derivable from a workspace id or cloud
+    name, so ``AI_GATEWAY_BASE_URL`` should be set explicitly wherever that host differs
+    from the plain workspace host.
     """
     explicit = (os.environ.get("AI_GATEWAY_BASE_URL") or "").strip()
     if explicit:
@@ -204,11 +205,11 @@ def resolve_ai_gateway_base_url() -> str:
     host = resolve_databricks_workspace_host()
     if host:
         url = f"https://{host}{MLFLOW_AI_GATEWAY_ON_WORKSPACE_PATH}"
-        _LOG.debug("UC Model Serving base URL from workspace host=%s", host)
+        _LOG.debug("MLflow AI Gateway base URL from workspace host=%s", host)
         return url
 
     raise ValueError(
-        "Cannot resolve UC Model Serving base URL: run on Databricks compute (job or "
+        "Cannot resolve MLflow AI Gateway base URL: run on Databricks compute (job or "
         "notebook) so the workspace host is available, set DATABRICKS_HOST for local SDK "
         "auth, or set AI_GATEWAY_BASE_URL explicitly."
     )
