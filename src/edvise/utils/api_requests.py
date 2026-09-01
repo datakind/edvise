@@ -30,6 +30,31 @@ def get_iap_audience() -> str:
     return aud
 
 
+def iap_proxy_auth_headers() -> dict[str, str]:
+    """
+    IAP identity token for ``Proxy-Authorization``.
+
+    Use this header for IAP so ``Authorization`` can carry the Edvise app JWT.
+    Returns ``{}`` when ``SST_IAP_AUDIENCE`` is unset (local / non-IAP).
+    """
+    if not os.getenv("SST_IAP_AUDIENCE", "").strip():
+        return {}
+    return {
+        "Proxy-Authorization": f"Bearer {fetch_iap_token(get_iap_audience())}",
+    }
+
+
+def edvise_request_headers(access_token: str, **extra: str) -> dict[str, str]:
+    """App JWT on ``Authorization`` plus IAP on ``Proxy-Authorization`` when configured."""
+    headers = {
+        "Accept": "application/json",
+        "Authorization": f"Bearer {access_token}",
+        **iap_proxy_auth_headers(),
+    }
+    headers.update({k: v for k, v in extra.items() if v is not None})
+    return headers
+
+
 def get_base_url(DB_workspace: str) -> str:
     """
     Map DB_workspace to the appropriate API base URL.
@@ -66,12 +91,11 @@ def get_access_tokens(api_key: str, DB_workspace: str) -> str:
     base_url = get_base_url(DB_workspace)
     url = f"{base_url}/api/v1/token-from-api-key"
 
-    iap_jwt = fetch_iap_token(get_iap_audience())
-
     headers = {
-        "Authorization": f"Bearer {iap_jwt}",  # required by IAP
         "X-API-KEY": api_key,  # consumed by your app
         "Accept": "application/json",
+        # IAP on Proxy-Authorization so Authorization can hold the app JWT later
+        **iap_proxy_auth_headers(),
     }
 
     resp = requests.post(url, headers=headers, timeout=15)
@@ -125,11 +149,9 @@ def create_legacy_model(
     access_token = get_access_tokens(api_key=api_key, DB_workspace=DB_workspace)
 
     # Log legacy jobs in JobTable
-    legacy_model_headers = {
-        "Accept": "application/json",
-        "Authorization": f"Bearer {access_token}",
-        "Content-Type": "application/json",
-    }
+    legacy_model_headers = edvise_request_headers(
+        access_token, **{"Content-Type": "application/json"}
+    )
 
     payload = {
         "name": model_name,
@@ -185,11 +207,9 @@ def validate_legacy_institution_exist(
     access_token = get_access_tokens(api_key=api_key, DB_workspace=DB_workspace)
 
     # Verify institution exists
-    legacy_model_headers = {
-        "Accept": "application/json",
-        "Authorization": f"Bearer {access_token}",
-        "Content-Type": "application/json",
-    }
+    legacy_model_headers = edvise_request_headers(
+        access_token, **{"Content-Type": "application/json"}
+    )
 
     base_url = get_base_url(DB_workspace)
     read_inst_endpoint_url = f"{base_url}/api/v1/institutions/{inst_id}"
@@ -216,11 +236,9 @@ def validate_legacy_model_exist(
     access_token = get_access_tokens(api_key=api_key, DB_workspace=DB_workspace)
 
     # Verify institution exists
-    legacy_model_headers = {
-        "Accept": "application/json",
-        "Authorization": f"Bearer {access_token}",
-        "Content-Type": "application/json",
-    }
+    legacy_model_headers = edvise_request_headers(
+        access_token, **{"Content-Type": "application/json"}
+    )
 
     base_url = get_base_url(DB_workspace)
     read_model_endpoint_url = (
@@ -254,10 +272,7 @@ def _fetch_institution_by_name(
         ValueError: If the response is not valid JSON
     """
     session = requests.Session()
-    institution_headers = {
-        "Accept": "application/json",
-        "Authorization": f"Bearer {access_token}",
-    }
+    institution_headers = edvise_request_headers(access_token)
 
     # URL-encode the institution name to handle spaces, special chars, unicode, etc.
     encoded_name = quote(normalized_name, safe="")
@@ -448,10 +463,9 @@ def log_legacy_job(
     access_token = get_access_tokens(api_key=api_key, DB_workspace=DB_workspace)
 
     # Log legacy jobs in JobTable
-    legacy_job_headers = {
-        "Authorization": f"Bearer {access_token}",
-        "Content-Type": "application/json",
-    }
+    legacy_job_headers = edvise_request_headers(
+        access_token, **{"Content-Type": "application/json"}
+    )
 
     base_url = get_base_url(DB_workspace)
     legacy_job_endpoint_url = f"{base_url}/api/v1/{inst_id}/add-custom-school-job/{job_run_id}?model_name={model_name}"
@@ -513,34 +527,45 @@ class EdviseAPIClient:
 
 def _fetch_bearer_token_for_client(client: EdviseAPIClient) -> str:
     """
-    Fetch bearer token from API key using X-API-KEY header.
+    Fetch Edvise bearer token from API key.
 
-    Assumes token endpoint returns JSON containing one of: access_token, token, bearer_token, jwt.
-
-    Args:
-        client: EdviseAPIClient instance
-
-    Returns:
-        Bearer token string
-
-    Raises:
-        PermissionError: If API key is invalid (401 response)
-        ValueError: If token response is missing expected token field
-        requests.HTTPError: For other HTTP errors
+    Sends ``X-API-KEY`` and, when ``SST_IAP_AUDIENCE`` is set, an IAP token on
+    ``Proxy-Authorization`` (so ``Authorization`` stays free for the app JWT).
     """
     token_url = (
         client.token_endpoint
         if client.token_endpoint.startswith(("http://", "https://"))
         else urljoin(f"{client.base_url}/", client.token_endpoint)
     )
-    resp = client.session.post(
-        token_url,
-        headers={"accept": "application/json", "X-API-KEY": client.api_key},
-        timeout=30,
-    )
+    # Do not send a stale app JWT on the token-exchange call.
+    client.session.headers.pop("Authorization", None)
+    headers: dict[str, str] = {
+        "accept": "application/json",
+        "X-API-KEY": client.api_key,
+        **iap_proxy_auth_headers(),
+    }
+
+    resp = client.session.post(token_url, headers=headers, timeout=30)
+    body_preview = (resp.text or "")[:300]
     if resp.status_code == 401:
+        if "Invalid IAP credentials" in body_preview:
+            aud = os.getenv("SST_IAP_AUDIENCE", "").strip()
+            hint = (
+                "SST_IAP_AUDIENCE is unset on this cluster."
+                if not aud
+                else (
+                    f"SST_IAP_AUDIENCE is set but IAP rejected the token "
+                    f"(audience={aud!r}). Check the OAuth client ID and that the "
+                    "cluster google_service_account has roles/iap.httpsResourceAccessor."
+                )
+            )
+            raise PermissionError(
+                f"Blocked by IAP calling token endpoint. {hint} "
+                f"url={token_url} body={body_preview!r}"
+            )
         raise PermissionError(
-            "Unauthorized calling token endpoint (check X-API-KEY secret)."
+            "Unauthorized calling token endpoint (invalid X-API-KEY or credentials). "
+            f"url={token_url} body={body_preview!r}"
         )
     resp.raise_for_status()
 
@@ -557,15 +582,19 @@ def _fetch_bearer_token_for_client(client: EdviseAPIClient) -> str:
 
 
 def _ensure_auth(client: EdviseAPIClient) -> None:
-    """Ensure client has a valid bearer token, fetching if needed."""
+    """Ensure client has a valid Edvise bearer token and a fresh IAP proxy header."""
     if client.bearer_token is None:
         _refresh_auth(client)
+    else:
+        # Keep Edvise JWT on Authorization; refresh IAP for this request.
+        client.session.headers.update(iap_proxy_auth_headers())
 
 
 def _refresh_auth(client: EdviseAPIClient) -> None:
-    """Refresh bearer token and update session headers."""
+    """Refresh Edvise bearer token and set both auth headers on the session."""
     client.bearer_token = _fetch_bearer_token_for_client(client)
-    client.session.headers.update({"Authorization": f"Bearer {client.bearer_token}"})
+    client.session.headers["Authorization"] = f"Bearer {client.bearer_token}"
+    client.session.headers.update(iap_proxy_auth_headers())
 
 
 def fetch_institution_by_pdp_id(client: EdviseAPIClient, pdp_id: str) -> dict[str, Any]:

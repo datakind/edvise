@@ -198,6 +198,10 @@ def test_table_setup_runs_ddl(monkeypatch) -> None:
     assert any("ALTER TABLE" in s and "db_run_id" in s for s in fake.statements)
     assert any("ALTER TABLE" in s and "execute_run_id" in s for s in fake.statements)
     assert any("ALTER TABLE" in s and "input_file_paths" in s for s in fake.statements)
+    assert any("ALTER TABLE" in s and "reference_id" in s for s in fake.statements)
+    assert any(
+        "ALTER TABLE" in s and "reference_content_hash" in s for s in fake.statements
+    )
     assert (
         sum(
             "RENAME COLUMN pipeline_run_id TO onboard_run_id" in s
@@ -208,6 +212,25 @@ def test_table_setup_runs_ddl(monkeypatch) -> None:
     assert any("hitl_reviews" in s for s in fake.statements)
     assert any("reference_pins" in s for s in fake.statements)
     assert any("CREATE VOLUME" in s and "references" in s for s in fake.statements)
+
+
+def test_update_onboard_pipeline_run_reference(monkeypatch) -> None:
+    fake = _FakeSpark()
+    monkeypatch.setattr(pipeline_state, "get_spark_session", lambda: fake)
+    monkeypatch.setattr(pipeline_state, "create_state_tables", lambda *a, **k: None)
+    pipeline_state.update_onboard_pipeline_run_reference(
+        "c1",
+        "inst1",
+        "run1",
+        reference_id="ref_school",
+        reference_content_hash="sha256:abc",
+    )
+    q = fake.statements[-1]
+    assert "UPDATE" in q
+    assert "reference_id" in q
+    assert "ref_school" in q
+    assert "sha256:abc" in q
+    assert "execute_run_id IS NULL" in q
 
 
 def test_resolve_onboard_run_id_explicit_override(monkeypatch) -> None:
