@@ -532,3 +532,51 @@ class TestGetInstitutionIdByName:
         # Name is normalized to lowercase in error messages
         assert "my test university" in error_msg.lower()
         assert "inst_id" in error_msg
+
+
+class TestIapProxyAuthHeaders:
+    """IAP uses Proxy-Authorization so Authorization can carry the Edvise JWT."""
+
+    def test_iap_headers_empty_without_audience(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.delenv("SST_IAP_AUDIENCE", raising=False)
+        assert api_requests.iap_proxy_auth_headers() == {}
+
+    def test_iap_headers_use_proxy_authorization(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("SST_IAP_AUDIENCE", "client.apps.googleusercontent.com")
+        with patch("edvise.utils.api_requests.fetch_iap_token", return_value="iap-jwt"):
+            assert api_requests.iap_proxy_auth_headers() == {
+                "Proxy-Authorization": "Bearer iap-jwt"
+            }
+
+    def test_edvise_request_headers_include_both(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("SST_IAP_AUDIENCE", "client.apps.googleusercontent.com")
+        with patch("edvise.utils.api_requests.fetch_iap_token", return_value="iap-jwt"):
+            headers = api_requests.edvise_request_headers("app-jwt")
+        assert headers["Authorization"] == "Bearer app-jwt"
+        assert headers["Proxy-Authorization"] == "Bearer iap-jwt"
+
+    def test_fetch_bearer_uses_proxy_authorization_not_authorization(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setenv("SST_IAP_AUDIENCE", "client.apps.googleusercontent.com")
+        client = api_requests.EdviseAPIClient(
+            api_key="key",
+            base_url="https://dev-sst.datakind.org",
+            token_endpoint="/api/v1/token-from-api-key",
+            institution_lookup_path="/api/v1/institutions/pdp-id/{pdp_id}",
+        )
+        mock_resp = Mock()
+        mock_resp.status_code = 200
+        mock_resp.text = ""
+        mock_resp.json.return_value = {"access_token": "edvise-jwt"}
+        mock_resp.raise_for_status = Mock()
+        client.session.post = Mock(return_value=mock_resp)  # type: ignore[method-assign]
+
+        with patch("edvise.utils.api_requests.fetch_iap_token", return_value="iap-jwt"):
+            token = api_requests._fetch_bearer_token_for_client(client)
+
+        assert token == "edvise-jwt"
+        sent = client.session.post.call_args[1]["headers"]
+        assert sent["Proxy-Authorization"] == "Bearer iap-jwt"
+        assert sent["X-API-KEY"] == "key"
+        assert "Authorization" not in sent or not sent.get("Authorization")
