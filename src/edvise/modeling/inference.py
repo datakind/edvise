@@ -15,6 +15,7 @@ LOGGER = logging.getLogger(__name__)
 DEFAULT_DISPLAY_DECIMALS = 2
 DEFAULT_INDICATOR_COLUMN_LABEL = "Indicator"
 SUPPORT_SCORE_COL = "Support Score"
+MAX_STUDENTS_FEATURES_WITH_MOST_IMPACT = 4000
 
 
 def _format_display_number(
@@ -413,6 +414,35 @@ def top_shap_features(
     top_features["feature_value"] = top_features["feature_value"].astype(str)
 
     return top_features
+
+
+def sample_features_with_most_impact_students(
+    df: pd.DataFrame,
+    *,
+    max_students: int = MAX_STUDENTS_FEATURES_WITH_MOST_IMPACT,
+    student_id_col: str = "student_id",
+    random_state: int | None = 42,
+) -> pd.DataFrame:
+    """
+    Limit ``features_with_most_impact`` rows for webapp display.
+
+    When the cohort has more than ``max_students`` unique students, randomly
+    sample that many students and keep every top-feature row for them (e.g.
+    4,000 students × 10 features → 40,000 rows). Smaller cohorts are unchanged.
+    """
+    if student_id_col not in df.columns:
+        raise ValueError(f"Missing required column {student_id_col!r}")
+
+    unique_students = df[student_id_col].drop_duplicates()
+    if len(unique_students) <= max_students:
+        return df
+
+    sampled_ids = unique_students.sample(
+        n=max_students,
+        random_state=random_state,
+        replace=False,
+    )
+    return df.loc[df[student_id_col].isin(sampled_ids)].copy()
 
 
 def top_feature_boxstats(

@@ -3,12 +3,14 @@ import pandas as pd
 import pytest
 
 from edvise.modeling.inference import (
+    MAX_STUDENTS_FEATURES_WITH_MOST_IMPACT,
     _as_excel_csv_text,
     _get_mapped_feature_name,
     format_dataframe_for_excel_csv,
     is_feature_defined_in_table,
     select_top_features_for_display,
     generate_ranked_feature_table,
+    sample_features_with_most_impact_students,
     top_shap_features,
     support_score_distribution_table,
 )
@@ -577,6 +579,46 @@ def test_empty_input():
 
     with pytest.raises(ValueError):
         top_shap_features(features, unique_ids, shap_values)
+
+
+def test_sample_features_with_most_impact_students_keeps_small_cohorts():
+    df = pd.DataFrame(
+        {
+            "student_id": [1, 1, 2, 2],
+            "feature_name": ["f1", "f2", "f1", "f2"],
+            "shap_value": [0.1, 0.2, 0.3, 0.4],
+        }
+    )
+
+    result = sample_features_with_most_impact_students(df, max_students=4)
+
+    pd.testing.assert_frame_equal(result, df)
+
+
+def test_sample_features_with_most_impact_students_caps_large_cohorts():
+    n_students = MAX_STUDENTS_FEATURES_WITH_MOST_IMPACT + 500
+    n_features = 10
+    rows = []
+    for student_id in range(n_students):
+        for feature_idx in range(n_features):
+            rows.append(
+                {
+                    "student_id": student_id,
+                    "feature_name": f"feature_{feature_idx}",
+                    "shap_value": 0.1,
+                }
+            )
+    df = pd.DataFrame(rows)
+
+    result = sample_features_with_most_impact_students(
+        df,
+        max_students=MAX_STUDENTS_FEATURES_WITH_MOST_IMPACT,
+        random_state=42,
+    )
+
+    assert result["student_id"].nunique() == MAX_STUDENTS_FEATURES_WITH_MOST_IMPACT
+    assert len(result) == MAX_STUDENTS_FEATURES_WITH_MOST_IMPACT * n_features
+    assert result.groupby("student_id").size().eq(n_features).all()
 
 
 def test_support_score_distribution_table():
