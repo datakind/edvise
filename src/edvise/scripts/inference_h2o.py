@@ -431,10 +431,8 @@ class ModelInferenceTask:
             features_table_path=features_table_path,
             schema_type=self.args.schema_type,
         ).merge(support_scores, on="student_id", how="left")
-        inference_features_with_most_impact = (
-            sample_features_with_most_impact_students(
-                inference_features_with_most_impact
-            )
+        inference_features_with_most_impact = sample_features_with_most_impact_students(
+            inference_features_with_most_impact
         )
 
         box_whiskers_table = features_box_whiskers_table(
