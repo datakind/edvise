@@ -28,8 +28,16 @@ from edvise.genai.mapping.shared.utilities import (
 
 MLFLOW_AI_GATEWAY_ON_WORKSPACE_PATH: Final[str] = "/ai-gateway/mlflow/v1"
 
+GENAI_MAPPING_UC_SCHEMA: Final[str] = "genai_mapping"
+
 DEFAULT_GATEWAY_CLAUDE_SONNET_MODEL_ID: str = "claude-sonnet-edvise-genai"
 DEFAULT_GATEWAY_CLAUDE_HAIKU_MODEL_ID: str = "claude-haiku-edvise-genai"
+
+
+def build_uc_gateway_model_id(catalog: str, model_name: str) -> str:
+    """Full ``<catalog>.genai_mapping.<model_name>`` id for a UC-registered gateway model."""
+    return f"{catalog}.{GENAI_MAPPING_UC_SCHEMA}.{model_name}"
+
 
 # System + user are concatenated into one role=user message (IA / SMA).
 #
@@ -215,23 +223,28 @@ def resolve_ai_gateway_base_url() -> str:
     )
 
 
-def resolve_gateway_model_id() -> str:
-    """``GATEWAY_MODEL_ID`` env, else :data:`DEFAULT_GATEWAY_CLAUDE_SONNET_MODEL_ID`."""
-    return os.environ.get("GATEWAY_MODEL_ID", DEFAULT_GATEWAY_CLAUDE_SONNET_MODEL_ID)
+def resolve_gateway_model_id(catalog: str) -> str:
+    """``GATEWAY_MODEL_ID`` env verbatim, else ``<catalog>.genai_mapping.<DEFAULT_GATEWAY_CLAUDE_SONNET_MODEL_ID>``."""
+    explicit = (os.environ.get("GATEWAY_MODEL_ID") or "").strip()
+    if explicit:
+        return explicit
+    return build_uc_gateway_model_id(catalog, DEFAULT_GATEWAY_CLAUDE_SONNET_MODEL_ID)
 
 
-def resolve_column_roles_gateway_model_id() -> str:
-    """``COLUMN_ROLES_GATEWAY_MODEL_ID`` env, else :data:`DEFAULT_GATEWAY_CLAUDE_HAIKU_MODEL_ID`."""
-    return os.environ.get(
-        "COLUMN_ROLES_GATEWAY_MODEL_ID", DEFAULT_GATEWAY_CLAUDE_HAIKU_MODEL_ID
-    )
+def resolve_column_roles_gateway_model_id(catalog: str) -> str:
+    """``COLUMN_ROLES_GATEWAY_MODEL_ID`` env verbatim, else ``<catalog>.genai_mapping.<DEFAULT_GATEWAY_CLAUDE_HAIKU_MODEL_ID>``."""
+    explicit = (os.environ.get("COLUMN_ROLES_GATEWAY_MODEL_ID") or "").strip()
+    if explicit:
+        return explicit
+    return build_uc_gateway_model_id(catalog, DEFAULT_GATEWAY_CLAUDE_HAIKU_MODEL_ID)
 
 
-def resolve_grain_resolution_gateway_model_id() -> str:
-    """``GRAIN_RESOLUTION_GATEWAY_MODEL_ID`` env, else :data:`DEFAULT_GATEWAY_CLAUDE_HAIKU_MODEL_ID`."""
-    return os.environ.get(
-        "GRAIN_RESOLUTION_GATEWAY_MODEL_ID", DEFAULT_GATEWAY_CLAUDE_HAIKU_MODEL_ID
-    )
+def resolve_grain_resolution_gateway_model_id(catalog: str) -> str:
+    """``GRAIN_RESOLUTION_GATEWAY_MODEL_ID`` env verbatim, else ``<catalog>.genai_mapping.<DEFAULT_GATEWAY_CLAUDE_HAIKU_MODEL_ID>``."""
+    explicit = (os.environ.get("GRAIN_RESOLUTION_GATEWAY_MODEL_ID") or "").strip()
+    if explicit:
+        return explicit
+    return build_uc_gateway_model_id(catalog, DEFAULT_GATEWAY_CLAUDE_HAIKU_MODEL_ID)
 
 
 def _token_from_authorization_header(headers: dict[str, str]) -> str | None:
@@ -394,6 +407,7 @@ def _assistant_text_from_chat_completion_or_raise(
 def make_databricks_gateway_llm_complete(
     client: OpenAI,
     *,
+    catalog: str | None = None,
     model: str | None = None,
     max_tokens: int = DEFAULT_GATEWAY_COMPLETION_MAX_TOKENS,
     cache_system_prompt: bool = False,
@@ -419,8 +433,19 @@ def make_databricks_gateway_llm_complete(
     Caching is opt-in and off by default: only enable it for callers whose ``system`` text is
     stable across calls, since the ``cache_control`` write incurs a small price premium
     (1.25x for ``"5m"``, 2x for ``"1h"``) that only pays off on a cache hit.
+
+    ``catalog`` is required when ``model`` is omitted, since the default model id is now a
+    UC-scoped ``<catalog>.genai_mapping.<model_name>`` id (see :func:`resolve_gateway_model_id`).
     """
-    resolved_model = model if model is not None else resolve_gateway_model_id()
+    if model is not None:
+        resolved_model = model
+    else:
+        if not catalog:
+            raise ValueError(
+                "make_databricks_gateway_llm_complete: 'catalog' is required when 'model' "
+                "is not given explicitly."
+            )
+        resolved_model = resolve_gateway_model_id(catalog)
 
     def complete(system: str, user: str) -> str:
         messages = cast(

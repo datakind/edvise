@@ -399,6 +399,7 @@ def _run_once(
 def _sma_llm_complete_run_once(
     client: Any,
     *,
+    catalog: str,
     cache_system_prompt: bool = False,
 ) -> Callable[[str, str], str]:
     """
@@ -410,7 +411,7 @@ def _sma_llm_complete_run_once(
     is long enough to be cacheable. It's a safe no-op for callers that pass an empty
     ``system`` (e.g. Step 2a/2b, which send the whole prompt as ``user``).
     """
-    model_id = resolve_gateway_model_id()
+    model_id = resolve_gateway_model_id(catalog)
 
     def llm_complete(system: str, user: str) -> str:
         s = (system or "").strip()
@@ -511,7 +512,9 @@ def run_onboard_start(
     # activates for the refinement calls further down, which reuse this same llm_sma and send
     # a static, ~2.5-3.4k token system prompt (build_refinement_pass1/2_system_prompt) across
     # up to 4 calls per institution.
-    llm_sma = _sma_llm_complete_run_once(client, cache_system_prompt=True)
+    llm_sma = _sma_llm_complete_run_once(
+        client, catalog=catalog, cache_system_prompt=True
+    )
 
     def _parse_step2a_envelope(raw: str) -> MappingManifestEnvelope:
         manifest_dict = json.loads(raw)
@@ -818,7 +821,7 @@ def run_onboard_gate_2(
         institution_term_config=institution_term_config,
     )
 
-    llm_sma = _sma_llm_complete_run_once(client)
+    llm_sma = _sma_llm_complete_run_once(client, catalog=catalog)
 
     def _parse_step2b_transformation_wrapper(raw: str) -> dict:
         data = json.loads(raw)
@@ -965,7 +968,7 @@ def run_onboard_gate_2(
             "Transformation plan / manifest alignment failed after review: " + details
         )
 
-    _sma_gateway_model_id = resolve_gateway_model_id()
+    _sma_gateway_model_id = resolve_gateway_model_id(catalog)
 
     def _sma_hook_llm_complete(system: str, user: str) -> str:
         prompt = f"{system.strip()}\n\n---\n\n{user.strip()}"
@@ -1197,6 +1200,7 @@ def run_execute(
     spark_session: Any,
     *,
     execute_run_id: str,
+    catalog: str,
 ) -> None:
     from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import (
         FieldMappingManifest,
@@ -1269,6 +1273,7 @@ def run_execute(
         enriched_contract=enriched_contract,
         manifest_map_path=paths.active_manifest_map,
         grain_hitl_path=paths.run_root / "cohort_sma_grain_hitl.json",
+        catalog=catalog,
         active_grain_resolution_root=paths.active_root,
         hook_modules_root=paths.active_root,
     )
@@ -1282,6 +1287,7 @@ def run_execute(
         enriched_contract=enriched_contract,
         manifest_map_path=paths.active_manifest_map,
         grain_hitl_path=paths.run_root / "course_sma_grain_hitl.json",
+        catalog=catalog,
         active_grain_resolution_root=paths.active_root,
         hook_modules_root=paths.active_root,
     )
@@ -1450,6 +1456,7 @@ def run(
             paths,
             spark_session,
             execute_run_id=str(execute_run_id).strip(),
+            catalog=catalog,
         )
         try:
             _pipeline_state.update_execute_pipeline_run_status(

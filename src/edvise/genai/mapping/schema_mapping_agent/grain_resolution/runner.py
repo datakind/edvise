@@ -196,6 +196,7 @@ def execute_transformation_map_for_sma_run(
     enriched_contract: dict[str, Any],
     manifest_map_path: Path,
     grain_hitl_path: Path,
+    catalog: str,
     active_grain_resolution_root: Path | None = None,
     hook_modules_root: Path | None = None,
 ) -> Any:
@@ -260,6 +261,7 @@ def execute_transformation_map_for_sma_run(
             ia_source_keys=exc.ia_source_keys,
             hitl_output_path=exc.hitl_output_path,
             sma_manifest_path=exc.sma_manifest_path,
+            catalog=catalog,
         )
         raise SmaGrainHitlPending(
             grain_hitl_path=Path(exc.hitl_output_path),
@@ -345,6 +347,7 @@ def run_onboard_gate_2_entity_with_grain_uc(
                 enriched_contract=enriched_contract,
                 manifest_map_path=manifest_map_path,
                 grain_hitl_path=grain_hitl_path,
+                catalog=catalog,
                 hook_modules_root=hook_modules_root,
             )
             return result, manifest_cur
