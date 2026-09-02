@@ -32,7 +32,7 @@ from edvise.ingestion.nsc_sftp.constants import (
     SFTP_SOURCE_SYSTEM,
     SFTP_TMP_DIR,
 )
-from edvise.ingestion.nsc_sftp.file_selection import select_file_pair
+from edvise.ingestion.nsc_sftp.file_selection import select_file_pairs
 from edvise.ingestion.nsc_sftp.helpers import (
     bronze_written_file_names,
     build_listing_df,
@@ -55,15 +55,15 @@ def _stage01_exit_message(
     queued_count: int,
     force_reingest: bool,
     mode_used: str,
-    cohort_file_name: str | None,
-    course_file_name: str | None,
+    selected_date: str,
+    pair_count: int,
     sftp_file_count: int,
 ) -> str:
     """Compact status line; file lists already appear in INFO logs above."""
     return (
         f"QUEUED_FILES={queued_count};FORCE_REINGEST={force_reingest};"
-        f"MODE={mode_used};COHORT={cohort_file_name or 'None'};"
-        f"COURSE={course_file_name or 'None'};SFTP_FILE_COUNT={sftp_file_count}"
+        f"MODE={mode_used};DATE={selected_date};PAIRS={pair_count};"
+        f"SFTP_FILE_COUNT={sftp_file_count}"
     )
 
 
@@ -99,7 +99,7 @@ try:
     available = sorted({r["file_name"] for r in file_rows_all if r.get("file_name")})
     log_section(logger, "SFTP files", available)
 
-    cohort_file_name, course_file_name, mode_used = select_file_pair(
+    selected_pairs, mode_used = select_file_pairs(
         file_rows_all,
         mode=file_selection_mode,
         cohort_file_name=cohort_file_name,
@@ -109,14 +109,21 @@ try:
         if force_reingest
         else bronze_written_file_names(spark),
     )
-    logger.info(
-        "Selected via %s: cohort=%s course=%s",
-        mode_used,
-        cohort_file_name,
-        course_file_name,
+    selected_date = selected_pairs[0].date
+    log_section(
+        logger,
+        f"Selected via {mode_used} (date={selected_date})",
+        [
+            f"stamp={p.stamp} cohort={p.cohort_file_name} course={p.course_file_name}"
+            for p in selected_pairs
+        ],
     )
 
-    requested = {cohort_file_name, course_file_name}
+    requested = {
+        name
+        for p in selected_pairs
+        for name in (p.cohort_file_name, p.course_file_name)
+    }
     file_rows = [r for r in file_rows_all if r.get("file_name") in requested]
     missing = sorted(requested - {r.get("file_name") for r in file_rows})
     if missing:
@@ -145,8 +152,8 @@ try:
                 queued_count=0,
                 force_reingest=force_reingest,
                 mode_used=mode_used,
-                cohort_file_name=cohort_file_name,
-                course_file_name=course_file_name,
+                selected_date=selected_date,
+                pair_count=len(selected_pairs),
                 sftp_file_count=len(available),
             ),
         )
@@ -171,8 +178,8 @@ try:
             queued_count=queued_count,
             force_reingest=force_reingest,
             mode_used=mode_used,
-            cohort_file_name=cohort_file_name,
-            course_file_name=course_file_name,
+            selected_date=selected_date,
+            pair_count=len(selected_pairs),
             sftp_file_count=len(available),
         ),
     )
