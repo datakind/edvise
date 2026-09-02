@@ -114,7 +114,9 @@ class InferencePrepTask:
             cleaner = cleanup.ESCleanup()
         else:
             cleaner = cleanup.PDPCleanup()
-        return cleaner.clean_up_labeled_dataset_cols_and_vals(df_labeled)
+        return cleaner.clean_up_labeled_dataset_cols_and_vals(
+            df_labeled, target_type=cleanup.target_type_from_config(self.cfg)
+        )
 
     def run(self):
         # Enforce inference mode & resolve <silver>/<run_id>/inference/

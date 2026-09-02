@@ -19,6 +19,15 @@ from edvise.utils.drop_columns_safely import drop_columns_safely
 LOGGER = logging.getLogger(__name__)
 
 
+def target_type_from_config(cfg: object) -> str | None:
+    """Return ``preprocessing.target.type_`` when the config has a target block."""
+    return getattr(
+        getattr(getattr(cfg, "preprocessing", None), "target", None),
+        "type_",
+        None,
+    )
+
+
 class BaseCleanup:
     """Shared cleanup logic for labeled / unlabeled student-term datasets.
 
@@ -28,6 +37,9 @@ class BaseCleanup:
     """
 
     cols_to_drop: t.ClassVar[list[str]] = []
+    # First-term snapshots that duplicate checkpoint-relative features when the
+    # checkpoint is always term 1 (retention). Graduation keeps both.
+    retention_redundant_cols: t.ClassVar[list[str]] = []
     # Used by masking below; dropped from the modeling dataset afterward.
     cols_to_drop_after_masking: t.ClassVar[list[str]] = [
         "year_of_enrollment_at_cohort_inst",
@@ -38,6 +50,7 @@ class BaseCleanup:
         df: pd.DataFrame,
         num_credits_col: str = "cumsum_num_credits_earned",
         num_credit_check: int = 12,
+        target_type: str | None = None,
     ) -> pd.DataFrame:
         """
         Drop columns in :attr:`cols_to_drop` and null out values corresponding
@@ -49,6 +62,9 @@ class BaseCleanup:
             num_credits_col: Column with cumulative earned credits, used to mask
                 ``in_{num_credit_check}_creds`` features.
             num_credit_check: Credit threshold for masking ``in_N_creds`` features.
+            target_type: Config target type. Retention also drops
+                :attr:`retention_redundant_cols`; graduation keeps those
+                first-term snapshots alongside term-agnostic counterparts.
         """
         if num_credits_col in df.columns:
             credit_pattern = re.compile(rf"in_{num_credit_check}_creds")
@@ -56,7 +72,10 @@ class BaseCleanup:
                 if credit_pattern.search(col):
                     df[col] = df[col].mask(df[num_credits_col] < num_credit_check)
 
-        df = drop_columns_safely(df, cols_to_drop=self.cols_to_drop)
+        drop_cols = list(self.cols_to_drop)
+        if target_type == "retention":
+            drop_cols.extend(self.retention_redundant_cols)
+        df = drop_columns_safely(df, cols_to_drop=drop_cols)
 
         df = df.assign(
             **{
@@ -117,6 +136,10 @@ class BaseCleanup:
 
 class PDPCleanup(BaseCleanup):
     """Cleanup for PDP labeled / unlabeled datasets."""
+
+    retention_redundant_cols: t.ClassVar[list[str]] = [
+        "enrollment_intensity_first_term",  # same as student_term_enrollment_intensity at first-term checkpoint
+    ]
 
     cols_to_drop: t.ClassVar[list[str]] = [
         # metadata
