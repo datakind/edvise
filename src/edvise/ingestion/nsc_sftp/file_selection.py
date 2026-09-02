@@ -168,6 +168,6 @@ def select_file_pairs(
             f"ingestion_manifest. stamps={[p.stamp for p in pairs]}"
         )
     target_date = max(p.date for p in eligible)
-    # Same-day deliveries: queue every still-pending pair for that date.
+    # Same-day deliveries: select every still-pending pair for that date.
     chosen = _pairs_on_date(eligible, target_date)
     return chosen, mode_norm

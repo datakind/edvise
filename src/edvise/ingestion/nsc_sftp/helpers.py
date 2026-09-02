@@ -1,5 +1,5 @@
 """
-NSC SFTP ingestion helpers (manifest, queue, plan, staging, bronze writes).
+NSC SFTP ingestion helpers (manifest, selected, plan, staging, bronze writes).
 
 NSC-specific utilities for processing SFTP files, extracting institution IDs,
 managing ingestion manifests, and working with Databricks schemas/volumes.
@@ -28,7 +28,7 @@ from edvise.ingestion.nsc_sftp.constants import (
     DEFAULT_SCHEMA,
     MANIFEST_TABLE_PATH,
     PLAN_TABLE_PATH,
-    QUEUE_TABLE_PATH,
+    SELECTED_TABLE_PATH,
     SFTP_DOWNLOAD_CHUNK_MB,
     SFTP_TMP_DIR,
     SFTP_TMP_VOLUME_FQN,
@@ -78,11 +78,11 @@ def _ensure_sftp_staging_volume_exists(spark: pyspark.sql.SparkSession) -> None:
         )
 
 
-def ensure_manifest_and_queue_tables(spark: pyspark.sql.SparkSession) -> None:
+def ensure_manifest_and_selected_tables(spark: pyspark.sql.SparkSession) -> None:
     """
     Create required delta tables if missing.
     - ingestion_manifest: includes file_fingerprint for idempotency
-    - pending_ingest_queue: holds local tmp path so downstream doesn't connect to SFTP again
+    - selected_ingest_files: holds local tmp path so downstream doesn't connect to SFTP again
 
     Args:
         spark: Spark session
@@ -111,7 +111,7 @@ def ensure_manifest_and_queue_tables(spark: pyspark.sql.SparkSession) -> None:
 
     spark.sql(
         f"""
-        CREATE TABLE IF NOT EXISTS {QUEUE_TABLE_PATH} (
+        CREATE TABLE IF NOT EXISTS {SELECTED_TABLE_PATH} (
           file_fingerprint STRING,
           source_system STRING,
           sftp_path STRING,
@@ -119,7 +119,7 @@ def ensure_manifest_and_queue_tables(spark: pyspark.sql.SparkSession) -> None:
           file_size BIGINT,
           file_modified_time TIMESTAMP,
           local_tmp_path STRING,
-          queued_at TIMESTAMP
+          selected_at TIMESTAMP
         )
         USING DELTA
         """
@@ -184,7 +184,7 @@ def reset_files_for_reingest(
     spark: pyspark.sql.SparkSession, file_fingerprints: Sequence[str]
 ) -> int:
     """
-    Clear queue/plan rows and reset manifest to NEW for the given fingerprints.
+    Clear selected/plan rows and reset manifest to NEW for the given fingerprints.
 
     Used when ``force_reingest=true`` so previously BRONZE_WRITTEN files can be
     staged and processed again.
@@ -198,10 +198,10 @@ def reset_files_for_reingest(
         schema=T.StructType([T.StructField("file_fingerprint", T.StringType(), False)]),
     ).createOrReplaceTempView("_nsc_reingest_fps")
 
-    if spark.catalog.tableExists(QUEUE_TABLE_PATH):
+    if spark.catalog.tableExists(SELECTED_TABLE_PATH):
         spark.sql(
             f"""
-            DELETE FROM {QUEUE_TABLE_PATH}
+            DELETE FROM {SELECTED_TABLE_PATH}
             WHERE file_fingerprint IN (SELECT file_fingerprint FROM _nsc_reingest_fps)
             """
         )
@@ -306,23 +306,23 @@ def upsert_new_to_manifest(
     )
 
 
-def get_files_to_queue(
+def get_files_to_select(
     spark: pyspark.sql.SparkSession, df_listing: pyspark.sql.DataFrame
 ) -> pyspark.sql.DataFrame:
     """
-    Return files that should be queued for downstream processing.
+    Return files that should be selected for downstream processing.
 
     Criteria:
       - present in current SFTP listing (df_listing)
       - exist in manifest with status = 'NEW'
-      - NOT already present in pending_ingest_queue
+      - NOT already present in selected_ingest_files
 
     Args:
         spark: Spark session
         df_listing: DataFrame with file listing (must have file_fingerprint column)
 
     Returns:
-        DataFrame of files to queue
+        DataFrame of files to select
     """
     manifest_new = (
         spark.table(MANIFEST_TABLE_PATH)
@@ -331,33 +331,35 @@ def get_files_to_queue(
         .select("file_fingerprint")
     )
 
-    already_queued = spark.table(QUEUE_TABLE_PATH).select("file_fingerprint").distinct()
-
-    # Only queue files that are:
-    #   in current listing AND in manifest NEW AND not in queue
-    to_queue = df_listing.join(manifest_new, on="file_fingerprint", how="inner").join(
-        already_queued, on="file_fingerprint", how="left_anti"
+    already_selected = (
+        spark.table(SELECTED_TABLE_PATH).select("file_fingerprint").distinct()
     )
-    return to_queue
+
+    # Only select files that are:
+    #   in current listing AND in manifest NEW AND not in selected_ingest_files
+    to_select = df_listing.join(manifest_new, on="file_fingerprint", how="inner").join(
+        already_selected, on="file_fingerprint", how="left_anti"
+    )
+    return to_select
 
 
-def download_new_files_and_queue(
+def download_new_files_and_select(
     spark: pyspark.sql.SparkSession,
     sftp: paramiko.SFTPClient,
     df_new: pyspark.sql.DataFrame,
     logger: Optional[logging.Logger] = None,
 ) -> int:
     """
-    Download each new file to /tmp and upsert into pending_ingest_queue.
+    Download each new file to /tmp and upsert into selected_ingest_files.
 
     Args:
         spark: Spark session
         sftp: SFTP client connection
-        df_new: DataFrame of files to download and queue
+        df_new: DataFrame of files to download and select
         logger: Optional logger instance (defaults to module logger)
 
     Returns:
-        Number of files queued
+        Number of files selected
     """
     if logger is None:
         logger = LOGGER
@@ -372,7 +374,7 @@ def download_new_files_and_queue(
         "file_modified_time",
     ).collect()
 
-    queued = []
+    selected = []
     for r in rows:
         fp = r["file_fingerprint"]
         sftp_path = r["sftp_path"]
@@ -394,7 +396,7 @@ def download_new_files_and_queue(
         else:
             logger.info("Already staged, skipping download: %s", file_name)
 
-        queued.append(
+        selected.append(
             {
                 "file_fingerprint": fp,
                 "source_system": r["source_system"],
@@ -403,11 +405,11 @@ def download_new_files_and_queue(
                 "file_size": r["file_size"],
                 "file_modified_time": r["file_modified_time"],
                 "local_tmp_path": local_path,
-                "queued_at": datetime.now(timezone.utc),
+                "selected_at": datetime.now(timezone.utc),
             }
         )
 
-    if not queued:
+    if not selected:
         return 0
 
     qschema = T.StructType(
@@ -419,27 +421,27 @@ def download_new_files_and_queue(
             T.StructField("file_size", T.LongType(), True),
             T.StructField("file_modified_time", T.TimestampType(), True),
             T.StructField("local_tmp_path", T.StringType(), False),
-            T.StructField("queued_at", T.TimestampType(), False),
+            T.StructField("selected_at", T.TimestampType(), False),
         ]
     )
 
-    df_queue = spark.createDataFrame(queued, schema=qschema)
-    df_queue.createOrReplaceTempView("incoming_queue_rows")
+    df_selected = spark.createDataFrame(selected, schema=qschema)
+    df_selected.createOrReplaceTempView("incoming_selected_rows")
 
-    # Upsert into queue (idempotent by fingerprint)
+    # Upsert into selected_ingest_files (idempotent by fingerprint)
     spark.sql(
         f"""
-        MERGE INTO {QUEUE_TABLE_PATH} AS t
-        USING incoming_queue_rows AS s
+        MERGE INTO {SELECTED_TABLE_PATH} AS t
+        USING incoming_selected_rows AS s
         ON t.file_fingerprint = s.file_fingerprint
         WHEN MATCHED THEN UPDATE SET
         t.local_tmp_path = s.local_tmp_path,
-        t.queued_at = s.queued_at
+        t.selected_at = s.selected_at
         WHEN NOT MATCHED THEN INSERT *
         """
     )
 
-    return len(queued)
+    return len(selected)
 
 
 _PLAN_IDENTITY_COLS = ("inst_id", "institution_name")

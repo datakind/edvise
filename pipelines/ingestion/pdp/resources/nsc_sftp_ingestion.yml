@@ -6,9 +6,9 @@
 # File selection:
 #   - Set cohort_file_name + course_file_name for a manual run, OR
 #   - Leave them empty and use file_selection_mode=skip_ingested|latest (default: skip_ingested).
-#     Auto modes queue every complete cohort/course pair that shares the target
+#     Auto modes select every complete cohort/course pair that shares the target
 #     calendar date (YYYYMMDD), not only the newest timestamp.
-# Testing: force_reingest=true resets manifest/queue/plan for the selected pair and
+# Testing: force_reingest=true resets manifest/selected/plan for the selected pair and
 # overwrites existing bronze CSVs (use with latest or manual).
 
 resources:
