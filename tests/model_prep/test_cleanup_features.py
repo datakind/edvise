@@ -2,44 +2,47 @@ import pandas as pd
 import pytest
 
 from edvise.model_prep.cleanup_features import (
+    _FIRST_TERM_SNAPSHOTS,
     PDPCleanup,
-    target_type_from_config,
+    extra_snapshot_drop_cols,
 )
 
 
-class _Cfg:
-    def __init__(self, target_type: str | None) -> None:
-        if target_type is None:
-            self.preprocessing = None
-        else:
-            self.preprocessing = type(
-                "Prep",
-                (),
-                {"target": type("Target", (), {"type_": target_type})()},
-            )()
-
-
-_FIRST_TERM_SNAPSHOTS = (
-    "enrollment_intensity_first_term",
-    "attendance_status_term_1",
-    "program_of_study_term_1",
-    "program_of_study_year_1",
-)
+def _cfg(type_: str | None, n: int | None = None, exclude_non_core: bool = True):
+    checkpoint = type("Checkpoint", (), {"type_": type_, "n": n})()
+    if type_ == "nth":
+        checkpoint.exclude_non_core_terms = exclude_non_core
+    return type(
+        "Cfg",
+        (),
+        {"preprocessing": type("Prep", (), {"checkpoint": checkpoint})()},
+    )()
 
 
 @pytest.mark.parametrize(
-    ("target_type", "keep_first_term"),
+    ("type_", "n", "exclude_non_core", "expected"),
     [
-        ("retention", False),
-        ("graduation", True),
-        ("credits_earned", True),
-        (None, True),
+        ("first_within_cohort", None, True, list(_FIRST_TERM_SNAPSHOTS)),
+        ("nth", 0, True, list(_FIRST_TERM_SNAPSHOTS)),
+        ("nth", 1, True, ["program_of_study_year_1"]),
+        ("nth", 1, False, []),
+        ("nth", 3, True, []),
+        ("first_at_num_credits_earned", None, True, []),
+        (None, None, True, []),
     ],
 )
-def test_pdp_cleanup_drops_first_term_snapshots_only_for_retention(
-    target_type: str | None, keep_first_term: bool
+def test_extra_snapshot_drop_cols(
+    type_: str | None, n: int | None, exclude_non_core: bool, expected: list[str]
 ) -> None:
-    df = pd.DataFrame(
+    assert extra_snapshot_drop_cols(_cfg(type_, n, exclude_non_core)) == expected
+
+
+def test_extra_snapshot_drop_cols_without_config() -> None:
+    assert extra_snapshot_drop_cols(None) == []
+
+
+def _snapshot_df() -> pd.DataFrame:
+    return pd.DataFrame(
         {
             "student_id": ["s1"],
             "year_of_enrollment_at_cohort_inst": [2],
@@ -52,16 +55,30 @@ def test_pdp_cleanup_drops_first_term_snapshots_only_for_retention(
             "term_program_of_study": ["27.0501"],
         }
     )
+
+
+def test_first_term_checkpoint_drops_snapshots() -> None:
     cleaned = PDPCleanup().clean_up_labeled_dataset_cols_and_vals(
-        df, target_type=target_type
+        _snapshot_df(), cfg=_cfg("first_within_cohort")
     )
     assert "student_term_enrollment_intensity" in cleaned.columns
     assert "term_program_of_study" in cleaned.columns
     for col in _FIRST_TERM_SNAPSHOTS:
-        assert (col in cleaned.columns) is keep_first_term
+        assert col not in cleaned.columns
 
 
-def test_target_type_from_config() -> None:
-    assert target_type_from_config(_Cfg("retention")) == "retention"
-    assert target_type_from_config(_Cfg("graduation")) == "graduation"
-    assert target_type_from_config(_Cfg(None)) is None
+def test_two_core_terms_drops_only_year1_program() -> None:
+    cleaned = PDPCleanup().clean_up_labeled_dataset_cols_and_vals(
+        _snapshot_df(), cfg=_cfg("nth", n=1)
+    )
+    assert "program_of_study_year_1" not in cleaned.columns
+    assert "program_of_study_term_1" in cleaned.columns
+    assert "term_program_of_study" in cleaned.columns
+
+
+def test_later_checkpoint_keeps_snapshots() -> None:
+    cleaned = PDPCleanup().clean_up_labeled_dataset_cols_and_vals(
+        _snapshot_df(), cfg=_cfg("nth", n=3)
+    )
+    for col in _FIRST_TERM_SNAPSHOTS:
+        assert col in cleaned.columns

@@ -131,7 +131,7 @@ class ModelPrepTask:
 
     def cleanup_features(self, df_labeled: pd.DataFrame) -> pd.DataFrame:
         return self.cleaner.clean_up_labeled_dataset_cols_and_vals(
-            df_labeled, target_type=cleanup.target_type_from_config(self.cfg)
+            df_labeled, cfg=self.cfg
         )
 
     def apply_dataset_splits(self, df: pd.DataFrame) -> pd.DataFrame:
