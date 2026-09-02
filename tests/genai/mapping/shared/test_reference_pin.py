@@ -140,6 +140,12 @@ def test_pin_reference_snapshot_from_active(
     assert "archetype" not in pin
     assert rp.verify_reference_pin_hash(current) == pin["content_hash"]
 
+    few = rp.resolve_sma_few_shot_pin(ref, catalog=catalog)
+    assert few.manifest_map == current / "manifest_map.json"
+    assert few.transformation_map == current / "transformation_map.json"
+    assert few.content_hash == pin["content_hash"]
+    assert few.current_root == current
+
     hist_dirs = [
         p for p in current.parent.iterdir() if p.is_dir() and p.name.startswith("v")
     ]
@@ -162,6 +168,15 @@ def test_verify_reference_pin_hash_detects_drift(
     (current / "manifest_map.json").write_text('{"m": "tampered"}', encoding="utf-8")
     with pytest.raises(ValueError, match="hash mismatch"):
         rp.verify_reference_pin_hash(current)
+
+
+def test_resolve_sma_few_shot_pin_requires_current(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    volumes = tmp_path / "Volumes"
+    _patch_volume_roots(monkeypatch, volumes)
+    with pytest.raises(FileNotFoundError, match="Pinned few-shot not found"):
+        rp.resolve_sma_few_shot_pin("never_pinned", catalog="dev_cat")
 
 
 def test_upsert_reference_pin_row_sql(monkeypatch: pytest.MonkeyPatch) -> None:

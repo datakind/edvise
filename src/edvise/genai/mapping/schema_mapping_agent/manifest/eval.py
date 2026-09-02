@@ -44,6 +44,7 @@ from edvise.genai.mapping.shared.schema_contract import (
     parse_enriched_schema_contract_for_sma,
 )
 from edvise.configs import genai as genai_cfg
+from edvise.genai.mapping.shared.reference_pin import resolve_sma_few_shot_pin
 from edvise.data_audit.schemas.raw_edvise_student import (
     RawEdviseStudentDataSchema,
 )
@@ -1486,7 +1487,7 @@ def _resolve_reference_mapping_manifest(reference_id: str) -> Path:
     Few-shot reference manifest for Step 2a.
 
     * ``EDVISE_EVAL_REFERENCE_MANIFEST_PATH`` — explicit file.
-    * Else ``…/genai_mapping/active/manifest_map.json`` for the reference institution.
+    * Else pinned ``…/genai_mapping/references/<id>/current/manifest_map.json``.
     """
     override = os.environ.get("EDVISE_EVAL_REFERENCE_MANIFEST_PATH")
     if override and str(override).strip():
@@ -1496,13 +1497,8 @@ def _resolve_reference_mapping_manifest(reference_id: str) -> Path:
                 f"EDVISE_EVAL_REFERENCE_MANIFEST_PATH not found: {p}"
             )
         return p.resolve()
-    p = _silver_genai_root_path(reference_id) / "active" / "manifest_map.json"
-    if not p.is_file():
-        raise FileNotFoundError(
-            "Reference manifest not found at pipeline active path "
-            f"{p}. Promote execute artifacts or set EDVISE_EVAL_REFERENCE_MANIFEST_PATH."
-        )
-    return p
+    few = resolve_sma_few_shot_pin(reference_id, catalog=_require_uc_catalog_for_eval())
+    return few.manifest_map
 
 
 def _resolve_reference_transformation_map_for_eval(reference_id: str) -> Path:
@@ -1510,7 +1506,7 @@ def _resolve_reference_transformation_map_for_eval(reference_id: str) -> Path:
     Few-shot reference transformation map for Step 2b.
 
     * ``EDVISE_EVAL_REFERENCE_TRANSFORMATION_MAP_PATH``
-    * Else ``…/genai_mapping/active/transformation_map.json``.
+    * Else pinned ``…/genai_mapping/references/<id>/current/transformation_map.json``.
     """
     override = os.environ.get("EDVISE_EVAL_REFERENCE_TRANSFORMATION_MAP_PATH")
     if override and str(override).strip():
@@ -1520,13 +1516,8 @@ def _resolve_reference_transformation_map_for_eval(reference_id: str) -> Path:
                 f"EDVISE_EVAL_REFERENCE_TRANSFORMATION_MAP_PATH not found: {p}"
             )
         return p.resolve()
-    p = _silver_genai_root_path(reference_id) / "active" / "transformation_map.json"
-    if not p.is_file():
-        raise FileNotFoundError(
-            "Reference transformation map not found at pipeline active path "
-            f"{p}. Set EDVISE_EVAL_REFERENCE_TRANSFORMATION_MAP_PATH or promote artifacts."
-        )
-    return p
+    few = resolve_sma_few_shot_pin(reference_id, catalog=_require_uc_catalog_for_eval())
+    return few.transformation_map
 
 
 def _resolve_target_schema_contract_for_eval(target_id: str) -> Path:

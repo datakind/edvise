@@ -22,6 +22,7 @@ import hashlib
 import json
 import logging
 import shutil
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Literal
@@ -182,6 +183,46 @@ def verify_reference_pin_hash(current_root: str | Path) -> str:
             f"disk computes {actual!r}"
         )
     return actual
+
+
+@dataclass(frozen=True)
+class SmaFewShotPin:
+    """Gold few-shot files SMA onboard reads from ``references/<id>/current/``."""
+
+    reference_id: str
+    current_root: Path
+    manifest_map: Path
+    transformation_map: Path
+    content_hash: str
+
+
+def resolve_sma_few_shot_pin(reference_id: str, *, catalog: str) -> SmaFewShotPin:
+    """
+    Resolve and verify the pinned few-shot used by SMA onboard (not school ``active/``).
+
+    Requires ``manifest_map.json``, ``transformation_map.json``, and
+    ``genai_reference_pin.json`` under ``references/<reference_id>/current/``.
+    Raises ``FileNotFoundError`` / ``ValueError`` if the pin is missing or drifted.
+    """
+    ref = str(reference_id).strip()
+    if not ref:
+        raise ValueError("reference_id must be non-empty")
+    current = Path(genai_reference_current_root(ref, catalog=catalog))
+    if not current.is_dir():
+        raise FileNotFoundError(
+            f"Pinned few-shot not found at {current}. "
+            f"Run edvise_genai_pin_reference for {ref!r} before SMA onboard "
+            f"(catalog={catalog!r})."
+        )
+    content_hash = verify_reference_pin_hash(current)
+    artifacts = resolve_pinned_artifact_files(current)
+    return SmaFewShotPin(
+        reference_id=ref,
+        current_root=current,
+        manifest_map=artifacts["manifest_map.json"],
+        transformation_map=artifacts["transformation_map.json"],
+        content_hash=content_hash,
+    )
 
 
 def resolve_reference_source_paths(
