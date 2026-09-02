@@ -55,7 +55,11 @@ from edvise.configs.schema_type import (
 )
 from edvise.utils import emails
 from edvise.utils.databricks import get_spark_session
-from edvise.modeling.inference import top_n_features, features_box_whiskers_table
+from edvise.modeling.inference import (
+    features_box_whiskers_table,
+    sample_features_with_most_impact_students,
+    top_n_features,
+)
 from edvise.shared.logger import resolve_run_path, local_fs_path
 from edvise.shared.dashboard_metadata.pipeline_runs import append_pipeline_run_event
 from edvise.shared.validation import (
@@ -427,6 +431,9 @@ class ModelInferenceTask:
             features_table_path=features_table_path,
             schema_type=self.args.schema_type,
         ).merge(support_scores, on="student_id", how="left")
+        inference_features_with_most_impact = sample_features_with_most_impact_students(
+            inference_features_with_most_impact
+        )
 
         box_whiskers_table = features_box_whiskers_table(
             features=out.grouped_features,

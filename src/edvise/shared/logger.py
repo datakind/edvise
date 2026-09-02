@@ -5,10 +5,12 @@ import json
 import shutil
 import argparse
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Union
-from edvise.configs.es import ESProjectConfig
-from edvise.configs.legacy import LegacyProjectConfig
-from edvise.configs.pdp import PDPProjectConfig
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+
+if TYPE_CHECKING:
+    from edvise.configs.es import ESProjectConfig
+    from edvise.configs.legacy import LegacyProjectConfig
+    from edvise.configs.pdp import PDPProjectConfig
 
 
 class _FlushTolerantStreamHandler(logging.StreamHandler):
@@ -177,7 +179,7 @@ def resolve_genai_segment_log_path(
 
 def resolve_run_path(
     args: argparse.Namespace,
-    cfg: Union[PDPProjectConfig, ESProjectConfig, LegacyProjectConfig],
+    cfg: Union["PDPProjectConfig", "ESProjectConfig", "LegacyProjectConfig"],
     silver_volume_path: str,
 ) -> str:
     if args.job_type == "training":
@@ -251,16 +253,9 @@ def init_file_logging_at_path(
         os.path.getsize(local_path) if append and os.path.isfile(local_path) else 0
     )
 
+    configure_console_logging()
+
     root = logging.getLogger()
-    root.setLevel(logging.INFO)
-
-    for h in list(root.handlers):
-        root.removeHandler(h)
-
-    console = _FlushTolerantStreamHandler(stream=sys.__stdout__)
-    console.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
-    root.addHandler(console)
-
     file_mode = "a" if append else "w"
     fh = _FlushTolerantFileHandler(
         local_path, mode=file_mode, encoding="utf-8", delay=False
@@ -269,8 +264,6 @@ def init_file_logging_at_path(
         logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     )
     root.addHandler(fh)
-
-    logging.getLogger("py4j").setLevel(logging.WARNING)
 
     log = logging.getLogger(logger_name)
     log.info(
@@ -287,6 +280,25 @@ def init_file_logging_at_path(
     _sync_file_log_handlers(root)
 
     return local_path
+
+
+def configure_console_logging(level: int = logging.INFO) -> None:
+    """
+    Databricks-safe root console logging: INFO+ on ``sys.__stdout__``.
+
+    Replaces existing root handlers (clusters often pre-install WARNING-only
+    handlers that make a plain ``basicConfig`` a no-op).
+    """
+    root = logging.getLogger()
+    root.setLevel(level)
+    for handler in list(root.handlers):
+        root.removeHandler(handler)
+
+    console = _FlushTolerantStreamHandler(stream=sys.__stdout__)
+    console.setLevel(level)
+    console.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+    root.addHandler(console)
+    logging.getLogger("py4j").setLevel(logging.WARNING)
 
 
 def init_file_logging(

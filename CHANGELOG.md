@@ -1,3 +1,8 @@
+## 1.11.0 (2026-09-01)
+- feat(pdp): Convert PDP ingestion notebooks into DAB (#272)
+- feat(genai): load SMA few-shot from pinned references/current instead of active (#296)
+- feat: sample features_with_most_impact to 4k students (#301)
+
 ## 1.10.0 (2026-08-27)
 - feat(genai): mapping reference pin infrastructure (#276)
 - ci(release): infer release bump from conventional PR titles (#289)
