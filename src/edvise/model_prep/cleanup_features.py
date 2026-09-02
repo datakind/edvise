@@ -138,7 +138,10 @@ class PDPCleanup(BaseCleanup):
     """Cleanup for PDP labeled / unlabeled datasets."""
 
     retention_redundant_cols: t.ClassVar[list[str]] = [
-        "enrollment_intensity_first_term",  # same as student_term_enrollment_intensity at first-term checkpoint
+        "enrollment_intensity_first_term",  # same as student_term_enrollment_intensity
+        "attendance_status_term_1",  # first-term type + intensity composite
+        "program_of_study_term_1",  # same as term_program_of_study
+        "program_of_study_year_1",  # same as term_program_of_study in year 1
     ]
 
     cols_to_drop: t.ClassVar[list[str]] = [
