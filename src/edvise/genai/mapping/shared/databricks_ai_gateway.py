@@ -4,10 +4,10 @@ Databricks MLflow AI Gateway via the OpenAI-compatible client.
 Shared by SchemaMappingAgent execution and IdentityAgent so execution code never imports
 ``identity_agent`` for gateway access only.
 
-``resolve_ai_gateway_base_url`` no longer guesses a base URL from a workspace id + cloud
-segment: the deprecated AI Gateway's replacement endpoint doesn't hang off a predictable
-``{workspace_id}.ai-gateway.<cloud>.databricks.com`` subdomain, so ``AI_GATEWAY_BASE_URL``
-must be set explicitly per environment instead.
+``resolve_ai_gateway_base_url`` prefers ``AI_GATEWAY_BASE_URL`` when set; on Databricks
+compute it then builds ``{workspace_id}.ai-gateway.<cloud>.databricks.com/mlflow/v1`` when
+the workspace id is available (the path that works for dev/staging jobs), and only then
+falls back to ``https://<workspace-host>/ai-gateway/mlflow/v1``.
 """
 
 from __future__ import annotations
@@ -128,6 +128,38 @@ def _normalize_databricks_host(host: str) -> str:
     return h.rstrip("/")
 
 
+def _ai_gateway_cloud_segment_from_host(host: str | None) -> str:
+    """
+    Subdomain segment for ``{workspace_id}.ai-gateway.<segment>.databricks.com``.
+
+    Override with ``AI_GATEWAY_CLOUD_SEGMENT`` when the host does not imply cloud.
+    """
+    explicit = (os.environ.get("AI_GATEWAY_CLOUD_SEGMENT") or "").strip()
+    if explicit:
+        return explicit
+    if not host:
+        return "gcp"
+    h = host.lower()
+    if ".gcp.databricks.com" in h:
+        return "gcp"
+    if ".azuredatabricks.net" in h:
+        return "azure"
+    return "cloud"
+
+
+def build_mlflow_ai_gateway_base_url(
+    *,
+    workspace_id: str,
+    cloud_segment: str,
+) -> str:
+    """MLflow OpenAI-compatible gateway URL for a Databricks workspace org id."""
+    wid = workspace_id.strip()
+    cloud = cloud_segment.strip()
+    if not wid or not cloud:
+        raise ValueError("workspace_id and cloud_segment are required")
+    return f"https://{wid}.ai-gateway.{cloud}.databricks.com/mlflow/v1"
+
+
 def resolve_databricks_workspace_host() -> str | None:
     """
     Workspace hostname for the current run (no scheme), if known.
@@ -200,17 +232,29 @@ def resolve_databricks_workspace_id() -> str | None:
 def resolve_ai_gateway_base_url() -> str:
     """Resolve the MLflow AI Gateway OpenAI base URL for the current workspace.
 
-    Precedence: ``AI_GATEWAY_BASE_URL``; then ``https://<workspace-host>/ai-gateway/mlflow/v1``.
-    No hardcoded org default. The gateway's per-environment host (including any
-    environment-specific subdomain segment) isn't derivable from a workspace id or cloud
-    name, so ``AI_GATEWAY_BASE_URL`` should be set explicitly wherever that host differs
-    from the plain workspace host.
+    Precedence: ``AI_GATEWAY_BASE_URL``; then workspace id + cloud from the job;
+    then ``https://<workspace-host>/ai-gateway/mlflow/v1``. No hardcoded org default.
     """
     explicit = (os.environ.get("AI_GATEWAY_BASE_URL") or "").strip()
     if explicit:
         return explicit.rstrip("/")
 
     host = resolve_databricks_workspace_host()
+    workspace_id = resolve_databricks_workspace_id()
+
+    if workspace_id:
+        cloud = _ai_gateway_cloud_segment_from_host(host)
+        url = build_mlflow_ai_gateway_base_url(
+            workspace_id=workspace_id,
+            cloud_segment=cloud,
+        )
+        _LOG.debug(
+            "MLflow AI Gateway base URL from workspace_id=%s cloud=%s",
+            workspace_id,
+            cloud,
+        )
+        return url
+
     if host:
         url = f"https://{host}{MLFLOW_AI_GATEWAY_ON_WORKSPACE_PATH}"
         _LOG.debug("MLflow AI Gateway base URL from workspace host=%s", host)
@@ -218,7 +262,7 @@ def resolve_ai_gateway_base_url() -> str:
 
     raise ValueError(
         "Cannot resolve MLflow AI Gateway base URL: run on Databricks compute (job or "
-        "notebook) so the workspace host is available, set DATABRICKS_HOST for local SDK "
+        "notebook) so workspace id/host are available, set DATABRICKS_HOST for local SDK "
         "auth, or set AI_GATEWAY_BASE_URL explicitly."
     )
 
