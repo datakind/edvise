@@ -1,5 +1,5 @@
 """
-Expand staged queue files into per-institution rows in institution_ingest_plan.
+Expand staged selected files into per-institution rows in institution_ingest_plan.
 
 Stores PDP id (from file) plus SST ``inst_id`` / ``name`` from the institutions API.
 """
@@ -33,7 +33,7 @@ from edvise.ingestion.nsc_sftp.constants import (
     COLUMN_RENAMES,
     INSTITUTION_COLUMN_PATTERN,
     PLAN_TABLE_PATH,
-    QUEUE_TABLE_PATH,
+    SELECTED_TABLE_PATH,
 )
 from edvise.ingestion.nsc_sftp.helpers import (
     backfill_plan_institution_identity,
@@ -53,25 +53,25 @@ api_client = runtime.require_edvise_api_client(dbutils)
 ensure_plan_table(spark, PLAN_TABLE_PATH)
 backfilled = backfill_plan_institution_identity(spark, api_client, PLAN_TABLE_PATH)
 
-logger.info("Stage 02 — expand queued files into institution plan")
+logger.info("Stage 02 — expand selected files into institution plan")
 
-if not spark.catalog.tableExists(QUEUE_TABLE_PATH):
-    runtime.notebook_exit(dbutils, f"NO_QUEUE_TABLE;BACKFILLED={backfilled}")
+if not spark.catalog.tableExists(SELECTED_TABLE_PATH):
+    runtime.notebook_exit(dbutils, f"NO_SELECTED_TABLE;BACKFILLED={backfilled}")
 
-queue_df = spark.table(QUEUE_TABLE_PATH)
-if queue_df.limit(1).count() == 0:
-    runtime.notebook_exit(dbutils, f"NO_QUEUED_FILES;BACKFILLED={backfilled}")
+selected_df = spark.table(SELECTED_TABLE_PATH)
+if selected_df.limit(1).count() == 0:
+    runtime.notebook_exit(dbutils, f"NO_SELECTED_FILES;BACKFILLED={backfilled}")
 
-queue_df = queue_df.join(
+selected_df = selected_df.join(
     spark.table(PLAN_TABLE_PATH).select("file_fingerprint").distinct(),
     on="file_fingerprint",
     how="left_anti",
 )
-if queue_df.limit(1).count() == 0:
+if selected_df.limit(1).count() == 0:
     logger.info("No new files to expand (all already in plan).")
     runtime.notebook_exit(dbutils, f"NO_NEW_EXPANSION_WORK;BACKFILLED={backfilled}")
 
-queued_files = queue_df.select(
+selected_files = selected_df.select(
     "file_fingerprint",
     "file_name",
     F.col("local_tmp_path").alias("local_path"),
@@ -79,13 +79,13 @@ queued_files = queue_df.select(
     "file_modified_time",
 ).collect()
 
-logger.info("Expanding %s queued file(s)", len(queued_files))
+logger.info("Expanding %s selected file(s)", len(selected_files))
 
 pending: dict[str, tuple[dict[str, Any], list[str], str]] = {}
 missing: list[str] = []
 now_ts = datetime.now(timezone.utc)
 
-for row in queued_files:
+for row in selected_files:
     fp = row["file_fingerprint"]
     file_name = row["file_name"]
     local_path = row["local_path"]

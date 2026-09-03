@@ -21,7 +21,6 @@ print("sys.path:", sys.path)
 from edvise.configs.schema_type import is_edvise_schema, project_config_class
 from edvise.configs.pdp import InferenceConfig as PDPInferenceConfig
 from edvise.configs.es import InferenceConfig as ESInferenceConfig
-from edvise.model_prep import cleanup_features as cleanup
 from edvise.dataio.read import read_parquet, read_config
 from edvise.student_selection.filter_inference import (
     exclude_training_cohort_students,
@@ -30,7 +29,7 @@ from edvise.student_selection.filter_inference import (
 )
 from edvise.dataio.write import write_parquet
 from edvise.shared.logger import resolve_run_path, local_fs_path, init_file_logging
-from edvise.shared.utils import cohort_pair_columns
+from edvise.shared.utils import cohort_pair_columns, feature_cleanup_for_schema
 from edvise.shared.validation import (
     require,
 )
@@ -109,12 +108,8 @@ class InferencePrepTask:
         return df_inf
 
     def cleanup_features(self, df_labeled: pd.DataFrame) -> pd.DataFrame:
-        cleaner: cleanup.BaseCleanup
-        if is_edvise_schema(self.args.schema_type):
-            cleaner = cleanup.ESCleanup()
-        else:
-            cleaner = cleanup.PDPCleanup()
-        return cleaner.clean_up_labeled_dataset_cols_and_vals(df_labeled)
+        cleaner = feature_cleanup_for_schema(self.args.schema_type)
+        return cleaner.clean_up_labeled_dataset_cols_and_vals(df_labeled, cfg=self.cfg)
 
     def run(self):
         # Enforce inference mode & resolve <silver>/<run_id>/inference/

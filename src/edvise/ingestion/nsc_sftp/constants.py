@@ -12,13 +12,13 @@ DEFAULT_CATALOG_FOR_LOCAL = "dev_sst_02"
 DEFAULT_SCHEMA = "default"
 
 MANIFEST_TABLE = "ingestion_manifest"
-QUEUE_TABLE = "pending_ingest_queue"
+SELECTED_TABLE = "selected_ingest_files"
 PLAN_TABLE = "institution_ingest_plan"
 SFTP_TMP_VOLUME_NAME = "tmp"
 
 CATALOG: str
 MANIFEST_TABLE_PATH: str
-QUEUE_TABLE_PATH: str
+SELECTED_TABLE_PATH: str
 PLAN_TABLE_PATH: str
 SFTP_TMP_VOLUME_FQN: str
 SFTP_TMP_DIR: str
@@ -26,7 +26,7 @@ SFTP_TMP_DIR: str
 
 def configure_nsc_catalog(catalog: str) -> None:
     """Set Unity Catalog name and derived table/volume paths (once per process)."""
-    global CATALOG, MANIFEST_TABLE_PATH, QUEUE_TABLE_PATH, PLAN_TABLE_PATH
+    global CATALOG, MANIFEST_TABLE_PATH, SELECTED_TABLE_PATH, PLAN_TABLE_PATH
     global SFTP_TMP_VOLUME_FQN, SFTP_TMP_DIR
     cat = str(catalog).strip()
     if not cat:
@@ -36,7 +36,7 @@ def configure_nsc_catalog(catalog: str) -> None:
         )
     CATALOG = cat
     MANIFEST_TABLE_PATH = f"{CATALOG}.{DEFAULT_SCHEMA}.{MANIFEST_TABLE}"
-    QUEUE_TABLE_PATH = f"{CATALOG}.{DEFAULT_SCHEMA}.{QUEUE_TABLE}"
+    SELECTED_TABLE_PATH = f"{CATALOG}.{DEFAULT_SCHEMA}.{SELECTED_TABLE}"
     PLAN_TABLE_PATH = f"{CATALOG}.{DEFAULT_SCHEMA}.{PLAN_TABLE}"
     SFTP_TMP_VOLUME_FQN = f"{CATALOG}.{DEFAULT_SCHEMA}.{SFTP_TMP_VOLUME_NAME}"
     SFTP_TMP_DIR = f"/Volumes/{CATALOG}/{DEFAULT_SCHEMA}/{SFTP_TMP_VOLUME_NAME}"
