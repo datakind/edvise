@@ -1,3 +1,8 @@
+## 1.12.0 (2026-09-03)
+- feat: parameterizing retention into year N for PDP/ES schools with default N=2 (#300)
+- fix: select all NSC PDP pairs for the same calendar date (#305)
+- fix: drop first-term snapshots only at first-term checkpoints (#306)
+
 ## 1.11.0 (2026-09-01)
 - feat(pdp): Convert PDP ingestion notebooks into DAB (#272)
 - feat(genai): load SMA few-shot from pinned references/current instead of active (#296)
