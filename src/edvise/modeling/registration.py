@@ -279,11 +279,12 @@ def pdp_get_model_name(
 
     # --- Retention ---
     if target_type == "retention":
+        retention_year = _get_attr(target, "retention_into_year", 2) or 2
         credential = _retention_credential_from_student_criteria(student_criteria)
         if credential is not None:
-            target_name = f"retention_into_year_2_{credential}"
+            target_name = f"retention_into_year_{retention_year}_{credential}"
         else:
-            target_name = "retention_into_year_2_all_degrees"
+            target_name = f"retention_into_year_{retention_year}_all_degrees"
         checkpoint_name = ""
 
     # --- Graduation / Credits Earned share time limit formatting ---

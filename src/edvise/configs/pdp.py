@@ -357,6 +357,16 @@ class TargetGraduationConfig(TargetBaseConfig):
 class TargetRetentionConfig(TargetBaseConfig):
     type_: types.TargetTypeType = "retention"
     max_academic_year: str | t.Literal["infer"]
+    retention_into_year: int = pyd.Field(
+        default=2,
+        ge=2,
+        description=(
+            "Academic year of enrollment that counts as retained and the year that "
+            "must be present in the extract to label a student (2 = current PDP "
+            "default). For ES schools this also drives assign_retention_column; "
+            "PDP files already ship a year-2 retention column."
+        ),
+    )
 
 
 class TargetCreditsEarnedConfig(TargetBaseConfig):
