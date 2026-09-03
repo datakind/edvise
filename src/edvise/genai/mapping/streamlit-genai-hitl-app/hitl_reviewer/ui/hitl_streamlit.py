@@ -68,9 +68,10 @@ HITL_ITEMS_PAGE = HITL_WORKBENCH_PAGE
 MAPS_AND_OUTPUTS_PAGE = "pages/2_Maps_and_Outputs.py"
 
 HITL_WORKBENCH_CAPTION = (
-    "The workbench table **defaults to ``status = pending``**. Set **status** to **(any)** and add run/phase "
-    "filters to search full history. **Select a row** to open the editor on the main page; **URLs** with "
-    "``catalog``, ``onboard_run_id``, ``phase``, and ``artifact_type`` do the same."
+    "The workbench table **defaults to ``status = pending``**. Switch **status** to **approved** or "
+    "**rejected** and add run/phase filters to browse finalized history. **Select a row** to open the "
+    "editor on the main page; **URLs** with ``catalog``, ``onboard_run_id``, ``phase``, and "
+    "``artifact_type`` do the same."
 )
 HITL_REVIEW_HISTORY_SIDEBAR_CAPTION = HITL_WORKBENCH_CAPTION
 HITL_ITEMS_SIDEBAR_CAPTION = HITL_WORKBENCH_CAPTION
@@ -103,7 +104,7 @@ _DISPLAY_COLS: tuple[str, ...] = (
 _CATALOG_SAFE = re.compile(r"^[a-zA-Z0-9_]+$")
 
 # Sidebar status filter; must match ``st.selectbox`` options in :func:`render_connection_sidebar`.
-_STATUS_FILTER_OPTIONS: tuple[str, ...] = ("(any)", "pending", "approved", "rejected")
+_STATUS_FILTER_OPTIONS: tuple[str, ...] = ("pending", "approved", "rejected")
 
 
 @dataclass(frozen=True)
@@ -227,8 +228,8 @@ def init_sidebar_form_state() -> None:
         st.session_state["sidebar_f_run"] = ""
     if "sidebar_f_phase" not in st.session_state:
         st.session_state["sidebar_f_phase"] = ""
-    # Keep status aligned with the selectbox options. Empty or unknown values make Streamlit fall back
-    # to the first option "(any)", which looks like the filter "reset" after a table interaction.
+    # Keep status aligned with the selectbox options. Empty or unknown values make Streamlit fall
+    # back to the first option (``pending``), which matches the workbench default.
     if "sidebar_f_status" not in st.session_state:
         st.session_state["sidebar_f_status"] = "pending"
     else:
@@ -309,7 +310,7 @@ def render_connection_sidebar(
     limit = int(st.session_state.get("sidebar_limit", 500) or 500)
     f_run = str(st.session_state.get("sidebar_f_run", "") or "")
     f_phase = str(st.session_state.get("sidebar_f_phase", "") or "")
-    f_status = str(st.session_state.get("sidebar_f_status", "(any)") or "(any)")
+    f_status = str(st.session_state.get("sidebar_f_status", "pending") or "pending")
     state = SidebarState(
         catalog=catalog,
         f_run=f_run,
@@ -421,7 +422,7 @@ def _tuple_unpack_filters(
     use_contains = bool((sidebar.f_run or "").strip())
     onboard_exact = None if use_contains else ((sidebar.f_run or "").strip() or None)
     phase_f = (sidebar.f_phase or "").strip() or None
-    status_f = None if sidebar.f_status == "(any)" else sidebar.f_status
+    status_f = (sidebar.f_status or "").strip() or "pending"
     lim = sidebar.limit if not use_contains else min(sidebar.limit, 5000)
     return onboard_exact, phase_f, status_f, use_contains, lim
 
@@ -942,7 +943,9 @@ def advance_to_next_pending_group(
             catalog=str(catalog).strip(),
             f_run=str(st.session_state.get("sidebar_f_run", "") or ""),
             f_phase=str(st.session_state.get("sidebar_f_phase", "") or ""),
-            f_status=str(st.session_state.get("sidebar_f_status", "(any)") or "(any)"),
+            f_status=str(
+                st.session_state.get("sidebar_f_status", "pending") or "pending"
+            ),
             limit=int(st.session_state.get("sidebar_limit", 500) or 500),
             refresh_clicked=False,
         )
