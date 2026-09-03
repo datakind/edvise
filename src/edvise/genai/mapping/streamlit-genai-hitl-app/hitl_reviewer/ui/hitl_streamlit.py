@@ -943,7 +943,9 @@ def advance_to_next_pending_group(
             catalog=str(catalog).strip(),
             f_run=str(st.session_state.get("sidebar_f_run", "") or ""),
             f_phase=str(st.session_state.get("sidebar_f_phase", "") or ""),
-            f_status=str(st.session_state.get("sidebar_f_status", "pending") or "pending"),
+            f_status=str(
+                st.session_state.get("sidebar_f_status", "pending") or "pending"
+            ),
             limit=int(st.session_state.get("sidebar_limit", 500) or 500),
             refresh_clicked=False,
         )
