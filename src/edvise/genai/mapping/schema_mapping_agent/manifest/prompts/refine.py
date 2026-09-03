@@ -1330,26 +1330,6 @@ def apply_refinement_review_status_safety_net(
     return warnings
 
 
-def _default_llm_complete() -> Callable[[str, str], str]:
-    from edvise.genai.mapping.shared.databricks_ai_gateway import (
-        create_openai_client_for_databricks_gateway,
-        make_databricks_gateway_llm_complete,
-        resolve_gateway_model_id,
-    )
-
-    # Prompt-caching pilot: build_refinement_pass1_system_prompt() and
-    # build_refinement_pass2_system_prompt() take no args, so the same system text is
-    # sent verbatim across the up-to-4 refinement calls per institution (Pass 1 + Pass 2
-    # x cohort + course), plus any parse retries. Caching that prefix lets repeat calls
-    # within the TTL window hit a cached read instead of re-billing full input tokens.
-    client = create_openai_client_for_databricks_gateway()
-    return make_databricks_gateway_llm_complete(
-        client,
-        model=resolve_gateway_model_id(),
-        cache_system_prompt=True,
-    )
-
-
 def _run_pass1_llm_call(
     institution_id: str,
     entity_type: Literal["cohort", "course"],
@@ -1458,7 +1438,7 @@ def run_sma_refinement(
     schema_contract: EnrichedSchemaContractForSMA,
     resolved_by: str | None = None,
     *,
-    llm_complete: Callable[[str, str], str] | None = None,
+    llm_complete: Callable[[str, str], str],
 ) -> tuple[FieldMappingManifest, InstitutionSMAHITLItems]:
     """
     Two-pass SMA refinement for one entity (cohort or course).
@@ -1473,8 +1453,7 @@ def run_sma_refinement(
         Optional audit label (reserved for future logging).
     llm_complete:
         Callable ``(system_prompt, user_prompt) -> raw_text`` compatible with the
-        Databricks gateway pattern. If omitted, uses the default gateway client
-        (Databricks SDK default auth and gateway env configuration).
+        Databricks gateway pattern.
 
     Returns
     -------
@@ -1487,7 +1466,7 @@ def run_sma_refinement(
     )
 
     _ = resolved_by
-    complete = llm_complete if llm_complete is not None else _default_llm_complete()
+    complete = llm_complete
 
     pass1_raw = _run_pass1_llm_call(
         institution_id,
