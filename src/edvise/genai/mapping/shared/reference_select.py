@@ -38,13 +38,14 @@ ENRICHED_CONTRACT_BASENAME: str = "enriched_schema_contract.json"
 
 
 def jaccard(a: set[str], b: set[str]) -> float:
-    """``|A∩B| / |A∪B|``; empty–empty is ``1.0``; one empty side is ``0.0``."""
+    """
+    Set overlap: size of intersection divided by size of union.
+
+    Both empty → ``1.0`` (identical). Exactly one empty → ``0.0`` (no overlap).
+    """
     if not a and not b:
         return 1.0
-    if not a or not b:
-        return 0.0
-    union = a | b
-    return len(a & b) / len(union)
+    return len(a & b) / len(a | b)
 
 
 def _mean(values: Sequence[float]) -> float:
