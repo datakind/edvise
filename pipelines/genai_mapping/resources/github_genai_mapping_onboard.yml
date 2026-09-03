@@ -1,6 +1,4 @@
 # Identity + schema-mapping onboard: LLM passes, HITL gates, promote to active/.
-# SMA start auto-selects one active pin (rules-based) and snapshots it under the
-# run ``few_shot/`` tree for Step 2a / gate 2.
 resources:
   jobs:
     edvise_genai_mapping_onboard_pipeline:
@@ -92,6 +90,8 @@ resources:
               - onboard
               - --resume_from
               - start
+              - --reference_id
+              - "{{job.parameters.reference_id}}"
               - --inputs_toml_path
               - "{{job.parameters.inputs_toml_path}}"
               - --pipeline_version
@@ -120,6 +120,8 @@ resources:
               - onboard
               - --resume_from
               - gate_2
+              - --reference_id
+              - "{{job.parameters.reference_id}}"
               - --inputs_toml_path
               - "{{job.parameters.inputs_toml_path}}"
               - --pipeline_version
@@ -163,6 +165,8 @@ resources:
           default: "inputs.toml"
         - name: pipeline_version
           default: ${var.pipeline_version}
+        - name: reference_id
+          default: ""
         - name: db_run_id
           default: "{{job.run_id}}"
         - name: override_2a_manifest

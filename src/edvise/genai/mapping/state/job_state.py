@@ -936,11 +936,7 @@ def on_sma_onboard_begin(
             onboard_run_id,
             str(input_file_paths_json).strip(),
         )
-    if (
-        resume_from == "start"
-        and (institution_id or "").strip()
-        and (reference_id or "").strip()
-    ):
+    if (institution_id or "").strip() and (reference_id or "").strip():
         _state_safe(
             "pipeline_runs reference_id (SMA onboard)",
             pipeline_state.update_onboard_pipeline_run_reference,
