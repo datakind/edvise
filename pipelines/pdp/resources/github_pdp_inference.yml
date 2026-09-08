@@ -51,6 +51,10 @@ resources:
               - "{{job.parameters.db_run_id}}"
               - --config_file_path
               - "{{tasks.data_ingestion.values.config_file_path}}"
+              - --cohort_dataset_validated_path
+              - "{{tasks.data_ingestion.values.cohort_dataset_validated_path}}"
+              - --course_dataset_validated_path
+              - "{{tasks.data_ingestion.values.course_dataset_validated_path}}"
           job_cluster_key: edvise-pdp-inference-pipeline-cluster
           libraries:
             - pypi:
