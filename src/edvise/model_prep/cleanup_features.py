@@ -18,6 +18,30 @@ from edvise.utils.drop_columns_safely import drop_columns_safely
 
 LOGGER = logging.getLogger(__name__)
 
+# Frozen first-term / year-1 snapshots; drop when they duplicate the checkpoint term.
+_FIRST_TERM_SNAPSHOTS = (
+    "enrollment_intensity_first_term",
+    "attendance_status_term_1",
+    "program_of_study_term_1",
+    "program_of_study_year_1",
+)
+
+
+def extra_snapshot_drop_cols(cfg: object | None = None) -> list[str]:
+    """Checkpoint-relative extras: first-term snapshots, or incomplete year-1 program."""
+    ckpt = getattr(getattr(cfg, "preprocessing", None), "checkpoint", None)
+    type_ = getattr(ckpt, "type_", None)
+    n = getattr(ckpt, "n", None)
+    if type_ == "first_within_cohort" or (type_ == "nth" and n == 0):
+        return list(_FIRST_TERM_SNAPSHOTS)
+    if (
+        type_ == "nth"
+        and n == 1
+        and getattr(ckpt, "exclude_non_core_terms", True) is not False
+    ):
+        return ["program_of_study_year_1"]
+    return []
+
 
 class BaseCleanup:
     """Shared cleanup logic for labeled / unlabeled student-term datasets.
@@ -38,6 +62,7 @@ class BaseCleanup:
         df: pd.DataFrame,
         num_credits_col: str = "cumsum_num_credits_earned",
         num_credit_check: int = 12,
+        cfg: object | None = None,
     ) -> pd.DataFrame:
         """
         Drop columns in :attr:`cols_to_drop` and null out values corresponding
@@ -49,6 +74,9 @@ class BaseCleanup:
             num_credits_col: Column with cumulative earned credits, used to mask
                 ``in_{num_credit_check}_creds`` features.
             num_credit_check: Credit threshold for masking ``in_N_creds`` features.
+            cfg: Project config; first-term snapshots are dropped when the
+                checkpoint is ``first_within_cohort`` or ``nth`` with ``n=0``.
+                ``program_of_study_year_1`` is also dropped at 2 core terms.
         """
         if num_credits_col in df.columns:
             credit_pattern = re.compile(rf"in_{num_credit_check}_creds")
@@ -56,7 +84,9 @@ class BaseCleanup:
                 if credit_pattern.search(col):
                     df[col] = df[col].mask(df[num_credits_col] < num_credit_check)
 
-        df = drop_columns_safely(df, cols_to_drop=self.cols_to_drop)
+        df = drop_columns_safely(
+            df, cols_to_drop=self.cols_to_drop + extra_snapshot_drop_cols(cfg)
+        )
 
         df = df.assign(
             **{

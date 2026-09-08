@@ -69,6 +69,41 @@ def test_credential_year_three_only_false() -> None:
     assert (out["retention"] == 0).all()
 
 
+def test_enrollment_year_three_when_retention_into_year_three() -> None:
+    df = _base_st("s1", 3)
+    df[Y] = [1, 2, 3]
+    for c in (B, A, C):
+        df[c] = pd.NA
+    out = r.assign_retention_column(df, student_id_col=LEARNER, retention_into_year=3)
+    assert (out["retention"] == 1).all()
+
+
+def test_year_two_not_retained_when_retention_into_year_three() -> None:
+    df = _base_st("s1", 2)
+    df[Y] = [1, 2]
+    for c in (B, A, C):
+        df[c] = pd.NA
+    out = r.assign_retention_column(df, student_id_col=LEARNER, retention_into_year=3)
+    assert (out["retention"] == 0).all()
+
+
+def test_credential_year_three_retained_when_retention_into_year_three() -> None:
+    df = _base_st("s1", 2)
+    df[Y] = [1, 1]
+    df[B] = [3, 3]
+    df[A] = [pd.NA, pd.NA]
+    df[C] = [pd.NA, pd.NA]
+    out = r.assign_retention_column(df, student_id_col=LEARNER, retention_into_year=3)
+    assert (out["retention"] == 1).all()
+
+
+def test_assign_rejects_retention_into_year_below_two() -> None:
+    df = _base_st("s1", 1)
+    df[Y] = [1]
+    with pytest.raises(ValueError, match=">= 2"):
+        r.assign_retention_column(df, student_id_col=LEARNER, retention_into_year=1)
+
+
 def test_two_students_mixed() -> None:
     df = pd.DataFrame(
         {

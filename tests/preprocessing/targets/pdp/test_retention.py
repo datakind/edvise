@@ -163,3 +163,31 @@ def test_compute_target(df, max_academic_year, exp):
     )
     assert isinstance(obs, pd.Series)
     assert pd.testing.assert_series_equal(obs, exp) is None
+
+
+def test_compute_target_retention_into_year_three_tightens_horizon():
+    """Year-3 labels require cohort_year + 2 <= max academic year in the extract."""
+    df = pd.DataFrame(
+        {
+            "student_id": ["01", "02", "04"],
+            "retention": [True, False, False],
+            "cohort_id": ["2020-21 FALL", "2021-22 SPRING", "2022-23 FALL"],
+            "term_id": ["2020-21 FALL", "2021-22 SPRING", "2023-24 FALL"],
+        },
+    ).astype({"student_id": "string", "retention": "boolean"})
+    obs = retention.compute_target(
+        df,
+        max_academic_year="2023-24",
+        student_id_cols="student_id",
+        retention_col="retention",
+        cohort_id_col="cohort_id",
+        term_id_col="term_id",
+        retention_into_year=3,
+    )
+    exp = pd.Series(
+        data=[False, True],
+        index=pd.Index(["01", "02"], dtype="string", name="student_id"),
+        name="target",
+        dtype="boolean",
+    )
+    pd.testing.assert_series_equal(obs, exp)

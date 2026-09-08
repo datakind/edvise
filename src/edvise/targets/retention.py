@@ -14,6 +14,7 @@ def compute_target(
     retention_col: str = "retention",
     cohort_id_col: str = "cohort_id",
     term_id_col: str = "term_id",
+    retention_into_year: int = 2,
 ) -> pd.Series:
     """
     Compute *non* retention target for each distinct student in ``df`` ,
@@ -32,6 +33,9 @@ def compute_target(
             values are the same across all rows, and we simply use the first.
         cohort_id_col: Column used to uniquely identify student cohorts.
         term_id_col: Colum used to uniquely identify academic terms.
+        retention_into_year: Academic year that must be covered in ``df`` to label a
+            student (2 = second year / default). See
+            :func:`shared.get_students_with_retention_year_in_dataset`.
 
     References:
         - https://help.studentclearinghouse.org/pdp/knowledge-base/cohort-level-analysis-ready-file-data-dictionary/
@@ -50,13 +54,14 @@ def compute_target(
         .set_index(student_id_cols)
     )
     # get subset of students for which a target label can accurately be computed
-    # i.e. the data in df covers their second year of enrollment
-    df_labelable_students = shared.get_students_with_second_year_in_dataset(
+    # i.e. the data in df covers academic year ``retention_into_year``
+    df_labelable_students = shared.get_students_with_retention_year_in_dataset(
         df,
         max_academic_year=max_academic_year,
         student_id_cols=student_id_cols,
         cohort_id_col=cohort_id_col,
         term_id_col=term_id_col,
+        retention_into_year=retention_into_year,
     )
     df_labeled_students = (
         df_all_students.assign(target=lambda df: ~df[retention_col].astype("boolean"))

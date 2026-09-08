@@ -129,16 +129,15 @@ class DataIngestionTask:
 
         fpath_course, fpath_cohort = self.download_data_from_gcs(landing_dir)
 
-        # Only set task values if dbutils is available (Databricks context)
+        # Always publish so data_audit can interpolate these task values. Empty
+        # strings fall back to training-config filenames in pick_existing_path.
         if self.dbutils:
-            if fpath_course:
-                self.dbutils.jobs.taskValues.set(
-                    key="course_dataset_validated_path", value=fpath_course
-                )
-            if fpath_cohort:
-                self.dbutils.jobs.taskValues.set(
-                    key="cohort_dataset_validated_path", value=fpath_cohort
-                )
+            self.dbutils.jobs.taskValues.set(
+                key="course_dataset_validated_path", value=fpath_course or ""
+            )
+            self.dbutils.jobs.taskValues.set(
+                key="cohort_dataset_validated_path", value=fpath_cohort or ""
+            )
 
         model_run_id = get_latest_uc_model_run_id(
             self.args.model_name,

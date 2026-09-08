@@ -7,12 +7,9 @@ Usage (Databricks job parameters):
     --mode              onboard | execute
     --resume_from       start | gate_2  (onboard only)
     --pipeline_version  Release / git tag for manifests and transformation maps (match edvise_ia job).
-    --reference_id      required for onboard; few-shot from the pinned library
-                        ``/Volumes/<catalog>/genai_mapping/references/<reference_id>/current/``
-                        (``manifest_map.json``, ``transformation_map.json``). Pin that slot
-                        with ``edvise_genai_pin_reference`` first. School ``active/`` is not
-                        used for few-shot.
     --inputs_toml_path  Same resolution as edvise_ia (relative under bronze ``genai_mapping/``).
+                        Onboard SMA start auto-selects one pinned reference (rules-based) and
+                        snapshots it under the run ``few_shot/`` tree for Step 2a and gate 2.
     --override_2a_manifest   false (default) | true — apply post-gate manifest overrides whenever
                              this flag is set (independent of ``resume_from``). Skips Step 2A /
                              sma_gate_1 HITL; ``start`` applies overrides then returns so the
@@ -87,7 +84,10 @@ from edvise.genai.mapping.schema_mapping_agent.grain_resolution import (
     reload_field_manifest_entity,
     run_onboard_gate_2_entity_with_grain_uc,
 )
-from edvise.genai.mapping.shared.reference_pin import resolve_sma_few_shot_pin
+from edvise.genai.mapping.shared.reference_select import (
+    ensure_run_few_shot,
+    resolve_run_few_shot_snapshot,
+)
 from edvise.genai.mapping.shared.silver_run_paths import sma_pipeline_input_root
 from edvise.genai.mapping.state import job_state as _pipeline_job_state
 from edvise.genai.mapping.state import pipeline_state as _pipeline_state
@@ -128,6 +128,8 @@ class SMAPaths:
     run_log: Path
     mapping_override_log: Path
     pandera_validation_errors: Path
+    # Run-local few-shot snapshot (selected pin copied once at SMA start)
+    few_shot_root: Path
 
     # IA outputs this job reads from (same execute or onboard run segment)
     ia_enriched_schema_contract: Path
@@ -197,6 +199,7 @@ def resolve_run_paths(
         run_log=run_root / "run_log.json",
         mapping_override_log=run_root / "mapping_override_log.json",
         pandera_validation_errors=run_root / "pandera_validation_errors.json",
+        few_shot_root=run_root / "few_shot",
         # IA outputs — same run segment under ``runs/onboard/...`` or ``runs/execute/...``
         ia_enriched_schema_contract=ia_run_root / "enriched_schema_contract.json",
         ia_identity_term_output=ia_run_root / "identity_term_output.json",
@@ -448,7 +451,6 @@ def _sma_llm_complete_run_once(
 
 def run_onboard_start(
     institution_id: str,
-    reference_id: str,
     catalog: str,
     paths: SMAPaths,
     client: Any,
@@ -486,12 +488,20 @@ def run_onboard_start(
 
     enriched_contract = _load_enriched_contract(paths.ia_enriched_schema_contract)
 
-    # Load reference institution few-shot manifest from the pinned library (not school active/)
-    few_shot = resolve_sma_few_shot_pin(reference_id, catalog=catalog)
-    ref_manifest_path = few_shot.manifest_map
+    # Auto-select + snapshot few-shot into the run tree once (reuse if already present).
+    snap, _selection = ensure_run_few_shot(
+        paths.run_root,
+        catalog=catalog,
+        institution_id=institution_id,
+        query_contract=enriched_contract,
+        spark=spark_session,
+    )
+    reference_id = snap.reference_id
+    ref_manifest_path = snap.manifest_map
     LOGGER.info(
-        "[onboard/start] Reference manifest (pin current/ hash=%s): %s",
-        few_shot.content_hash,
+        "[onboard/start] Reference manifest (run few_shot/ hash=%s id=%s): %s",
+        snap.content_hash,
+        reference_id,
         ref_manifest_path,
     )
     reference_manifest = load_json(str(ref_manifest_path))
@@ -710,7 +720,6 @@ def apply_gate_2_manifest_overrides(
 
 def run_onboard_gate_2(
     institution_id: str,
-    reference_id: str,
     catalog: str,
     paths: SMAPaths,
     client: Any,
@@ -791,12 +800,19 @@ def run_onboard_gate_2(
     manifest_2a = json.loads(paths.manifest_map.read_text())
     MappingManifestEnvelope.model_validate(manifest_2a)
 
-    # Load reference transformation map for 2b few-shot from the pinned library
-    few_shot = resolve_sma_few_shot_pin(reference_id, catalog=catalog)
-    ref_tm_path = few_shot.transformation_map
+    # Load reference transformation map from the run-local few-shot snapshot only
+    # (never re-resolve references/*/current/ — mid-run republish must not change 2b).
+    snap = resolve_run_few_shot_snapshot(paths.run_root)
+    if snap is None:
+        raise FileNotFoundError(
+            f"Run few-shot snapshot missing under {paths.few_shot_root}. "
+            "SMA onboard start must materialize few_shot/ before gate_2."
+        )
+    reference_id = snap.reference_id
+    ref_tm_path = snap.transformation_map
     LOGGER.info(
-        "[onboard/gate_2] Reference transformation map (pin current/ hash=%s): %s",
-        few_shot.content_hash,
+        "[onboard/gate_2] Reference transformation map (run few_shot/ hash=%s): %s",
+        snap.content_hash,
         ref_tm_path,
     )
     reference_tm = load_json(str(ref_tm_path))
@@ -1321,7 +1337,6 @@ def run(
     execute_run_id: str | None = None,
     artifacts_onboard_run_id: str | None = None,
     resume_from: str = "start",
-    reference_id: str = "",
     inputs_toml_path: str | None = None,
     db_run_id: str | None = None,
     pipeline_version: str | None = None,
@@ -1479,8 +1494,6 @@ def run(
             raise ValueError(
                 f"Invalid resume_from={resume_from!r} for mode='onboard'. Must be 'start' or 'gate_2'."
             )
-        if not reference_id:
-            raise ValueError("--reference_id is required for onboard mode.")
 
         overrides_path = (overrides_json_path or "").strip() or None
         if override_2a_manifest and not overrides_path:
@@ -1492,17 +1505,28 @@ def run(
         client = _build_openai_client(catalog)
 
         try:
-            few_shot = resolve_sma_few_shot_pin(reference_id, catalog=catalog)
-            _pipeline_job_state.on_sma_onboard_begin(
-                catalog,
-                onboard_run_id_s,
-                resume_from=resume_from,
-                institution_id=institution_id,
-                input_file_paths_json=input_file_paths_json,
-                reference_id=few_shot.reference_id,
-                reference_content_hash=few_shot.content_hash,
-            )
             if resume_from == "start":
+                # Auto-select + materialize run few_shot/ before any Step 2A skip path
+                # so gate_2 can read the snapshot without touching library current/.
+                enriched_contract = _load_enriched_contract(
+                    paths.ia_enriched_schema_contract
+                )
+                snap, _selection = ensure_run_few_shot(
+                    paths.run_root,
+                    catalog=catalog,
+                    institution_id=institution_id,
+                    query_contract=enriched_contract,
+                    spark=spark_session,
+                )
+                _pipeline_job_state.on_sma_onboard_begin(
+                    catalog,
+                    onboard_run_id_s,
+                    resume_from=resume_from,
+                    institution_id=institution_id,
+                    input_file_paths_json=input_file_paths_json,
+                    reference_id=snap.reference_id,
+                    reference_content_hash=snap.content_hash,
+                )
                 if override_2a_manifest:
                     # Apply immediately (do not wait for gate_2). Skip Step 2A so we do
                     # not regenerate and overwrite the manifest; gate_2 continues 2b.
@@ -1521,7 +1545,6 @@ def run(
                 else:
                     run_onboard_start(
                         institution_id=institution_id,
-                        reference_id=reference_id,
                         catalog=catalog,
                         paths=paths,
                         client=client,
@@ -1530,9 +1553,16 @@ def run(
                         pipeline_version=school_config.pipeline_version,
                     )
             elif resume_from == "gate_2":
+                # Do not re-select or re-stamp reference hash; reuse run few_shot/.
+                _pipeline_job_state.on_sma_onboard_begin(
+                    catalog,
+                    onboard_run_id_s,
+                    resume_from=resume_from,
+                    institution_id=institution_id,
+                    input_file_paths_json=input_file_paths_json,
+                )
                 run_onboard_gate_2(
                     institution_id=institution_id,
-                    reference_id=reference_id,
                     catalog=catalog,
                     paths=paths,
                     client=client,
@@ -1563,14 +1593,6 @@ if __name__ == "__main__":
     parser.add_argument("--catalog", required=True)
     parser.add_argument("--mode", required=True, choices=["onboard", "execute"])
     parser.add_argument("--resume_from", default="start", choices=["start", "gate_2"])
-    parser.add_argument(
-        "--reference_id",
-        default="",
-        help=(
-            "Onboard: library slot under genai_mapping/references/<id>/current/ "
-            "(must already be pinned). Ignored for execute."
-        ),
-    )
     parser.add_argument(
         "--pipeline_version",
         default="",
@@ -1676,7 +1698,6 @@ if __name__ == "__main__":
             execute_run_id=_execute_run_id,
             artifacts_onboard_run_id=_artifacts_onboard,
             resume_from=args.resume_from,
-            reference_id=args.reference_id,
             inputs_toml_path=(args.inputs_toml_path or "").strip() or None,
             db_run_id=_db_run_id,
             pipeline_version=(args.pipeline_version or "").strip() or None,
