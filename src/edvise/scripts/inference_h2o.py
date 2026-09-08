@@ -243,7 +243,7 @@ class ModelInferenceTask:
 
         if self.cfg.model is None or self.cfg.model.run_id is None:
             raise ValueError("cfg.model.run_id must be set for inference runs.")
-        # Use canonical per-run folder: <silver>/<run_id>/inference/
+        # <silver>/<model_id>/inf/current/<db_run_id>/
         current_run_path = resolve_run_path(
             self.args, self.cfg, self.args.silver_volume_path
         )
@@ -411,11 +411,6 @@ class ModelInferenceTask:
                 "predicted_label": out.pred_labels,
             }
         )
-        self.write_delta(
-            df=predicted_df,
-            table_name_suffix=f"predicted_dataset_{self.args.db_run_id}",
-            label="Prediction dataset",
-        )
         support_scores = pd.DataFrame(
             {
                 "student_id": out.unique_ids.values,
@@ -442,32 +437,38 @@ class ModelInferenceTask:
             schema_type=self.args.schema_type,
         )
 
-        logging.info("Writing FE tables")
-        tables = {
-            f"inference_{self.args.db_run_id}_features_with_most_impact": (
+        run_id = self.args.db_run_id
+        volume_tables = {
+            "predicted_dataset": (predicted_df, "Prediction dataset"),
+            "features_with_most_impact": (
                 inference_features_with_most_impact,
                 "Inference features with most impact",
             ),
-            f"inference_{self.args.db_run_id}_shap_feature_importance": (
+            "shap_feature_importance": (
                 out.shap_feature_importance,
                 "Shap Feature Importance",
             ),
-            f"inference_{self.args.db_run_id}_support_overview": (
+            "support_overview": (
                 out.support_score_distribution,
                 "Support overview table",
             ),
-            f"inference_{self.args.db_run_id}_box_plot_table": (
-                box_whiskers_table,
-                "Box plot table",
-            ),
-            f"inference_{self.args.db_run_id}_feature_drift": (
-                out.feature_drift_report,
-                "Feature drift report",
-            ),
+            "box_plot_table": (box_whiskers_table, "Box plot table"),
+            "feature_drift": (out.feature_drift_report, "Feature drift report"),
         }
-
-        for suffix, (df, label) in tables.items():
-            self.write_delta(df, suffix, label)
+        logging.info("Writing FE tables to UC and %s", current_run_path_local)
+        for name, (df, label) in volume_tables.items():
+            uc_suffix = (
+                f"predicted_dataset_{run_id}"
+                if name == "predicted_dataset"
+                else f"inference_{run_id}_{name}"
+            )
+            self.write_delta(df, uc_suffix, label)
+            dataio.write.write_parquet(
+                df,
+                file_path=os.path.join(current_run_path_local, f"{name}.parquet"),
+                index=False,
+                overwrite=True,
+            )
 
         logging.info("Validating inference tables were created for FE")
         self.validate_inference_tables(

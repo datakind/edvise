@@ -12,6 +12,12 @@ if TYPE_CHECKING:
     from edvise.configs.legacy import LegacyProjectConfig
     from edvise.configs.pdp import PDPProjectConfig
 
+LOGGER = logging.getLogger(__name__)
+
+INFERENCE_DIR = "inf"
+INFERENCE_CURRENT_DIR = "current"
+INFERENCE_ARCHIVE_DIR = "archive"
+
 
 class _FlushTolerantStreamHandler(logging.StreamHandler):
     """
@@ -177,28 +183,96 @@ def resolve_genai_segment_log_path(
     )
 
 
+def inference_current_root(silver_volume_path: str, model_run_id: str) -> str:
+    """``{silver}/{model_id}/inf/current`` — latest inference run folder(s)."""
+    return os.path.join(
+        silver_volume_path, model_run_id, INFERENCE_DIR, INFERENCE_CURRENT_DIR
+    )
+
+
+def inference_archive_root(silver_volume_path: str, model_run_id: str) -> str:
+    """``{silver}/{model_id}/inf/archive`` — previous inference run folders."""
+    return os.path.join(
+        silver_volume_path, model_run_id, INFERENCE_DIR, INFERENCE_ARCHIVE_DIR
+    )
+
+
+def archive_previous_inference_runs(
+    silver_volume_path: str,
+    model_run_id: str,
+    keep_run_id: str,
+) -> list[str]:
+    """
+    Copy any ``inf/current/<run_id>`` folders other than ``keep_run_id`` into
+    ``inf/archive/<run_id>``, then remove them from current.
+
+    Idempotent for the in-progress run: later pipeline tasks see only
+    ``current/{keep_run_id}`` and do nothing.
+    """
+    current_root = local_fs_path(
+        inference_current_root(silver_volume_path, model_run_id)
+    )
+    if not os.path.isdir(current_root):
+        return []
+
+    archived: list[str] = []
+    archive_root = local_fs_path(
+        inference_archive_root(silver_volume_path, model_run_id)
+    )
+    for name in os.listdir(current_root):
+        if name == keep_run_id:
+            continue
+        src = os.path.join(current_root, name)
+        if not os.path.isdir(src):
+            continue
+        dest = os.path.join(archive_root, name)
+        os.makedirs(archive_root, exist_ok=True)
+        if os.path.exists(dest):
+            shutil.rmtree(dest)
+        shutil.copytree(src, dest)
+        shutil.rmtree(src)
+        archived.append(name)
+        LOGGER.info("Archived inference run %s -> %s", src, dest)
+    return archived
+
+
 def resolve_run_path(
     args: argparse.Namespace,
     cfg: Union["PDPProjectConfig", "ESProjectConfig", "LegacyProjectConfig"],
     silver_volume_path: str,
 ) -> str:
+    """
+    Canonical silver folder for a training or inference job.
+
+    * training: ``{silver}/{db_run_id}/training``
+    * inference: ``{silver}/{model_id}/inf/current/{db_run_id}``
+
+      Any other run already under ``inf/current`` is copied to ``inf/archive``
+      first so ``current`` holds only the latest inference run.
+    """
     if args.job_type == "training":
         if not args.db_run_id:
             raise ValueError("db_run_id must be provided for training runs.")
-        run_id = args.db_run_id
-        subdir = "training"
-    elif args.job_type == "inference":
+        return os.path.join(silver_volume_path, args.db_run_id, "training")
+
+    if args.job_type == "inference":
         model_run_id: Optional[str] = getattr(
             getattr(cfg, "model", None), "run_id", None
         )
         if not model_run_id:
             raise ValueError("cfg.model.run_id must be set for inference runs.")
-        run_id = model_run_id
-        subdir = "inference"
-    else:
-        raise ValueError(f"Unsupported job_type: {args.job_type}")
+        inference_run_id = getattr(args, "db_run_id", None)
+        if not inference_run_id:
+            raise ValueError("db_run_id must be provided for inference runs.")
+        archive_previous_inference_runs(
+            silver_volume_path, model_run_id, inference_run_id
+        )
+        return os.path.join(
+            inference_current_root(silver_volume_path, model_run_id),
+            inference_run_id,
+        )
 
-    return os.path.join(silver_volume_path, run_id, subdir)
+    raise ValueError(f"Unsupported job_type: {args.job_type}")
 
 
 def _sync_file_log_handlers(root: logging.Logger) -> None:
