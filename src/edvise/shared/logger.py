@@ -14,10 +14,6 @@ if TYPE_CHECKING:
 
 LOGGER = logging.getLogger(__name__)
 
-INFERENCE_DIR = "inf"
-INFERENCE_CURRENT_DIR = "current"
-INFERENCE_ARCHIVE_DIR = "archive"
-
 
 class _FlushTolerantStreamHandler(logging.StreamHandler):
     """
@@ -183,47 +179,26 @@ def resolve_genai_segment_log_path(
     )
 
 
-def inference_current_root(silver_volume_path: str, model_run_id: str) -> str:
-    """``{silver}/{model_id}/inf/current`` — latest inference run folder(s)."""
-    return os.path.join(
-        silver_volume_path, model_run_id, INFERENCE_DIR, INFERENCE_CURRENT_DIR
-    )
+def _inference_dir(silver_volume_path: str, model_run_id: str, *parts: str) -> str:
+    return os.path.join(silver_volume_path, model_run_id, "inf", *parts)
 
 
-def inference_archive_root(silver_volume_path: str, model_run_id: str) -> str:
-    """``{silver}/{model_id}/inf/archive`` — previous inference run folders."""
-    return os.path.join(
-        silver_volume_path, model_run_id, INFERENCE_DIR, INFERENCE_ARCHIVE_DIR
-    )
-
-
-def archive_previous_inference_runs(
-    silver_volume_path: str,
-    model_run_id: str,
-    keep_run_id: str,
-) -> list[str]:
-    """
-    Copy any ``inf/current/<run_id>`` folders other than ``keep_run_id`` into
-    ``inf/archive/<run_id>``, then remove them from current.
-
-    Idempotent for the in-progress run: later pipeline tasks see only
-    ``current/{keep_run_id}`` and do nothing.
-    """
+def _archive_previous_inference_runs(
+    silver_volume_path: str, model_run_id: str, keep_run_id: str
+) -> None:
+    """Copy stale ``inf/current/<run_id>`` folders to ``inf/archive``, then remove them."""
     current_root = local_fs_path(
-        inference_current_root(silver_volume_path, model_run_id)
+        _inference_dir(silver_volume_path, model_run_id, "current")
     )
     if not os.path.isdir(current_root):
-        return []
+        return
 
-    archived: list[str] = []
     archive_root = local_fs_path(
-        inference_archive_root(silver_volume_path, model_run_id)
+        _inference_dir(silver_volume_path, model_run_id, "archive")
     )
     for name in os.listdir(current_root):
-        if name == keep_run_id:
-            continue
         src = os.path.join(current_root, name)
-        if not os.path.isdir(src):
+        if name == keep_run_id or not os.path.isdir(src):
             continue
         dest = os.path.join(archive_root, name)
         os.makedirs(archive_root, exist_ok=True)
@@ -231,9 +206,7 @@ def archive_previous_inference_runs(
             shutil.rmtree(dest)
         shutil.copytree(src, dest)
         shutil.rmtree(src)
-        archived.append(name)
         LOGGER.info("Archived inference run %s -> %s", src, dest)
-    return archived
 
 
 def resolve_run_path(
@@ -244,11 +217,13 @@ def resolve_run_path(
     """
     Canonical silver folder for a training or inference job.
 
-    * training: ``{silver}/{db_run_id}/training``
-    * inference: ``{silver}/{model_id}/inf/current/{db_run_id}``
+    * training: ``{silver}/{db_run_id}/training`` (unchanged)
+    * inference with ``db_run_id``: ``{silver}/{model_id}/inf/current/{db_run_id}``
+    * inference without ``db_run_id``: ``{silver}/{model_id}/inference`` (legacy)
 
-      Any other run already under ``inf/current`` is copied to ``inf/archive``
-      first so ``current`` holds only the latest inference run.
+      Other run folders already under ``inf/current`` are copied to ``inf/archive``
+      first. Existing ``{model_id}/inference`` and ``{model_id}/training`` data
+      are not modified.
     """
     if args.job_type == "training":
         if not args.db_run_id:
@@ -263,13 +238,12 @@ def resolve_run_path(
             raise ValueError("cfg.model.run_id must be set for inference runs.")
         inference_run_id = getattr(args, "db_run_id", None)
         if not inference_run_id:
-            raise ValueError("db_run_id must be provided for inference runs.")
-        archive_previous_inference_runs(
+            return os.path.join(silver_volume_path, model_run_id, "inference")
+        _archive_previous_inference_runs(
             silver_volume_path, model_run_id, inference_run_id
         )
-        return os.path.join(
-            inference_current_root(silver_volume_path, model_run_id),
-            inference_run_id,
+        return _inference_dir(
+            silver_volume_path, model_run_id, "current", inference_run_id
         )
 
     raise ValueError(f"Unsupported job_type: {args.job_type}")
