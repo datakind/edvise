@@ -340,6 +340,26 @@ class TestGetModelNameFromConfig:
         )
         assert result == "retention_into_year_2_associates"
 
+    def test_edvise_retention_into_year_three_in_model_name(self):
+        preprocessing = type("Preprocessing", (), {})()
+        preprocessing.target = {
+            "type_": "retention",
+            "max_academic_year": "2024",
+            "retention_into_year": 3,
+        }
+        preprocessing.checkpoint = {"type_": "first_within_cohort"}
+        preprocessing.selection = type(
+            "Selection",
+            (),
+            {"student_criteria": {"intended_program_type": "Bachelor's Degree"}},
+        )()
+
+        result = get_model_name_from_config(
+            preprocessing=preprocessing,
+            institution_id="test_inst",
+        )
+        assert result == "retention_into_year_3_bachelors"
+
     def test_fallback_when_pdp_raises_unsupported_target_type(self):
         """When target type is unsupported, fall back to .name."""
         preprocessing = type("Preprocessing", (), {})()

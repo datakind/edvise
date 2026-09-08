@@ -24,6 +24,12 @@ def mock_card():
             "This model predicts the likelihood of non-retention into the student's second academic year based on student, course, and academic data.",
         ),
         (
+            "retention",
+            {},
+            {"retention_into_year": 3},
+            "This model predicts the likelihood of non-retention into the student's 3rd academic year based on student, course, and academic data.",
+        ),
+        (
             "graduation",
             {"FULL-TIME": (2.0, "year"), "PART-TIME": (3.0, "year")},
             {},
@@ -53,6 +59,10 @@ def test_outcome_variants(
     if outcome_type == "credits_earned" and "min_num_credits" in extra_config:
         mock_card.cfg.preprocessing.target.min_num_credits = extra_config[
             "min_num_credits"
+        ]
+    if "retention_into_year" in extra_config:
+        mock_card.cfg.preprocessing.target.retention_into_year = extra_config[
+            "retention_into_year"
         ]
 
     registry = SectionRegistry()

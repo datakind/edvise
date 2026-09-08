@@ -23,8 +23,9 @@ KEY_HITL_FLASH_BANNER = "hitl_flash_banner"
 
 # One hint everywhere UC approve + optional queue advance can dismiss the editor (pending-only table).
 HITL_FLASH_HINT_AFTER_UC = (
-    "If the row disappeared, the sidebar **status** filter may be **pending** only — set it to **(any)** "
-    "and click **Refresh data** to see **approved**. If the editor closed, the workbench may have advanced to the next pending group."
+    "If the row disappeared, the sidebar **status** filter may be **pending** only — set it to "
+    "**approved** and click **Refresh data** to see finalized rows. If the editor closed, the workbench "
+    "may have advanced to the next pending group."
 )
 
 # Shown while volume JSON I/O and/or ``hitl_reviews`` SQL run (Databricks can take several seconds).

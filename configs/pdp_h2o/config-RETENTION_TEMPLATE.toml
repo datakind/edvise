@@ -50,6 +50,8 @@ exclude_pre_cohort_terms = true
 name = "retention"
 type_ = "retention"
 max_academic_year = "infer"
+# Academic year that counts as retained (2 = sophomore / default, 3 = junior).
+# retention_into_year = 2
 
 [modeling.feature_selection]
 incomplete_threshold = 0.2

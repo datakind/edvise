@@ -34,7 +34,16 @@ def register_attribute_sections(card, registry):
         outcome_type = card.cfg.preprocessing.target.type_
 
         if outcome_type == "retention":
-            outcome = "non-retention into the student's second academic year"
+            year = getattr(card.cfg.preprocessing.target, "retention_into_year", 2)
+            if not isinstance(year, int) or isinstance(year, bool):
+                year = 2
+            if year == 2:
+                outcome = "non-retention into the student's second academic year"
+            else:
+                outcome = (
+                    f"non-retention into the student's "
+                    f"{card.format.ordinal(year)} academic year"
+                )
             description = f"This model predicts the likelihood of {outcome} based on student, course, and academic data."
         else:
             limits = card.cfg.preprocessing.selection.intensity_time_limits

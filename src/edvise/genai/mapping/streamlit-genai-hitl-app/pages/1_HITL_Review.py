@@ -71,8 +71,9 @@ if not df.empty:
     )
 else:
     st.info(
-        "No rows match your current table filters. Set **status** to **(any)**, clear run/phase filters, "
-        "or raise the **row limit** in the **sidebar**. You can still load a group from a **shared URL** below."
+        "No rows match your current table filters. Try another **status** (pending / approved / rejected), "
+        "clear run/phase filters, or raise the **row limit** in the **sidebar**. You can still load a "
+        "group from a **shared URL** below."
     )
 
 # Editor: uses sidebar **Unity Catalog** + (onboard_run_id, phase, artifact_type) from table selection or URL

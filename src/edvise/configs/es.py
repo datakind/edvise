@@ -420,6 +420,15 @@ class TargetGraduationConfig(TargetBaseConfig):
 class TargetRetentionConfig(TargetBaseConfig):
     type_: types.TargetTypeType = "retention"
     max_academic_year: str | t.Literal["infer"]
+    retention_into_year: int = pyd.Field(
+        default=2,
+        ge=2,
+        description=(
+            "Academic year of enrollment at the cohort institution that counts as "
+            "retained (2 = sophomore / current default, 3 = junior year). Also "
+            "sets the labelability horizon: the extract must include that year."
+        ),
+    )
 
 
 class TargetCreditsEarnedConfig(TargetBaseConfig):
