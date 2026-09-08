@@ -292,11 +292,11 @@ def _pin_has_required_few_shot_and_contract(
 
 @dataclass
 class ReferenceSelectionResult:
-    """Outcome of rules-based (or override) reference selection."""
+    """Outcome of rules-based reference selection (always ``selection_mode="auto"``)."""
 
     reference_id: str
     content_hash: str
-    selection_mode: str  # "auto" | "override"
+    selection_mode: str  # always "auto"; kept in audit for clarity
     scores: list[ReferenceScore] = field(default_factory=list)
     skipped: list[dict[str, str]] = field(default_factory=list)
 
