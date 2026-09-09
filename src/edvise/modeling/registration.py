@@ -11,6 +11,7 @@ from edvise.shared.utils import (
     normalize_degree,
 )
 from edvise.utils import types as utils_types
+from edvise.utils.uc_model_name import encode_uc_model_name
 
 if t.TYPE_CHECKING:
     from edvise.configs.pdp import (
@@ -234,7 +235,7 @@ def get_model_name(
         model_name = f"{model_name}_{extra_info}"
 
     # UC three-level names split on `.`; 4.5y would be parsed as extra levels.
-    return model_name.replace(".", "d")
+    return encode_uc_model_name(model_name)
 
 
 def pdp_get_model_name(
@@ -250,8 +251,9 @@ def pdp_get_model_name(
 
     Get a simple, lowercase, underscore-separated model name for Unity Catalog.
 
-    Use Formatting().friendly_case() from reporting.utils.formatting to convert
-    to display format for front-end.
+    Use :func:`edvise.utils.uc_model_name.decode_uc_model_name` (or
+    ``Formatting().friendly_case()`` for model cards) to convert UC names back
+    to display form for the front-end.
 
     Args:
         target: Target config object (supports both dict and Pydantic model access)
