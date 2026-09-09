@@ -10,8 +10,13 @@ from edvise.genai.mapping.shared import databricks_ai_gateway as dg
 def test_resolve_ai_gateway_base_url_explicit_env(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("AI_GATEWAY_BASE_URL", "https://custom.example/mlflow/v1")
-    assert dg.resolve_ai_gateway_base_url() == "https://custom.example/mlflow/v1"
+    monkeypatch.setenv(
+        "AI_GATEWAY_BASE_URL", "https://custom.example/ai-gateway/mlflow/v1"
+    )
+    assert (
+        dg.resolve_ai_gateway_base_url()
+        == "https://custom.example/ai-gateway/mlflow/v1"
+    )
 
 
 def test_resolve_ai_gateway_base_url_from_workspace_id(
