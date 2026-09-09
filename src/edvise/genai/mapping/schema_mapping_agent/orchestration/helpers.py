@@ -202,6 +202,7 @@ def _run_once(
 def _sma_llm_complete_run_once(
     client: Any,
     *,
+    catalog: str,
     cache_system_prompt: bool = False,
 ) -> Callable[[str, str], str]:
     """
@@ -214,7 +215,7 @@ def _sma_llm_complete_run_once(
     is long enough to be cacheable. It's a safe no-op for callers that pass an empty
     ``system`` (e.g. Step 2a/2b, which send the whole prompt as ``user``).
     """
-    model_id = resolve_gateway_model_id()
+    model_id = resolve_gateway_model_id(catalog)
 
     def llm_complete(system: str, user: str) -> str:
         s = (system or "").strip()

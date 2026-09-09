@@ -165,7 +165,7 @@ def run_onboard_gate_2(
         institution_term_config=institution_term_config,
     )
 
-    llm_sma = _sma_llm_complete_run_once(client)
+    llm_sma = _sma_llm_complete_run_once(client, catalog=catalog)
 
     def _parse_step2b_transformation_wrapper(raw: str) -> dict:
         data = json.loads(raw)
@@ -312,7 +312,7 @@ def run_onboard_gate_2(
             "Transformation plan / manifest alignment failed after review: " + details
         )
 
-    _sma_gateway_model_id = resolve_gateway_model_id()
+    _sma_gateway_model_id = resolve_gateway_model_id(catalog)
 
     def _sma_hook_llm_complete(system: str, user: str) -> str:
         prompt = f"{system.strip()}\n\n---\n\n{user.strip()}"

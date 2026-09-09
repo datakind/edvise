@@ -245,6 +245,7 @@ def run(
             paths,
             spark_session,
             execute_run_id=str(execute_run_id).strip(),
+            catalog=catalog,
         )
         try:
             _pipeline_state.update_execute_pipeline_run_status(

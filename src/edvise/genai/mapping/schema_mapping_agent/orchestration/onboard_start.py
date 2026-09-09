@@ -93,7 +93,9 @@ def run_onboard_start(
     # activates for the refinement calls further down, which reuse this same llm_sma and send
     # a static, ~2.5-3.4k token system prompt (build_refinement_pass1/2_system_prompt) across
     # up to 4 calls per institution.
-    llm_sma = _sma_llm_complete_run_once(client, cache_system_prompt=True)
+    llm_sma = _sma_llm_complete_run_once(
+        client, catalog=catalog, cache_system_prompt=True
+    )
 
     def _parse_step2a_envelope(raw: str) -> MappingManifestEnvelope:
         manifest_dict = json.loads(raw)

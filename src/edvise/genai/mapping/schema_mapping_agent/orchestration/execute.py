@@ -34,6 +34,7 @@ def run_execute(
     spark_session: Any,
     *,
     execute_run_id: str,
+    catalog: str,
 ) -> None:
     from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import (
         FieldMappingManifest,
@@ -106,6 +107,7 @@ def run_execute(
         enriched_contract=enriched_contract,
         manifest_map_path=paths.active_manifest_map,
         grain_hitl_path=paths.run_root / "cohort_sma_grain_hitl.json",
+        catalog=catalog,
         active_grain_resolution_root=paths.active_root,
         hook_modules_root=paths.active_root,
     )
@@ -119,6 +121,7 @@ def run_execute(
         enriched_contract=enriched_contract,
         manifest_map_path=paths.active_manifest_map,
         grain_hitl_path=paths.run_root / "course_sma_grain_hitl.json",
+        catalog=catalog,
         active_grain_resolution_root=paths.active_root,
         hook_modules_root=paths.active_root,
     )
