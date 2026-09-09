@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from edvise.shared.logger import resolve_run_path
+from edvise.shared.logger import resolve_run_path, snapshot_inference_run
 
 
 def _inf_args(run_id: str | None) -> argparse.Namespace:
@@ -73,3 +73,24 @@ def test_resolve_run_path_flattens_existing_archive_legacy(tmp_path) -> None:
 
     assert (inference / "archive" / "student_terms.parquet").read_text() == "old"
     assert not legacy.exists()
+
+
+def test_two_inference_runs_leave_two_archive_folders(tmp_path) -> None:
+    silver = str(tmp_path)
+    inference = tmp_path / "model-1" / "inference"
+
+    resolve_run_path(_inf_args("run-1"), _cfg("model-1"), silver)
+    (inference / "student_terms.parquet").write_text("first")
+    snapshot_inference_run(str(inference), "run-1")
+
+    resolve_run_path(_inf_args("run-2"), _cfg("model-1"), silver)
+    (inference / "student_terms.parquet").write_text("second")
+    snapshot_inference_run(str(inference), "run-2")
+
+    assert (inference / "student_terms.parquet").read_text() == "second"
+    assert (inference / "archive" / "run-1" / "student_terms.parquet").read_text() == (
+        "first"
+    )
+    assert (inference / "archive" / "run-2" / "student_terms.parquet").read_text() == (
+        "second"
+    )

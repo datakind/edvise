@@ -219,6 +219,27 @@ def _archive_prior_inference_run(inference_dir: str, job_run_id: str) -> None:
         fh.write(job_run_id)
 
 
+def snapshot_inference_run(inference_dir: str, job_run_id: str) -> None:
+    """Copy this job's ``inference/`` files to ``inference/archive/<job_run_id>``."""
+    root = local_fs_path(inference_dir)
+    if not os.path.isdir(root) or not job_run_id:
+        return
+    dest = os.path.join(root, "archive", job_run_id)
+    if os.path.exists(dest):
+        shutil.rmtree(dest)
+    os.makedirs(dest, exist_ok=True)
+    for name in os.listdir(root):
+        if name == "archive":
+            continue
+        src = os.path.join(root, name)
+        target = os.path.join(dest, name)
+        if os.path.isdir(src):
+            shutil.copytree(src, target)
+        else:
+            shutil.copy2(src, target)
+    LOGGER.info("Saved inference run %s -> %s", job_run_id, dest)
+
+
 def resolve_run_path(
     args: argparse.Namespace,
     cfg: Union["PDPProjectConfig", "ESProjectConfig", "LegacyProjectConfig"],

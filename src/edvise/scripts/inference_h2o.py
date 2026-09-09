@@ -60,7 +60,11 @@ from edvise.modeling.inference import (
     sample_features_with_most_impact_students,
     top_n_features,
 )
-from edvise.shared.logger import resolve_run_path, local_fs_path
+from edvise.shared.logger import (
+    resolve_run_path,
+    local_fs_path,
+    snapshot_inference_run,
+)
 from edvise.shared.dashboard_metadata.pipeline_runs import append_pipeline_run_event
 from edvise.shared.validation import (
     validate_tables_exist,
@@ -483,6 +487,7 @@ class ModelInferenceTask:
             basename="inference_output",
         )
 
+        snapshot_inference_run(current_run_path, self.args.db_run_id)
         logging.info("Inference task completed successfully.")
 
     def _send_kickoff_email(self) -> None:
