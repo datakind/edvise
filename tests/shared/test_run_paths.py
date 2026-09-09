@@ -76,18 +76,12 @@ def test_resolve_run_path_archives_previous_run_then_keeps_new_in_inference(
 ) -> None:
     silver = str(tmp_path)
     inference = tmp_path / "model-1" / "inference"
-    old = inference / "current" / "inf-old"
-    old.mkdir(parents=True)
-    (old / "preprocessed.parquet").write_text("prev")
+    inference.mkdir(parents=True)
     (inference / "student_terms.parquet").write_text("keep")
 
     path = resolve_run_path(_inf_args("inf-new"), _cfg("model-1"), silver)
 
     assert path == str(inference)
-    assert (inference / "archive" / "inf-old" / "preprocessed.parquet").read_text() == (
-        "prev"
-    )
-    assert not old.exists()
     assert (inference / "archive" / "legacy" / "student_terms.parquet").read_text() == (
         "keep"
     )
@@ -100,3 +94,4 @@ def test_resolve_run_path_archives_previous_run_then_keeps_new_in_inference(
     assert (
         inference / "archive" / "inf-new" / "student_terms.parquet"
     ).read_text() == ("new")
+    assert not (inference / "current").exists()

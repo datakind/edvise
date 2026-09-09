@@ -216,14 +216,6 @@ def _write_inference_run_id(inference_root: str, run_id: str) -> None:
         fh.write(run_id)
 
 
-def _move_into_archive(src: str, archive_root: str, dest_name: str) -> str:
-    os.makedirs(archive_root, exist_ok=True)
-    dest = _unique_archive_dest(archive_root, dest_name)
-    shutil.move(src, dest)
-    LOGGER.info("Archived inference run %s -> %s", src, dest)
-    return dest
-
-
 def _archive_previous_inference_runs(
     silver_volume_path: str, model_run_id: str, keep_run_id: str
 ) -> None:
@@ -237,34 +229,13 @@ def _archive_previous_inference_runs(
         _inference_dir(silver_volume_path, model_run_id, "archive")
     )
     previous_run_id = _read_inference_run_id(inference_root) or "legacy"
-
-    leftovers = [
-        name
-        for name in os.listdir(inference_root)
-        if name not in {"archive", "current"}
-    ]
+    leftovers = [name for name in os.listdir(inference_root) if name != "archive"]
     if leftovers:
         dest = _unique_archive_dest(archive_root, previous_run_id)
         os.makedirs(dest, exist_ok=True)
         for name in leftovers:
             shutil.move(os.path.join(inference_root, name), os.path.join(dest, name))
         LOGGER.info("Archived existing inference files -> %s", dest)
-
-    current_root = os.path.join(inference_root, "current")
-    if os.path.isdir(current_root):
-        for name in os.listdir(current_root):
-            src = os.path.join(current_root, name)
-            if name == keep_run_id and os.path.isdir(src):
-                for child in os.listdir(src):
-                    shutil.move(
-                        os.path.join(src, child), os.path.join(inference_root, child)
-                    )
-                os.rmdir(src)
-                continue
-            if os.path.isdir(src):
-                _move_into_archive(src, archive_root, name)
-        if os.path.isdir(current_root) and not os.listdir(current_root):
-            os.rmdir(current_root)
 
     _write_inference_run_id(inference_root, keep_run_id)
 
@@ -280,9 +251,9 @@ def resolve_run_path(
     * training: ``{silver}/{db_run_id}/training`` (unchanged)
     * inference: ``{silver}/{model_id}/inference`` (same folder as today)
 
-      Files already in ``inference/`` (and leftover ``current/<run_id>``
-      folders) are moved to ``inference/archive/<old_run_id>`` first.
-      Later tasks in the same job leave that folder in place.
+      Files already in ``inference/`` are moved to
+      ``inference/archive/<old_run_id>`` first. Later tasks in the same job
+      leave that folder in place.
     """
     if args.job_type == "training":
         if not args.db_run_id:
