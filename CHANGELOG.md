@@ -1,3 +1,14 @@
+## 1.13.0 (2026-09-08)
+- feat(genai): auto-select GenAI mapping onboard reference (#307)
+- fix(pdp): pass ingested PDP inference CSVs into data_audit (#308)
+- fix(genai): remove unused (any) status filter from HITL app (#309)
+- refactor: share UC model-name encode/decode for decimal time limits (#313)
+
+## 1.12.0 (2026-09-03)
+- feat: parameterizing retention into year N for PDP/ES schools with default N=2 (#300)
+- fix: select all NSC PDP pairs for the same calendar date (#305)
+- fix: drop first-term snapshots only at first-term checkpoints (#306)
+
 ## 1.11.0 (2026-09-01)
 - feat(pdp): Convert PDP ingestion notebooks into DAB (#272)
 - feat(genai): load SMA few-shot from pinned references/current instead of active (#296)

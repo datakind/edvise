@@ -1,6 +1,7 @@
 import re
 import typing as t
 from edvise.shared.utils import format_enrollment_intensity_time_limits
+from edvise.utils.uc_model_name import decode_uc_model_name
 
 Num = t.Union[int, float]
 
@@ -132,4 +133,4 @@ class Formatting:
             # Find where to close the parenthesis - before underscore suffix or at end
             result = re.sub(r"(Checkpoint:[^)]+?)\s*(?=$|_)", r"\1)", result)
 
-        return re.sub(r"(\d+)d(\d+)", r"\1.\2", result)
+        return decode_uc_model_name(result)
