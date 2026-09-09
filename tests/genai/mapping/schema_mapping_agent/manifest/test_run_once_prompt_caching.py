@@ -113,7 +113,9 @@ def test_sma_llm_complete_run_once_caches_long_system_when_enabled(monkeypatch) 
         _FakeChunk,
     )
     client = _FakeClient()
-    complete = _sma_llm_complete_run_once(client, cache_system_prompt=True)
+    complete = _sma_llm_complete_run_once(
+        client, catalog="test_catalog", cache_system_prompt=True
+    )
     result = complete(_LONG_SYSTEM, "user text")
     assert result == '{"ok": true}'
     sent_content = client.chat.completions.last_kwargs["messages"][0]["content"]
@@ -128,7 +130,7 @@ def test_sma_llm_complete_run_once_default_unaffected(monkeypatch) -> None:
         _FakeChunk,
     )
     client = _FakeClient()
-    complete = _sma_llm_complete_run_once(client)
+    complete = _sma_llm_complete_run_once(client, catalog="test_catalog")
     result = complete(_LONG_SYSTEM, "user text")
     assert result == '{"ok": true}'
     sent_content = client.chat.completions.last_kwargs["messages"][0]["content"]
@@ -144,7 +146,9 @@ def test_sma_llm_complete_run_once_caching_is_noop_for_empty_system(
         _FakeChunk,
     )
     client = _FakeClient()
-    complete = _sma_llm_complete_run_once(client, cache_system_prompt=True)
+    complete = _sma_llm_complete_run_once(
+        client, catalog="test_catalog", cache_system_prompt=True
+    )
     result = complete("", "user only prompt")
     assert result == '{"ok": true}'
     sent_content = client.chat.completions.last_kwargs["messages"][0]["content"]
@@ -157,7 +161,9 @@ def test_sma_llm_complete_run_once_skips_caching_for_short_system(monkeypatch) -
         _FakeChunk,
     )
     client = _FakeClient()
-    complete = _sma_llm_complete_run_once(client, cache_system_prompt=True)
+    complete = _sma_llm_complete_run_once(
+        client, catalog="test_catalog", cache_system_prompt=True
+    )
     result = complete(_SHORT_SYSTEM, "user text")
     assert result == '{"ok": true}'
     sent_content = client.chat.completions.last_kwargs["messages"][0]["content"]
@@ -218,7 +224,9 @@ def test_sma_llm_complete_run_once_logs_cache_usage_for_cached_call(
         _FakeChunk,
     )
     client = _FakeClient(usage_cache_read_tokens=5678)
-    complete = _sma_llm_complete_run_once(client, cache_system_prompt=True)
+    complete = _sma_llm_complete_run_once(
+        client, catalog="test_catalog", cache_system_prompt=True
+    )
     with caplog.at_level("INFO"):
         result = complete(_LONG_SYSTEM, "user text")
     assert result == '{"ok": true}'
@@ -238,7 +246,9 @@ def test_sma_llm_complete_run_once_does_not_log_for_step2a_style_call(
         _FakeChunk,
     )
     client = _FakeClient(usage_cache_read_tokens=999)
-    complete = _sma_llm_complete_run_once(client, cache_system_prompt=True)
+    complete = _sma_llm_complete_run_once(
+        client, catalog="test_catalog", cache_system_prompt=True
+    )
     with caplog.at_level("INFO"):
         result = complete("", "user only prompt")
     assert result == '{"ok": true}'
