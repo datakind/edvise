@@ -4,21 +4,22 @@ Best-effort pipeline state updates for Databricks job entrypoints (IA / SMA).
 Failures are logged and do not block the job (same spirit as
 :func:`~edvise.genai.mapping.shared.pipeline_artifacts.merge_genai_pipeline_artifact_rows`).
 
-UC HITL polling helpers (:func:`wait_for_ia_gate_1_hitl`, :func:`wait_for_ia_gate_1_hooks_hitl`,
-:func:`wait_for_sma_gate_1_hitl`, :func:`wait_for_sma_gate_2_transformation_review_hitl`,
-:func:`wait_for_sma_gate_2_hook_preview_hitl`,
-:func:`wait_for_sma_gate_2_hook_required_hitl`,
-:func:`wait_for_sma_gate_2_grain_hitl`) are blocking and
-raise on timeout or rejection. Timeouts persist
+Each UC HITL gate is declared once as a :class:`HitlGate` in the gate table below: its phase,
+how its artifacts auto-approve when empty, and — for the two ``*_start`` registrations — which
+phase goes to ``awaiting_hitl`` while artifacts register under the *following* gate.
+
+A gate is then passed as a value through the three things you do to it::
+
+    job_state.register_ia_gate_1_hook_preview_artifacts(...)          # queue for review
+    job_state.wait_for_gate(job_state.GATE_IA_1_HOOKS, catalog, run_id, institution_id=...)
+    job_state.complete_gate(job_state.GATE_IA_1_HOOKS, catalog, institution_id, run_id)
+
+:func:`wait_for_gate` is blocking and raises on timeout or rejection. Timeouts persist
 ``timed_out`` on ``pipeline_runs`` / ``pipeline_phases`` (resumable); other failures may use
 :func:`mark_pipeline_failed`.
 
-Each UC HITL gate is declared once as a :class:`_HitlGate` in the gate table below: its phase,
-how its artifacts auto-approve when empty, and — for the two ``*_start`` registrations — which
-phase goes to ``awaiting_hitl`` while artifacts register under the *following* gate. The two
-multi-step operations on a gate (:func:`_register_gate`, :func:`_complete_gate`) are written
-once and take a gate; the public functions stay named per gate so call sites in
-``edvise_genai_ia`` / ``edvise_genai_sma`` read explicitly.
+Registration keeps a named wrapper per gate because each one owns the mapping from its file
+paths to UC ``artifact_type`` names — vocabulary that belongs here rather than in pipeline code.
 """
 
 from __future__ import annotations
@@ -199,7 +200,7 @@ def _auto_approve_hook_preview_if_empty(
 
 
 @dataclass(frozen=True)
-class _HitlGate:
+class HitlGate:
     """
     One UC HITL gate.
 
@@ -218,17 +219,34 @@ class _HitlGate:
         return self.awaiting_phase or self.phase
 
 
-_GATE_IA_1 = _HitlGate(PHASE_IA_GATE_1, awaiting_phase=PHASE_IA_START)
-_GATE_IA_1_HOOKS = _HitlGate(
+# Grain/term HITL JSON written by IA onboard start; awaited at the top of IA onboard
+# ``resume_from=gate_1`` before the local JSON gates are checked.
+GATE_IA_1 = HitlGate(PHASE_IA_GATE_1, awaiting_phase=PHASE_IA_START)
+
+# HookSpec previews from IA's hook-generation LLM; reviewers approve before
+# ``apply_hook_spec`` / materialize / enriched contract build.
+GATE_IA_1_HOOKS = HitlGate(
     PHASE_IA_GATE_1_HOOKS, auto_approve=_auto_approve_hook_preview_if_empty
 )
-_GATE_SMA_1 = _HitlGate(PHASE_SMA_GATE_1, awaiting_phase=PHASE_SMA_START)
-_GATE_SMA_2_TRANSFORMATION_REVIEW = _HitlGate(PHASE_SMA_GATE_2_TRANSFORMATION_REVIEW)
-_GATE_SMA_2_HOOK_PREVIEW = _HitlGate(
+
+# Cohort/course mapping manifests from SMA Step 2a; awaited at the top of SMA onboard
+# ``resume_from=gate_2`` before manifest HITL JSON is resolved on disk.
+GATE_SMA_1 = HitlGate(PHASE_SMA_GATE_1, awaiting_phase=PHASE_SMA_START)
+
+# Step 2b plans flagged ``review_required``.
+GATE_SMA_2_TRANSFORMATION_REVIEW = HitlGate(PHASE_SMA_GATE_2_TRANSFORMATION_REVIEW)
+
+# Step 2b transform HookSpec previews, before ``transform_hooks.py`` is materialized.
+GATE_SMA_2_HOOK_PREVIEW = HitlGate(
     PHASE_SMA_GATE_2_HOOK_PREVIEW, auto_approve=_auto_approve_hook_preview_if_empty
 )
-_GATE_SMA_2_HOOK_REQUIRED = _HitlGate(PHASE_SMA_GATE_2_HOOK_REQUIRED)
-_GATE_SMA_2_GRAIN = _HitlGate(PHASE_SMA_GATE_2_GRAIN)
+
+# Deprecated: hook disposition now happens in the transformation review gate. Kept so
+# in-flight UC rows still resolve.
+GATE_SMA_2_HOOK_REQUIRED = HitlGate(PHASE_SMA_GATE_2_HOOK_REQUIRED)
+
+# Raised when manifest grain is stricter than the cleaned row count.
+GATE_SMA_2_GRAIN = HitlGate(PHASE_SMA_GATE_2_GRAIN)
 
 
 # ---------------------------------------------------------------------------
@@ -237,7 +255,7 @@ _GATE_SMA_2_GRAIN = _HitlGate(PHASE_SMA_GATE_2_GRAIN)
 
 
 def _register_gate(
-    gate: _HitlGate,
+    gate: HitlGate,
     catalog: str,
     institution_id: str,
     onboard_run_id: str,
@@ -279,15 +297,44 @@ def _register_gate(
         gate.auto_approve(catalog, onboard_run_id, gate.phase, artifact_type, path)
 
 
-def _complete_gate(
-    gate: _HitlGate,
+def wait_for_gate(
+    gate: HitlGate,
+    catalog: str,
+    onboard_run_id: str,
+    *,
+    institution_id: str,
+    poll_interval_seconds: int = DEFAULT_HITL_POLL_INTERVAL_SECONDS,
+    timeout_seconds: int = DEFAULT_HITL_POLL_TIMEOUT_SECONDS,
+) -> bool:
+    """
+    Block until every ``hitl_reviews`` row for ``gate`` is ``approved`` in Unity Catalog.
+
+    Blocking; raises on timeout or rejection.
+    """
+    return poll_uc_hitl_until_approved_or_timeout(
+        catalog,
+        institution_id,
+        onboard_run_id,
+        gate.phase,
+        poll_interval_seconds=poll_interval_seconds,
+        timeout_seconds=timeout_seconds,
+    )
+
+
+def complete_gate(
+    gate: HitlGate,
     catalog: str,
     institution_id: str,
     onboard_run_id: str,
     *,
     run_status: str = "running",
 ) -> None:
-    """Mark ``gate`` complete and move ``pipeline_runs`` on to ``run_status``."""
+    """
+    Mark ``gate`` complete and move ``pipeline_runs`` on to ``run_status``.
+
+    ``run_status`` stays ``running`` for every gate except the last one in an onboard run,
+    which passes ``"complete"`` to end the run.
+    """
     _state_safe(
         f"{gate.phase} complete",
         pipeline_state.log_phase_transition,
@@ -372,41 +419,12 @@ def after_ia_onboard_start(
     term_path: Path,
 ) -> None:
     _register_gate(
-        _GATE_IA_1,
+        GATE_IA_1,
         catalog,
         institution_id,
         onboard_run_id,
         {"grain": grain_path, "term": term_path},
     )
-
-
-def wait_for_ia_gate_1_hitl(
-    catalog: str,
-    onboard_run_id: str,
-    *,
-    institution_id: str,
-    poll_interval_seconds: int = DEFAULT_HITL_POLL_INTERVAL_SECONDS,
-    timeout_seconds: int = DEFAULT_HITL_POLL_TIMEOUT_SECONDS,
-) -> bool:
-    """
-    Block until every ``hitl_reviews`` row for ``ia_gate_1`` is ``approved`` in Unity Catalog.
-
-    Used at the beginning of IA onboard ``resume_from=gate_1`` before local JSON HITL gates.
-    """
-    return poll_uc_hitl_until_approved_or_timeout(
-        catalog,
-        institution_id,
-        onboard_run_id,
-        PHASE_IA_GATE_1,
-        poll_interval_seconds=poll_interval_seconds,
-        timeout_seconds=timeout_seconds,
-    )
-
-
-def after_ia_onboard_gate_1_success(
-    catalog: str, institution_id: str, onboard_run_id: str
-) -> None:
-    _complete_gate(_GATE_IA_1, catalog, institution_id, onboard_run_id)
 
 
 def register_ia_gate_1_hook_preview_artifacts(
@@ -424,7 +442,7 @@ def register_ia_gate_1_hook_preview_artifacts(
     materialize. Rows with empty ``specs`` are auto-approved like empty grain/term HITL artifacts.
     """
     _register_gate(
-        _GATE_IA_1_HOOKS,
+        GATE_IA_1_HOOKS,
         catalog,
         institution_id,
         onboard_run_id,
@@ -433,37 +451,6 @@ def register_ia_gate_1_hook_preview_artifacts(
             "term_hook_preview": term_hook_preview_path,
         },
     )
-
-
-def wait_for_ia_gate_1_hooks_hitl(
-    catalog: str,
-    onboard_run_id: str,
-    *,
-    institution_id: str,
-    poll_interval_seconds: int = DEFAULT_HITL_POLL_INTERVAL_SECONDS,
-    timeout_seconds: int = DEFAULT_HITL_POLL_TIMEOUT_SECONDS,
-) -> bool:
-    """
-    Block until every ``hitl_reviews`` row for ``ia_gate_1_hooks`` is ``approved``.
-
-    Used in IA onboard ``gate_1`` after hook-generation LLM output is written to preview JSON;
-    reviewers approve before ``apply_hook_spec`` / materialize / enriched contract build.
-    """
-    return poll_uc_hitl_until_approved_or_timeout(
-        catalog,
-        institution_id,
-        onboard_run_id,
-        PHASE_IA_GATE_1_HOOKS,
-        poll_interval_seconds=poll_interval_seconds,
-        timeout_seconds=timeout_seconds,
-    )
-
-
-def after_ia_onboard_gate_1_hooks_approved(
-    catalog: str, institution_id: str, onboard_run_id: str
-) -> None:
-    """Log hook-preview gate complete and set pipeline run status back to ``running``."""
-    _complete_gate(_GATE_IA_1_HOOKS, catalog, institution_id, onboard_run_id)
 
 
 def ensure_ia_run_row(
@@ -561,43 +548,11 @@ def after_sma_onboard_start(
     course_path: Path,
 ) -> None:
     _register_gate(
-        _GATE_SMA_1,
+        GATE_SMA_1,
         catalog,
         institution_id,
         onboard_run_id,
         {"cohort_manifest": cohort_path, "course_manifest": course_path},
-    )
-
-
-def wait_for_sma_gate_1_hitl(
-    catalog: str,
-    onboard_run_id: str,
-    *,
-    institution_id: str,
-    poll_interval_seconds: int = DEFAULT_HITL_POLL_INTERVAL_SECONDS,
-    timeout_seconds: int = DEFAULT_HITL_POLL_TIMEOUT_SECONDS,
-) -> bool:
-    """
-    Block until every ``hitl_reviews`` row for ``sma_gate_1`` is ``approved`` in Unity Catalog.
-
-    Used at the beginning of SMA onboard ``resume_from=gate_2`` (second step) before resolving
-    manifest HITL JSON on disk.
-    """
-    return poll_uc_hitl_until_approved_or_timeout(
-        catalog,
-        institution_id,
-        onboard_run_id,
-        PHASE_SMA_GATE_1,
-        poll_interval_seconds=poll_interval_seconds,
-        timeout_seconds=timeout_seconds,
-    )
-
-
-def after_sma_onboard_gate_2_success(
-    catalog: str, institution_id: str, onboard_run_id: str
-) -> None:
-    _complete_gate(
-        _GATE_SMA_1, catalog, institution_id, onboard_run_id, run_status="complete"
     )
 
 
@@ -616,7 +571,7 @@ def register_sma_gate_2_transformation_review_artifacts(
     Empty ``items`` lists auto-approve like other SMA HITL artifacts.
     """
     _register_gate(
-        _GATE_SMA_2_TRANSFORMATION_REVIEW,
+        GATE_SMA_2_TRANSFORMATION_REVIEW,
         catalog,
         institution_id,
         onboard_run_id,
@@ -624,34 +579,6 @@ def register_sma_gate_2_transformation_review_artifacts(
             "cohort_transformation_review": cohort_transformation_review_path,
             "course_transformation_review": course_transformation_review_path,
         },
-    )
-
-
-def wait_for_sma_gate_2_transformation_review_hitl(
-    catalog: str,
-    onboard_run_id: str,
-    *,
-    institution_id: str,
-    poll_interval_seconds: int = DEFAULT_HITL_POLL_INTERVAL_SECONDS,
-    timeout_seconds: int = DEFAULT_HITL_POLL_TIMEOUT_SECONDS,
-) -> bool:
-    """Block until UC rows for ``sma_gate_2_transformation_review`` are approved."""
-    return poll_uc_hitl_until_approved_or_timeout(
-        catalog,
-        institution_id,
-        onboard_run_id,
-        PHASE_SMA_GATE_2_TRANSFORMATION_REVIEW,
-        poll_interval_seconds=poll_interval_seconds,
-        timeout_seconds=timeout_seconds,
-    )
-
-
-def after_sma_gate_2_transformation_review_approved(
-    catalog: str, institution_id: str, onboard_run_id: str
-) -> None:
-    """Log transformation-review gate complete and set pipeline run status to ``running``."""
-    _complete_gate(
-        _GATE_SMA_2_TRANSFORMATION_REVIEW, catalog, institution_id, onboard_run_id
     )
 
 
@@ -669,7 +596,7 @@ def register_sma_gate_2_hook_preview_artifacts(
     Empty ``specs`` lists auto-approve like IA ``grain_hook_preview`` / ``term_hook_preview``.
     """
     _register_gate(
-        _GATE_SMA_2_HOOK_PREVIEW,
+        GATE_SMA_2_HOOK_PREVIEW,
         catalog,
         institution_id,
         onboard_run_id,
@@ -678,32 +605,6 @@ def register_sma_gate_2_hook_preview_artifacts(
             "course_transformation_hook_preview": course_transformation_hook_preview_path,
         },
     )
-
-
-def wait_for_sma_gate_2_hook_preview_hitl(
-    catalog: str,
-    onboard_run_id: str,
-    *,
-    institution_id: str,
-    poll_interval_seconds: int = DEFAULT_HITL_POLL_INTERVAL_SECONDS,
-    timeout_seconds: int = DEFAULT_HITL_POLL_TIMEOUT_SECONDS,
-) -> bool:
-    """Block until UC rows for ``sma_gate_2_hook_preview`` are approved."""
-    return poll_uc_hitl_until_approved_or_timeout(
-        catalog,
-        institution_id,
-        onboard_run_id,
-        PHASE_SMA_GATE_2_HOOK_PREVIEW,
-        poll_interval_seconds=poll_interval_seconds,
-        timeout_seconds=timeout_seconds,
-    )
-
-
-def after_sma_gate_2_hook_preview_approved(
-    catalog: str, institution_id: str, onboard_run_id: str
-) -> None:
-    """Log SMA transform hook-preview gate complete and set pipeline run status to ``running``."""
-    _complete_gate(_GATE_SMA_2_HOOK_PREVIEW, catalog, institution_id, onboard_run_id)
 
 
 def register_sma_gate_2_hook_required_artifacts(
@@ -723,7 +624,7 @@ def register_sma_gate_2_hook_required_artifacts(
     Empty ``items`` lists auto-approve like empty SMA manifest HITL artifacts.
     """
     _register_gate(
-        _GATE_SMA_2_HOOK_REQUIRED,
+        GATE_SMA_2_HOOK_REQUIRED,
         catalog,
         institution_id,
         onboard_run_id,
@@ -732,32 +633,6 @@ def register_sma_gate_2_hook_required_artifacts(
             "course_transformation_hook_hitl": course_transformation_hook_hitl_path,
         },
     )
-
-
-def wait_for_sma_gate_2_hook_required_hitl(
-    catalog: str,
-    onboard_run_id: str,
-    *,
-    institution_id: str,
-    poll_interval_seconds: int = DEFAULT_HITL_POLL_INTERVAL_SECONDS,
-    timeout_seconds: int = DEFAULT_HITL_POLL_TIMEOUT_SECONDS,
-) -> bool:
-    """Block until UC rows for ``sma_gate_2_hook_required`` are approved."""
-    return poll_uc_hitl_until_approved_or_timeout(
-        catalog,
-        institution_id,
-        onboard_run_id,
-        PHASE_SMA_GATE_2_HOOK_REQUIRED,
-        poll_interval_seconds=poll_interval_seconds,
-        timeout_seconds=timeout_seconds,
-    )
-
-
-def after_sma_gate_2_hook_required_approved(
-    catalog: str, institution_id: str, onboard_run_id: str
-) -> None:
-    """Log transformation-hook gate complete and set pipeline run status back to ``running``."""
-    _complete_gate(_GATE_SMA_2_HOOK_REQUIRED, catalog, institution_id, onboard_run_id)
 
 
 def _sma_grain_artifact_type(path: Path) -> str:
@@ -788,35 +663,9 @@ def register_sma_gate_2_grain_artifacts(
     if not paths:
         return
     _register_gate(
-        _GATE_SMA_2_GRAIN,
+        GATE_SMA_2_GRAIN,
         catalog,
         institution_id,
         onboard_run_id,
         {_sma_grain_artifact_type(p): p for p in paths},
     )
-
-
-def wait_for_sma_gate_2_grain_hitl(
-    catalog: str,
-    onboard_run_id: str,
-    *,
-    institution_id: str,
-    poll_interval_seconds: int = DEFAULT_HITL_POLL_INTERVAL_SECONDS,
-    timeout_seconds: int = DEFAULT_HITL_POLL_TIMEOUT_SECONDS,
-) -> bool:
-    """Block until UC rows for ``sma_gate_2_grain`` are approved."""
-    return poll_uc_hitl_until_approved_or_timeout(
-        catalog,
-        institution_id,
-        onboard_run_id,
-        PHASE_SMA_GATE_2_GRAIN,
-        poll_interval_seconds=poll_interval_seconds,
-        timeout_seconds=timeout_seconds,
-    )
-
-
-def after_sma_gate_2_grain_approved(
-    catalog: str, institution_id: str, onboard_run_id: str
-) -> None:
-    """Log SMA grain gate complete and set pipeline run status back to ``running``."""
-    _complete_gate(_GATE_SMA_2_GRAIN, catalog, institution_id, onboard_run_id)

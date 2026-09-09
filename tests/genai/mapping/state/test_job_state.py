@@ -1,8 +1,8 @@
 """
 Unit tests for :mod:`edvise.genai.mapping.state.job_state`.
 
-The gate table (:class:`_HitlGate` constants) is the declarative source of truth for each UC
-HITL gate, and :func:`_register_gate` / :func:`_complete_gate` are the two shared multi-step
+The gate table (:class:`HitlGate` constants) is the declarative source of truth for each UC
+HITL gate, and :func:`_register_gate` / :func:`complete_gate` are the two shared multi-step
 operations on a gate. These tests cover the table itself, both shared operations, and the
 public per-gate wrappers that pipeline entry points call.
 """
@@ -63,43 +63,43 @@ def recorder(monkeypatch: pytest.MonkeyPatch) -> _Recorder:
 _GATE_TABLE_CASES = [
     # gate, phase, awaiting phase, auto-approve strategy
     (
-        job_state._GATE_IA_1,
+        job_state.GATE_IA_1,
         job_state.PHASE_IA_GATE_1,
         job_state.PHASE_IA_START,
         job_state._auto_approve_hitl_artifact_if_empty,
     ),
     (
-        job_state._GATE_IA_1_HOOKS,
+        job_state.GATE_IA_1_HOOKS,
         job_state.PHASE_IA_GATE_1_HOOKS,
         job_state.PHASE_IA_GATE_1_HOOKS,
         job_state._auto_approve_hook_preview_if_empty,
     ),
     (
-        job_state._GATE_SMA_1,
+        job_state.GATE_SMA_1,
         job_state.PHASE_SMA_GATE_1,
         job_state.PHASE_SMA_START,
         job_state._auto_approve_hitl_artifact_if_empty,
     ),
     (
-        job_state._GATE_SMA_2_TRANSFORMATION_REVIEW,
+        job_state.GATE_SMA_2_TRANSFORMATION_REVIEW,
         job_state.PHASE_SMA_GATE_2_TRANSFORMATION_REVIEW,
         job_state.PHASE_SMA_GATE_2_TRANSFORMATION_REVIEW,
         job_state._auto_approve_hitl_artifact_if_empty,
     ),
     (
-        job_state._GATE_SMA_2_HOOK_PREVIEW,
+        job_state.GATE_SMA_2_HOOK_PREVIEW,
         job_state.PHASE_SMA_GATE_2_HOOK_PREVIEW,
         job_state.PHASE_SMA_GATE_2_HOOK_PREVIEW,
         job_state._auto_approve_hook_preview_if_empty,
     ),
     (
-        job_state._GATE_SMA_2_HOOK_REQUIRED,
+        job_state.GATE_SMA_2_HOOK_REQUIRED,
         job_state.PHASE_SMA_GATE_2_HOOK_REQUIRED,
         job_state.PHASE_SMA_GATE_2_HOOK_REQUIRED,
         job_state._auto_approve_hitl_artifact_if_empty,
     ),
     (
-        job_state._GATE_SMA_2_GRAIN,
+        job_state.GATE_SMA_2_GRAIN,
         job_state.PHASE_SMA_GATE_2_GRAIN,
         job_state.PHASE_SMA_GATE_2_GRAIN,
         job_state._auto_approve_hitl_artifact_if_empty,
@@ -109,7 +109,7 @@ _GATE_TABLE_CASES = [
 
 @pytest.mark.parametrize("gate,phase,awaiting,auto_approve", _GATE_TABLE_CASES)
 def test_gate_table(
-    gate: job_state._HitlGate,
+    gate: job_state.HitlGate,
     phase: str,
     awaiting: str,
     auto_approve: job_state.AutoApproveFn,
@@ -122,7 +122,7 @@ def test_gate_table(
 
 
 # ---------------------------------------------------------------------------
-# _register_gate / _complete_gate — the two shared operations
+# _register_gate — shared registration body
 # ---------------------------------------------------------------------------
 
 
@@ -130,7 +130,7 @@ def test_register_gate_registers_rows_then_auto_approves_each(
     recorder: _Recorder, tmp_path: Path
 ) -> None:
     seen: list[tuple] = []
-    gate = job_state._HitlGate(
+    gate = job_state.HitlGate(
         "test_phase",
         auto_approve=lambda *args: seen.append(args),
         awaiting_phase="test_awaiting",
@@ -172,52 +172,18 @@ def test_register_gate_registers_rows_then_auto_approves_each(
     ]
 
 
-def test_complete_gate_defaults_to_running(recorder: _Recorder) -> None:
-    gate = job_state._HitlGate("test_phase")
-
-    job_state._complete_gate(gate, "cat", "inst1", "run1")
-
-    assert recorder.args_for("log_phase_transition") == (
-        "cat",
-        "run1",
-        "test_phase",
-        "complete",
-    )
-    assert recorder.args_for("update_pipeline_run_status") == (
-        "cat",
-        "inst1",
-        "run1",
-        "running",
-    )
-
-
 # ---------------------------------------------------------------------------
-# wait_for_* — each forwards its own phase to the UC poller
+# wait_for_gate — polls UC for whichever gate it's handed
 # ---------------------------------------------------------------------------
 
-_WAIT_FOR_CASES = [
-    (job_state.wait_for_ia_gate_1_hitl, job_state.PHASE_IA_GATE_1),
-    (job_state.wait_for_ia_gate_1_hooks_hitl, job_state.PHASE_IA_GATE_1_HOOKS),
-    (job_state.wait_for_sma_gate_1_hitl, job_state.PHASE_SMA_GATE_1),
-    (
-        job_state.wait_for_sma_gate_2_transformation_review_hitl,
-        job_state.PHASE_SMA_GATE_2_TRANSFORMATION_REVIEW,
-    ),
-    (
-        job_state.wait_for_sma_gate_2_hook_preview_hitl,
-        job_state.PHASE_SMA_GATE_2_HOOK_PREVIEW,
-    ),
-    (
-        job_state.wait_for_sma_gate_2_hook_required_hitl,
-        job_state.PHASE_SMA_GATE_2_HOOK_REQUIRED,
-    ),
-    (job_state.wait_for_sma_gate_2_grain_hitl, job_state.PHASE_SMA_GATE_2_GRAIN),
-]
 
-
-@pytest.mark.parametrize("fn,expected_phase", _WAIT_FOR_CASES)
-def test_wait_for_hitl_passes_correct_phase(
-    monkeypatch: pytest.MonkeyPatch, fn: Callable[..., bool], expected_phase: str
+@pytest.mark.parametrize("gate,expected_phase,_awaiting,_auto", _GATE_TABLE_CASES)
+def test_wait_for_gate_polls_that_gates_phase(
+    monkeypatch: pytest.MonkeyPatch,
+    gate: job_state.HitlGate,
+    expected_phase: str,
+    _awaiting: str,
+    _auto: job_state.AutoApproveFn,
 ) -> None:
     calls: list[tuple] = []
 
@@ -233,7 +199,8 @@ def test_wait_for_hitl_passes_correct_phase(
 
     monkeypatch.setattr(job_state, "poll_uc_hitl_until_approved_or_timeout", _fake_poll)
 
-    assert fn("cat", "run1", institution_id="inst1") is True
+    assert job_state.wait_for_gate(gate, "cat", "run1", institution_id="inst1") is True
+
     assert len(calls) == 1
     catalog, institution_id, onboard_run_id, phase, kwargs = calls[0]
     assert (catalog, institution_id, onboard_run_id, phase) == (
@@ -249,53 +216,19 @@ def test_wait_for_hitl_passes_correct_phase(
 
 
 # ---------------------------------------------------------------------------
-# after_* wrappers — each completes its own gate
+# complete_gate — defaults to resuming the run; terminal status is opt-in
 # ---------------------------------------------------------------------------
 
-_AFTER_GATE_CASES = [
-    (
-        job_state.after_ia_onboard_gate_1_hooks_approved,
-        job_state.PHASE_IA_GATE_1_HOOKS,
-        "running",
-    ),
-    (job_state.after_ia_onboard_gate_1_success, job_state.PHASE_IA_GATE_1, "running"),
-    (
-        job_state.after_sma_gate_2_transformation_review_approved,
-        job_state.PHASE_SMA_GATE_2_TRANSFORMATION_REVIEW,
-        "running",
-    ),
-    (
-        job_state.after_sma_gate_2_hook_preview_approved,
-        job_state.PHASE_SMA_GATE_2_HOOK_PREVIEW,
-        "running",
-    ),
-    (
-        job_state.after_sma_gate_2_hook_required_approved,
-        job_state.PHASE_SMA_GATE_2_HOOK_REQUIRED,
-        "running",
-    ),
-    (
-        job_state.after_sma_gate_2_grain_approved,
-        job_state.PHASE_SMA_GATE_2_GRAIN,
-        "running",
-    ),
-    # The one status outlier: SMA's final gate ends the run rather than resuming it.
-    (
-        job_state.after_sma_onboard_gate_2_success,
-        job_state.PHASE_SMA_GATE_1,
-        "complete",
-    ),
-]
 
-
-@pytest.mark.parametrize("fn,expected_phase,expected_status", _AFTER_GATE_CASES)
-def test_after_gate_logs_transition_and_status(
+@pytest.mark.parametrize("gate,expected_phase,_awaiting,_auto", _GATE_TABLE_CASES)
+def test_complete_gate_completes_that_gates_phase(
     recorder: _Recorder,
-    fn: Callable[[str, str, str], None],
+    gate: job_state.HitlGate,
     expected_phase: str,
-    expected_status: str,
+    _awaiting: str,
+    _auto: job_state.AutoApproveFn,
 ) -> None:
-    fn("cat", "inst1", "run1")
+    job_state.complete_gate(gate, "cat", "inst1", "run1")
 
     assert recorder.args_for("log_phase_transition") == (
         "cat",
@@ -307,7 +240,27 @@ def test_after_gate_logs_transition_and_status(
         "cat",
         "inst1",
         "run1",
-        expected_status,
+        "running",
+    )
+
+
+def test_complete_gate_can_end_the_run(recorder: _Recorder) -> None:
+    """SMA's final gate ends the onboard run instead of resuming it."""
+    job_state.complete_gate(
+        job_state.GATE_SMA_1, "cat", "inst1", "run1", run_status="complete"
+    )
+
+    assert recorder.args_for("log_phase_transition") == (
+        "cat",
+        "run1",
+        job_state.PHASE_SMA_GATE_1,
+        "complete",
+    )
+    assert recorder.args_for("update_pipeline_run_status") == (
+        "cat",
+        "inst1",
+        "run1",
+        "complete",
     )
 
 
