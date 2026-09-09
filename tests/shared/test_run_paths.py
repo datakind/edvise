@@ -58,21 +58,6 @@ def test_resolve_run_path_archives_prior_inference_files(tmp_path) -> None:
         inference / "archive" / "inf-new" / "student_terms.parquet"
     ).read_text() == ("new")
     assert not (inference / "student_terms.parquet").exists()
-    assert not (inference / "archive" / "legacy").exists()
-
-
-def test_resolve_run_path_flattens_existing_archive_legacy(tmp_path) -> None:
-    silver = str(tmp_path)
-    inference = tmp_path / "model-1" / "inference"
-    legacy = inference / "archive" / "legacy"
-    legacy.mkdir(parents=True)
-    (legacy / "student_terms.parquet").write_text("old")
-    (inference / "run_id").write_text("inf-new")
-
-    resolve_run_path(_inf_args("inf-new"), _cfg("model-1"), silver)
-
-    assert (inference / "archive" / "student_terms.parquet").read_text() == "old"
-    assert not legacy.exists()
 
 
 def test_latest_run_stays_in_inference_until_next_job(tmp_path) -> None:

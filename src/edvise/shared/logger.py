@@ -210,11 +210,6 @@ def _archive_prior_inference_run(inference_dir: str, job_run_id: str) -> None:
     """Move existing ``inference/`` files to ``inference/archive/<prior_run>``."""
     root = local_fs_path(inference_dir)
     archive_root = os.path.join(root, "archive")
-    legacy = os.path.join(archive_root, "legacy")
-    _relocate_entries(legacy, archive_root)
-    if os.path.isdir(legacy) and not os.listdir(legacy):
-        os.rmdir(legacy)
-
     marker = os.path.join(root, "run_id")
     prior = _read_run_id(marker)
     if prior == job_run_id:
