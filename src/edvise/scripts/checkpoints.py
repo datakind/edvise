@@ -4,7 +4,7 @@ Checkpoint dispatch uses ``isinstance`` against checkpoint classes from both
 :class:`~edvise.configs.pdp` and :class:`~edvise.configs.es` so whichever schema loaded the
 config resolves correctly (duplicate class definitions per module).
 
-See :mod:`edvise.configs.schema_type` for ``--schema_type`` semantics.
+See :mod:`edvise.shared.schema_type` for ``--schema_type`` semantics.
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ print("sys.path:", sys.path)
 from edvise import checkpoints
 from edvise.configs import es as es_cfg
 from edvise.configs import pdp as pdp_cfg
-from edvise.configs.schema_type import project_config_class
+from edvise.shared.schema_type import project_config_class
 from edvise.dataio.read import read_config
 from edvise.shared.logger import init_file_logging, local_fs_path, resolve_run_path
 from edvise.shared.validation import require

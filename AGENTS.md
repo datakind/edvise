@@ -69,7 +69,7 @@ databricks bundle run <job_name> --target dev --params config_file_name=config.t
 Root-level `configs/` holds per-institution TOML templates (`configs/pdp_h2o/`, `configs/legacy_h2o/`,
 `configs/genai_mapping/`) that get deployed per institution and passed to scripts via `--config_file_path`.
 These are distinct from `src/edvise/configs/*.py`, the Pydantic schema classes (`PDPProjectConfig`,
-`LegacyProjectConfig`, etc.) that parse and validate them; `src/edvise/configs/schema_type.py` is the single
+`LegacyProjectConfig`, etc.) that parse and validate them; `src/edvise/shared/schema_type.py` is the single
 dispatch point mapping a `--schema_type` (`pdp`/`edvise`/`legacy`) flag to the right config class. That flag is
 the main axis pipeline scripts and `reporting/sections/{pdp,es,custom,legacy}` branch on.
 
