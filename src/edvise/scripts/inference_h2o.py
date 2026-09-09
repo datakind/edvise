@@ -243,7 +243,7 @@ class ModelInferenceTask:
 
         if self.cfg.model is None or self.cfg.model.run_id is None:
             raise ValueError("cfg.model.run_id must be set for inference runs.")
-        # <silver>/<model_id>/inference/
+        # Use canonical per-run folder: <silver>/<run_id>/inference/
         current_run_path = resolve_run_path(
             self.args, self.cfg, self.args.silver_volume_path
         )

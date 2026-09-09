@@ -179,65 +179,30 @@ def resolve_genai_segment_log_path(
     )
 
 
-_INFERENCE_RUN_ID_FILE = "run_id"
-
-
-def _inference_dir(silver_volume_path: str, model_run_id: str, *parts: str) -> str:
-    return os.path.join(silver_volume_path, model_run_id, "inference", *parts)
-
-
-def _unique_archive_dest(archive_root: str, name: str) -> str:
-    dest = os.path.join(archive_root, name)
-    if not os.path.exists(dest):
-        return dest
-    suffix = 2
-    while os.path.exists(os.path.join(archive_root, f"{name}_{suffix}")):
-        suffix += 1
-    return os.path.join(archive_root, f"{name}_{suffix}")
-
-
-def _read_inference_run_id(inference_root: str) -> Optional[str]:
-    path = os.path.join(inference_root, _INFERENCE_RUN_ID_FILE)
-    if not os.path.isfile(path):
-        return None
-    try:
-        with open(path, encoding="utf-8") as fh:
-            value = fh.read().strip()
-    except OSError:
-        return None
-    return value or None
-
-
-def _write_inference_run_id(inference_root: str, run_id: str) -> None:
-    os.makedirs(inference_root, exist_ok=True)
-    with open(
-        os.path.join(inference_root, _INFERENCE_RUN_ID_FILE), "w", encoding="utf-8"
-    ) as fh:
-        fh.write(run_id)
-
-
-def _archive_previous_inference_runs(
-    silver_volume_path: str, model_run_id: str, keep_run_id: str
-) -> None:
-    """Move prior inference artifacts into ``inference/archive``; new run stays in ``inference/``."""
-    inference_root = local_fs_path(_inference_dir(silver_volume_path, model_run_id))
-    os.makedirs(inference_root, exist_ok=True)
-    if _read_inference_run_id(inference_root) == keep_run_id:
+def _archive_prior_inference_run(inference_dir: str, job_run_id: str) -> None:
+    """Move existing ``inference/`` files to ``inference/archive/<prior_run>``."""
+    root = local_fs_path(inference_dir)
+    marker = os.path.join(root, "run_id")
+    prior = None
+    if os.path.isfile(marker):
+        try:
+            with open(marker, encoding="utf-8") as fh:
+                prior = fh.read().strip() or None
+        except OSError:
+            prior = None
+    if prior == job_run_id:
         return
 
-    archive_root = local_fs_path(
-        _inference_dir(silver_volume_path, model_run_id, "archive")
-    )
-    previous_run_id = _read_inference_run_id(inference_root) or "legacy"
-    leftovers = [name for name in os.listdir(inference_root) if name != "archive"]
+    os.makedirs(root, exist_ok=True)
+    leftovers = [name for name in os.listdir(root) if name != "archive"]
     if leftovers:
-        dest = _unique_archive_dest(archive_root, previous_run_id)
+        dest = os.path.join(root, "archive", prior or "legacy")
         os.makedirs(dest, exist_ok=True)
         for name in leftovers:
-            shutil.move(os.path.join(inference_root, name), os.path.join(dest, name))
+            shutil.move(os.path.join(root, name), os.path.join(dest, name))
         LOGGER.info("Archived existing inference files -> %s", dest)
-
-    _write_inference_run_id(inference_root, keep_run_id)
+    with open(marker, "w", encoding="utf-8") as fh:
+        fh.write(job_run_id)
 
 
 def resolve_run_path(
@@ -245,36 +210,28 @@ def resolve_run_path(
     cfg: Union["PDPProjectConfig", "ESProjectConfig", "LegacyProjectConfig"],
     silver_volume_path: str,
 ) -> str:
-    """
-    Canonical silver folder for a training or inference job.
-
-    * training: ``{silver}/{db_run_id}/training`` (unchanged)
-    * inference: ``{silver}/{model_id}/inference`` (same folder as today)
-
-      Files already in ``inference/`` are moved to
-      ``inference/archive/<old_run_id>`` first. Later tasks in the same job
-      leave that folder in place.
-    """
     if args.job_type == "training":
         if not args.db_run_id:
             raise ValueError("db_run_id must be provided for training runs.")
-        return os.path.join(silver_volume_path, args.db_run_id, "training")
-
-    if args.job_type == "inference":
+        run_id = args.db_run_id
+        subdir = "training"
+    elif args.job_type == "inference":
         model_run_id: Optional[str] = getattr(
             getattr(cfg, "model", None), "run_id", None
         )
         if not model_run_id:
             raise ValueError("cfg.model.run_id must be set for inference runs.")
-        inference_run_id = getattr(args, "db_run_id", None)
-        if not inference_run_id:
-            return os.path.join(silver_volume_path, model_run_id, "inference")
-        _archive_previous_inference_runs(
-            silver_volume_path, model_run_id, inference_run_id
-        )
-        return _inference_dir(silver_volume_path, model_run_id)
+        run_id = model_run_id
+        subdir = "inference"
+        job_run_id = getattr(args, "db_run_id", None)
+        if job_run_id:
+            _archive_prior_inference_run(
+                os.path.join(silver_volume_path, run_id, subdir), job_run_id
+            )
+    else:
+        raise ValueError(f"Unsupported job_type: {args.job_type}")
 
-    raise ValueError(f"Unsupported job_type: {args.job_type}")
+    return os.path.join(silver_volume_path, run_id, subdir)
 
 
 def _sync_file_log_handlers(root: logging.Logger) -> None:
