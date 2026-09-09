@@ -182,6 +182,20 @@ def resolve_genai_segment_log_path(
 def _archive_prior_inference_run(inference_dir: str, job_run_id: str) -> None:
     """Move existing ``inference/`` files to ``inference/archive/<prior_run>``."""
     root = local_fs_path(inference_dir)
+    archive_root = os.path.join(root, "archive")
+    leftover_legacy = os.path.join(archive_root, "legacy")
+    if os.path.isdir(leftover_legacy):
+        for name in os.listdir(leftover_legacy):
+            src = os.path.join(leftover_legacy, name)
+            dest = os.path.join(archive_root, name)
+            if os.path.exists(dest):
+                if os.path.isdir(dest):
+                    shutil.rmtree(dest)
+                else:
+                    os.remove(dest)
+            shutil.move(src, dest)
+        os.rmdir(leftover_legacy)
+
     marker = os.path.join(root, "run_id")
     prior = None
     if os.path.isfile(marker):
@@ -196,7 +210,7 @@ def _archive_prior_inference_run(inference_dir: str, job_run_id: str) -> None:
     os.makedirs(root, exist_ok=True)
     leftovers = [name for name in os.listdir(root) if name != "archive"]
     if leftovers:
-        dest = os.path.join(root, "archive", prior or "legacy")
+        dest = os.path.join(archive_root, prior) if prior else archive_root
         os.makedirs(dest, exist_ok=True)
         for name in leftovers:
             shutil.move(os.path.join(root, name), os.path.join(dest, name))
