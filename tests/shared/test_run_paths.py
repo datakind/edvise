@@ -28,7 +28,7 @@ def test_resolve_run_path_training() -> None:
 def test_resolve_run_path_inference_uses_current_run_id(tmp_path) -> None:
     silver = str(tmp_path)
     path = resolve_run_path(_inf_args("inf-2"), _cfg("model-1"), silver)
-    assert path == f"{silver}/model-1/inf/current/inf-2"
+    assert path == f"{silver}/model-1/inference/current/inf-2"
 
 
 def test_resolve_run_path_inference_without_db_run_id_keeps_legacy_folder() -> None:
@@ -43,26 +43,25 @@ def test_resolve_run_path_inference_requires_model_run_id() -> None:
 
 def test_resolve_run_path_archives_stale_current_then_points_at_new(tmp_path) -> None:
     silver = str(tmp_path)
-    old = tmp_path / "model-1" / "inf" / "current" / "inf-old"
+    old = tmp_path / "model-1" / "inference" / "current" / "inf-old"
     old.mkdir(parents=True)
-    (old / "support_overview.parquet").write_text("prev")
-    legacy = tmp_path / "model-1" / "inference"
-    legacy.mkdir(parents=True)
-    (legacy / "preprocessed.parquet").write_text("keep")
+    (old / "preprocessed.parquet").write_text("prev")
+    loose = tmp_path / "model-1" / "inference" / "preprocessed.parquet"
+    loose.write_text("keep")
 
     path = resolve_run_path(_inf_args("inf-new"), _cfg("model-1"), silver)
 
-    assert path == f"{silver}/model-1/inf/current/inf-new"
+    assert path == f"{silver}/model-1/inference/current/inf-new"
     assert (
         tmp_path
         / "model-1"
-        / "inf"
+        / "inference"
         / "archive"
         / "inf-old"
-        / "support_overview.parquet"
+        / "preprocessed.parquet"
     ).read_text() == "prev"
     assert not old.exists()
-    assert (legacy / "preprocessed.parquet").read_text() == "keep"
+    assert loose.read_text() == "keep"
     path2 = resolve_run_path(_inf_args("inf-new"), _cfg("model-1"), silver)
     assert path2 == path
-    assert not (tmp_path / "model-1" / "inf" / "archive" / "inf-new").exists()
+    assert not (tmp_path / "model-1" / "inference" / "archive" / "inf-new").exists()

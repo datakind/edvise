@@ -180,13 +180,13 @@ def resolve_genai_segment_log_path(
 
 
 def _inference_dir(silver_volume_path: str, model_run_id: str, *parts: str) -> str:
-    return os.path.join(silver_volume_path, model_run_id, "inf", *parts)
+    return os.path.join(silver_volume_path, model_run_id, "inference", *parts)
 
 
 def _archive_previous_inference_runs(
     silver_volume_path: str, model_run_id: str, keep_run_id: str
 ) -> None:
-    """Copy stale ``inf/current/<run_id>`` folders to ``inf/archive``, then remove them."""
+    """Move stale ``inference/current/<run_id>`` folders to ``inference/archive``."""
     current_root = local_fs_path(
         _inference_dir(silver_volume_path, model_run_id, "current")
     )
@@ -204,8 +204,7 @@ def _archive_previous_inference_runs(
         os.makedirs(archive_root, exist_ok=True)
         if os.path.exists(dest):
             shutil.rmtree(dest)
-        shutil.copytree(src, dest)
-        shutil.rmtree(src)
+        shutil.move(src, dest)
         LOGGER.info("Archived inference run %s -> %s", src, dest)
 
 
@@ -218,12 +217,11 @@ def resolve_run_path(
     Canonical silver folder for a training or inference job.
 
     * training: ``{silver}/{db_run_id}/training`` (unchanged)
-    * inference with ``db_run_id``: ``{silver}/{model_id}/inf/current/{db_run_id}``
+    * inference with ``db_run_id``: ``{silver}/{model_id}/inference/current/{db_run_id}``
     * inference without ``db_run_id``: ``{silver}/{model_id}/inference`` (legacy)
 
-      Other run folders already under ``inf/current`` are copied to ``inf/archive``
-      first. Existing ``{model_id}/inference`` and ``{model_id}/training`` data
-      are not modified.
+      Other run folders already under ``inference/current`` are moved to
+      ``inference/archive`` first. Loose files already in ``inference/`` stay.
     """
     if args.job_type == "training":
         if not args.db_run_id:
