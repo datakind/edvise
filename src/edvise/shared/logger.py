@@ -179,33 +179,94 @@ def resolve_genai_segment_log_path(
     )
 
 
+_INFERENCE_RUN_ID_FILE = "run_id"
+
+
 def _inference_dir(silver_volume_path: str, model_run_id: str, *parts: str) -> str:
     return os.path.join(silver_volume_path, model_run_id, "inference", *parts)
+
+
+def _unique_archive_dest(archive_root: str, name: str) -> str:
+    dest = os.path.join(archive_root, name)
+    if not os.path.exists(dest):
+        return dest
+    suffix = 2
+    while os.path.exists(os.path.join(archive_root, f"{name}_{suffix}")):
+        suffix += 1
+    return os.path.join(archive_root, f"{name}_{suffix}")
+
+
+def _read_inference_run_id(inference_root: str) -> Optional[str]:
+    path = os.path.join(inference_root, _INFERENCE_RUN_ID_FILE)
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as fh:
+            value = fh.read().strip()
+    except OSError:
+        return None
+    return value or None
+
+
+def _write_inference_run_id(inference_root: str, run_id: str) -> None:
+    os.makedirs(inference_root, exist_ok=True)
+    with open(
+        os.path.join(inference_root, _INFERENCE_RUN_ID_FILE), "w", encoding="utf-8"
+    ) as fh:
+        fh.write(run_id)
+
+
+def _move_into_archive(src: str, archive_root: str, dest_name: str) -> str:
+    os.makedirs(archive_root, exist_ok=True)
+    dest = _unique_archive_dest(archive_root, dest_name)
+    shutil.move(src, dest)
+    LOGGER.info("Archived inference run %s -> %s", src, dest)
+    return dest
 
 
 def _archive_previous_inference_runs(
     silver_volume_path: str, model_run_id: str, keep_run_id: str
 ) -> None:
-    """Move stale ``inference/current/<run_id>`` folders to ``inference/archive``."""
-    current_root = local_fs_path(
-        _inference_dir(silver_volume_path, model_run_id, "current")
-    )
-    if not os.path.isdir(current_root):
+    """Move prior inference artifacts into ``inference/archive``; new run stays in ``inference/``."""
+    inference_root = local_fs_path(_inference_dir(silver_volume_path, model_run_id))
+    os.makedirs(inference_root, exist_ok=True)
+    if _read_inference_run_id(inference_root) == keep_run_id:
         return
 
     archive_root = local_fs_path(
         _inference_dir(silver_volume_path, model_run_id, "archive")
     )
-    for name in os.listdir(current_root):
-        src = os.path.join(current_root, name)
-        if name == keep_run_id or not os.path.isdir(src):
-            continue
-        dest = os.path.join(archive_root, name)
-        os.makedirs(archive_root, exist_ok=True)
-        if os.path.exists(dest):
-            shutil.rmtree(dest)
-        shutil.move(src, dest)
-        LOGGER.info("Archived inference run %s -> %s", src, dest)
+    previous_run_id = _read_inference_run_id(inference_root) or "legacy"
+
+    leftovers = [
+        name
+        for name in os.listdir(inference_root)
+        if name not in {"archive", "current"}
+    ]
+    if leftovers:
+        dest = _unique_archive_dest(archive_root, previous_run_id)
+        os.makedirs(dest, exist_ok=True)
+        for name in leftovers:
+            shutil.move(os.path.join(inference_root, name), os.path.join(dest, name))
+        LOGGER.info("Archived existing inference files -> %s", dest)
+
+    current_root = os.path.join(inference_root, "current")
+    if os.path.isdir(current_root):
+        for name in os.listdir(current_root):
+            src = os.path.join(current_root, name)
+            if name == keep_run_id and os.path.isdir(src):
+                for child in os.listdir(src):
+                    shutil.move(
+                        os.path.join(src, child), os.path.join(inference_root, child)
+                    )
+                os.rmdir(src)
+                continue
+            if os.path.isdir(src):
+                _move_into_archive(src, archive_root, name)
+        if os.path.isdir(current_root) and not os.listdir(current_root):
+            os.rmdir(current_root)
+
+    _write_inference_run_id(inference_root, keep_run_id)
 
 
 def resolve_run_path(
@@ -217,11 +278,11 @@ def resolve_run_path(
     Canonical silver folder for a training or inference job.
 
     * training: ``{silver}/{db_run_id}/training`` (unchanged)
-    * inference with ``db_run_id``: ``{silver}/{model_id}/inference/current/{db_run_id}``
-    * inference without ``db_run_id``: ``{silver}/{model_id}/inference`` (legacy)
+    * inference: ``{silver}/{model_id}/inference`` (same folder as today)
 
-      Other run folders already under ``inference/current`` are moved to
-      ``inference/archive`` first. Loose files already in ``inference/`` stay.
+      Files already in ``inference/`` (and leftover ``current/<run_id>``
+      folders) are moved to ``inference/archive/<old_run_id>`` first.
+      Later tasks in the same job leave that folder in place.
     """
     if args.job_type == "training":
         if not args.db_run_id:
@@ -240,9 +301,7 @@ def resolve_run_path(
         _archive_previous_inference_runs(
             silver_volume_path, model_run_id, inference_run_id
         )
-        return _inference_dir(
-            silver_volume_path, model_run_id, "current", inference_run_id
-        )
+        return _inference_dir(silver_volume_path, model_run_id)
 
     raise ValueError(f"Unsupported job_type: {args.job_type}")
 

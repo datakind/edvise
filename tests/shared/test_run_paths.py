@@ -25,10 +25,10 @@ def test_resolve_run_path_training() -> None:
     )
 
 
-def test_resolve_run_path_inference_uses_current_run_id(tmp_path) -> None:
+def test_resolve_run_path_inference_stays_in_existing_folder(tmp_path) -> None:
     silver = str(tmp_path)
     path = resolve_run_path(_inf_args("inf-2"), _cfg("model-1"), silver)
-    assert path == f"{silver}/model-1/inference/current/inf-2"
+    assert path == f"{silver}/model-1/inference"
 
 
 def test_resolve_run_path_inference_without_db_run_id_keeps_legacy_folder() -> None:
@@ -41,27 +41,62 @@ def test_resolve_run_path_inference_requires_model_run_id() -> None:
         resolve_run_path(_inf_args("inf-1"), SimpleNamespace(model=None), "/s")
 
 
-def test_resolve_run_path_archives_stale_current_then_points_at_new(tmp_path) -> None:
+def test_resolve_run_path_archives_existing_inference_files(tmp_path) -> None:
     silver = str(tmp_path)
-    old = tmp_path / "model-1" / "inference" / "current" / "inf-old"
-    old.mkdir(parents=True)
-    (old / "preprocessed.parquet").write_text("prev")
-    loose = tmp_path / "model-1" / "inference" / "preprocessed.parquet"
-    loose.write_text("keep")
+    inference = tmp_path / "model-1" / "inference"
+    inference.mkdir(parents=True)
+    (inference / "student_terms.parquet").write_text("old")
+    (inference / "preprocessed.parquet").write_text("old")
 
     path = resolve_run_path(_inf_args("inf-new"), _cfg("model-1"), silver)
 
-    assert path == f"{silver}/model-1/inference/current/inf-new"
-    assert (
-        tmp_path
-        / "model-1"
-        / "inference"
-        / "archive"
-        / "inf-old"
-        / "preprocessed.parquet"
-    ).read_text() == "prev"
+    assert path == str(inference)
+    archived = inference / "archive" / "legacy"
+    assert (archived / "student_terms.parquet").read_text() == "old"
+    assert (archived / "preprocessed.parquet").read_text() == "old"
+    assert not (inference / "student_terms.parquet").exists()
+    assert (inference / "run_id").read_text() == "inf-new"
+
+
+def test_resolve_run_path_same_job_does_not_rearchive(tmp_path) -> None:
+    silver = str(tmp_path)
+    inference = tmp_path / "model-1" / "inference"
+    resolve_run_path(_inf_args("inf-new"), _cfg("model-1"), silver)
+    (inference / "student_terms.parquet").write_text("new")
+
+    path = resolve_run_path(_inf_args("inf-new"), _cfg("model-1"), silver)
+
+    assert path == str(inference)
+    assert (inference / "student_terms.parquet").read_text() == "new"
+    assert not (inference / "archive").exists()
+
+
+def test_resolve_run_path_archives_previous_run_then_keeps_new_in_inference(
+    tmp_path,
+) -> None:
+    silver = str(tmp_path)
+    inference = tmp_path / "model-1" / "inference"
+    old = inference / "current" / "inf-old"
+    old.mkdir(parents=True)
+    (old / "preprocessed.parquet").write_text("prev")
+    (inference / "student_terms.parquet").write_text("keep")
+
+    path = resolve_run_path(_inf_args("inf-new"), _cfg("model-1"), silver)
+
+    assert path == str(inference)
+    assert (inference / "archive" / "inf-old" / "preprocessed.parquet").read_text() == (
+        "prev"
+    )
     assert not old.exists()
-    assert loose.read_text() == "keep"
+    assert (inference / "archive" / "legacy" / "student_terms.parquet").read_text() == (
+        "keep"
+    )
+    assert not (inference / "student_terms.parquet").exists()
     path2 = resolve_run_path(_inf_args("inf-new"), _cfg("model-1"), silver)
     assert path2 == path
-    assert not (tmp_path / "model-1" / "inference" / "archive" / "inf-new").exists()
+    (inference / "student_terms.parquet").write_text("new")
+    path3 = resolve_run_path(_inf_args("inf-newer"), _cfg("model-1"), silver)
+    assert path3 == path
+    assert (
+        inference / "archive" / "inf-new" / "student_terms.parquet"
+    ).read_text() == ("new")

@@ -112,7 +112,7 @@ class InferencePrepTask:
         return cleaner.clean_up_labeled_dataset_cols_and_vals(df_labeled, cfg=self.cfg)
 
     def run(self):
-        # Enforce inference mode & resolve <silver>/<model_id>/inference/current/<db_run_id>/
+        # Enforce inference mode & resolve <silver>/<model_id>/inference/
         if self.cfg.model.run_id is None:
             raise ValueError("cfg.model.run_id must be set for inference runs.")
         # If the script is ever reused, require job_type=inference
