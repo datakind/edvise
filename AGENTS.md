@@ -46,9 +46,7 @@ pointing at specific workspaces (`dev_sst_02` / `staging_sst_01`):
 - `pdp/` — the standardized PDP (Postsecondary Data Partnership / NSC) schema pipeline.
 - `es/` — "Edvise Schema", the standardized path for non-PDP institutions.
 - `legacy/` — older, fully custom per-institution pipelines predating the ES schema (one config maps to one
-  model; see `notebooks/legacy_templates/README.md` for the manual notebook execution order:
-  `00-data-assessment → 01-preprocess-data → 02-train-h2o-model → 03-make-h2o-predictions →
-  04-register-h2o-model-create-card → 05-inference-validation`).
+  model).
 - `genai_mapping/` — the GenAI onboarding pipeline (below); runs upstream of `pdp`/`es`, producing the
   standardized silver data those pipelines consume.
 - `ingestion/shared/` — shared ingestion bundle.
