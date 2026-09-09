@@ -179,65 +179,52 @@ def resolve_genai_segment_log_path(
     )
 
 
+def _read_run_id(path: str) -> Optional[str]:
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return fh.read().strip() or None
+    except OSError:
+        return None
+
+
+def _relocate_entries(
+    src_dir: str,
+    dest_dir: str,
+    *,
+    skip: frozenset[str] = frozenset(),
+) -> None:
+    if not os.path.isdir(src_dir):
+        return
+    os.makedirs(dest_dir, exist_ok=True)
+    for name in os.listdir(src_dir):
+        if name in skip:
+            continue
+        src = os.path.join(src_dir, name)
+        dest = os.path.join(dest_dir, name)
+        if os.path.exists(dest):
+            shutil.rmtree(dest) if os.path.isdir(dest) else os.remove(dest)
+        shutil.move(src, dest)
+
+
 def _archive_prior_inference_run(inference_dir: str, job_run_id: str) -> None:
     """Move existing ``inference/`` files to ``inference/archive/<prior_run>``."""
     root = local_fs_path(inference_dir)
     archive_root = os.path.join(root, "archive")
-    leftover_legacy = os.path.join(archive_root, "legacy")
-    if os.path.isdir(leftover_legacy):
-        for name in os.listdir(leftover_legacy):
-            src = os.path.join(leftover_legacy, name)
-            dest = os.path.join(archive_root, name)
-            if os.path.exists(dest):
-                if os.path.isdir(dest):
-                    shutil.rmtree(dest)
-                else:
-                    os.remove(dest)
-            shutil.move(src, dest)
-        os.rmdir(leftover_legacy)
+    legacy = os.path.join(archive_root, "legacy")
+    _relocate_entries(legacy, archive_root)
+    if os.path.isdir(legacy) and not os.listdir(legacy):
+        os.rmdir(legacy)
 
     marker = os.path.join(root, "run_id")
-    prior = None
-    if os.path.isfile(marker):
-        try:
-            with open(marker, encoding="utf-8") as fh:
-                prior = fh.read().strip() or None
-        except OSError:
-            prior = None
+    prior = _read_run_id(marker)
     if prior == job_run_id:
         return
 
     os.makedirs(root, exist_ok=True)
-    leftovers = [name for name in os.listdir(root) if name != "archive"]
-    if leftovers:
-        dest = os.path.join(archive_root, prior) if prior else archive_root
-        os.makedirs(dest, exist_ok=True)
-        for name in leftovers:
-            shutil.move(os.path.join(root, name), os.path.join(dest, name))
-        LOGGER.info("Archived existing inference files -> %s", dest)
+    dest = os.path.join(archive_root, prior) if prior else archive_root
+    _relocate_entries(root, dest, skip=frozenset({"archive"}))
     with open(marker, "w", encoding="utf-8") as fh:
         fh.write(job_run_id)
-
-
-def snapshot_inference_run(inference_dir: str, job_run_id: str) -> None:
-    """Copy this job's ``inference/`` files to ``inference/archive/<job_run_id>``."""
-    root = local_fs_path(inference_dir)
-    if not os.path.isdir(root) or not job_run_id:
-        return
-    dest = os.path.join(root, "archive", job_run_id)
-    if os.path.exists(dest):
-        shutil.rmtree(dest)
-    os.makedirs(dest, exist_ok=True)
-    for name in os.listdir(root):
-        if name == "archive":
-            continue
-        src = os.path.join(root, name)
-        target = os.path.join(dest, name)
-        if os.path.isdir(src):
-            shutil.copytree(src, target)
-        else:
-            shutil.copy2(src, target)
-    LOGGER.info("Saved inference run %s -> %s", job_run_id, dest)
 
 
 def resolve_run_path(
