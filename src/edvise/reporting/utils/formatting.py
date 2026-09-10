@@ -113,11 +113,12 @@ class Formatting:
         # Add colon after "Year 2" (for retention models)
         result = re.sub(r"\bYear 2\b(?= \w)", r"Year 2:", result)
 
-        # Add comma between time limit components (e.g., "3Y Ft 6Y Pt" → "3Y FT, 6Y PT")
+        # Add comma between time limit components (e.g., "3Y Ft 4d5y Pt" → "3Y FT, 4d5Y PT")
         result = re.sub(
-            r"(\d+[YyTt]) ([Ff][Tt])(\s+\d+[YyTt]) ([Pp][Tt])",
+            r"(\d+(?:[d.]\d+)?)([YyTt]) ([Ff][Tt])(\s+)(\d+(?:[d.]\d+)?)([YyTt]) ([Pp][Tt])",
             lambda m: (
-                f"{m.group(1).upper()} {m.group(2).upper()}, {m.group(3).upper()} {m.group(4).upper()}"
+                f"{m.group(1)}{m.group(2).upper()} {m.group(3).upper()},"
+                f"{m.group(4)}{m.group(5)}{m.group(6).upper()} {m.group(7).upper()}"
             ),
             result,
         )

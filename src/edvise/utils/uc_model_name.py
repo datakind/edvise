@@ -1,7 +1,7 @@
 """Unity Catalog model-name encode/decode for decimal time limits.
 
 Unity Catalog three-level names split on ``.``, so a display name like
-``graduation_in_3y_ft_4.5y_pt_...`` must be stored as
+``graduation_in_3y_ft_4.5Y_pt_...`` must be stored as
 ``graduation_in_3y_ft_4d5y_pt_...``.
 
 These helpers are the shared contract for:
@@ -17,17 +17,23 @@ from __future__ import annotations
 
 import re
 
-# 4.5y / 4.5Y / 4.5m → 4d5y (UC-safe). Lookahead keeps the unit in place.
-_UC_DECIMAL_DOT = re.compile(r"(\d+)\.(\d+)(?=[yYmM])")
-# Inverse: 4d5y → 4.5y
-_UC_DECIMAL_PLACEHOLDER = re.compile(r"(\d+)d(\d+)(?=[yYmM])")
+# 4.5y / 4.5Y / 4.5m → 4d5y (UC-safe, unit always lowercase).
+_UC_DECIMAL_DOT = re.compile(r"(\d+)\.(\d+)([yYmM])")
+# Inverse: 4d5y → 4.5Y (frontend display matches compact 3Y).
+_UC_DECIMAL_PLACEHOLDER = re.compile(r"(\d+)d(\d+)([yYmM])")
+_DISPLAY_DECIMAL_UNIT = re.compile(r"(\d+\.\d+)([ym])")
 
 
 def encode_uc_model_name(name: str) -> str:
-    """Encode display decimals for Unity Catalog (``4.5y`` → ``4d5y``)."""
-    return _UC_DECIMAL_DOT.sub(r"\1d\2", name)
+    """Encode display decimals for Unity Catalog (``4.5Y`` → ``4d5y``)."""
+    return _UC_DECIMAL_DOT.sub(
+        lambda m: f"{m.group(1)}d{m.group(2)}{m.group(3).lower()}", name
+    )
 
 
 def decode_uc_model_name(name: str) -> str:
-    """Decode UC placeholders for display (``4d5y`` → ``4.5y``)."""
-    return _UC_DECIMAL_PLACEHOLDER.sub(r"\1.\2", name)
+    """Decode UC placeholders for frontend display (``4d5y`` → ``4.5Y``)."""
+    decoded = _UC_DECIMAL_PLACEHOLDER.sub(
+        lambda m: f"{m.group(1)}.{m.group(2)}{m.group(3).upper()}", name
+    )
+    return _DISPLAY_DECIMAL_UNIT.sub(lambda m: m.group(1) + m.group(2).upper(), decoded)
