@@ -12,6 +12,8 @@ if TYPE_CHECKING:
     from edvise.configs.legacy import LegacyProjectConfig
     from edvise.configs.pdp import PDPProjectConfig
 
+LOGGER = logging.getLogger(__name__)
+
 
 class _FlushTolerantStreamHandler(logging.StreamHandler):
     """
@@ -177,6 +179,49 @@ def resolve_genai_segment_log_path(
     )
 
 
+def _read_run_id(path: str) -> Optional[str]:
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return fh.read().strip() or None
+    except OSError:
+        return None
+
+
+def _relocate_entries(
+    src_dir: str,
+    dest_dir: str,
+    *,
+    skip: frozenset[str] = frozenset(),
+) -> None:
+    if not os.path.isdir(src_dir):
+        return
+    os.makedirs(dest_dir, exist_ok=True)
+    for name in os.listdir(src_dir):
+        if name in skip:
+            continue
+        src = os.path.join(src_dir, name)
+        dest = os.path.join(dest_dir, name)
+        if os.path.exists(dest):
+            shutil.rmtree(dest) if os.path.isdir(dest) else os.remove(dest)
+        shutil.move(src, dest)
+
+
+def _archive_prior_inference_run(inference_dir: str, job_run_id: str) -> None:
+    """Move existing ``inference/`` files to ``inference/archive/<prior_run>``."""
+    root = local_fs_path(inference_dir)
+    archive_root = os.path.join(root, "archive")
+    marker = os.path.join(root, "run_id")
+    prior = _read_run_id(marker)
+    if prior == job_run_id:
+        return
+
+    os.makedirs(root, exist_ok=True)
+    dest = os.path.join(archive_root, prior) if prior else archive_root
+    _relocate_entries(root, dest, skip=frozenset({"archive"}))
+    with open(marker, "w", encoding="utf-8") as fh:
+        fh.write(job_run_id)
+
+
 def resolve_run_path(
     args: argparse.Namespace,
     cfg: Union["PDPProjectConfig", "ESProjectConfig", "LegacyProjectConfig"],
@@ -195,6 +240,11 @@ def resolve_run_path(
             raise ValueError("cfg.model.run_id must be set for inference runs.")
         run_id = model_run_id
         subdir = "inference"
+        job_run_id = getattr(args, "db_run_id", None)
+        if job_run_id:
+            _archive_prior_inference_run(
+                os.path.join(silver_volume_path, run_id, subdir), job_run_id
+            )
     else:
         raise ValueError(f"Unsupported job_type: {args.job_type}")
 
