@@ -89,7 +89,8 @@ def run_onboard_gate_1(
     LOGGER.info("[onboard/gate_1] Checking HITL gates for %s", institution_id)
 
     LOGGER.info("[onboard/gate_1] Waiting for Unity Catalog HITL approval (ia_gate_1)")
-    _pipeline_job_state.wait_for_ia_gate_1_hitl(
+    _pipeline_job_state.wait_for_gate(
+        _pipeline_job_state.GATE_IA_1,
         catalog,
         onboard_run_id,
         institution_id=institution_id,
@@ -193,15 +194,16 @@ def run_onboard_gate_1(
         grain_hook_preview_path=paths.grain_hook_preview,
         term_hook_preview_path=paths.term_hook_preview,
     )
-    _pipeline_job_state.wait_for_ia_gate_1_hooks_hitl(
+    _pipeline_job_state.wait_for_gate(
+        _pipeline_job_state.GATE_IA_1_HOOKS,
         catalog,
         onboard_run_id,
         institution_id=institution_id,
         poll_interval_seconds=DEFAULT_HITL_POLL_INTERVAL_SECONDS,
         timeout_seconds=DEFAULT_HITL_POLL_TIMEOUT_SECONDS,
     )
-    _pipeline_job_state.after_ia_onboard_gate_1_hooks_approved(
-        catalog, institution_id, onboard_run_id
+    _pipeline_job_state.complete_gate(
+        _pipeline_job_state.GATE_IA_1_HOOKS, catalog, institution_id, onboard_run_id
     )
 
     LOGGER.info("[onboard/gate_1] Applying hook specs (grain)")
@@ -329,6 +331,6 @@ def run_onboard_gate_1(
         paths.enriched_schema_contract,
     )
     LOGGER.info("[onboard/gate_1] Complete. Exiting.")
-    _pipeline_job_state.after_ia_onboard_gate_1_success(
-        catalog, institution_id, onboard_run_id
+    _pipeline_job_state.complete_gate(
+        _pipeline_job_state.GATE_IA_1, catalog, institution_id, onboard_run_id
     )
