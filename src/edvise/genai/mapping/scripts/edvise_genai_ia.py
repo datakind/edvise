@@ -1134,21 +1134,21 @@ def run(
         # might reuse this instance with a short/empty system prompt.
         llm_complete = wrap_llm_complete_with_retries(
             make_databricks_gateway_llm_complete(
-                gateway_client, cache_system_prompt=True
+                gateway_client, catalog=catalog, cache_system_prompt=True
             ),
             log=LOGGER,
         )
         column_roles_llm_complete = wrap_llm_complete_with_retries(
             make_databricks_gateway_llm_complete(
                 gateway_client,
-                model=resolve_column_roles_gateway_model_id(),
+                model=resolve_column_roles_gateway_model_id(catalog),
             ),
             log=LOGGER,
         )
         LOGGER.info(
             "[onboard] column_roles model=%s grain/term model=%s",
-            resolve_column_roles_gateway_model_id(),
-            resolve_gateway_model_id(),
+            resolve_column_roles_gateway_model_id(catalog),
+            resolve_gateway_model_id(catalog),
         )
 
         try:
