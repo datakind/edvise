@@ -273,9 +273,9 @@ Set `hitl_flag`: `true` when:
 (`calendar_literal`, default) or an **academic-year start** (`academic_year_prefix`, where
 SPRING/SUMMER roll forward one calendar year). This is about what the **year means**, NOT how the
 season is encoded — numeric period codes, letter suffixes, and spelled seasons are all handled by
-`season_map` / hooks and do not affect this choice. Leave `year_semantics`
-**null** in your output — you cannot disambiguate it from a single column, and guessing silently
-corrupts every downstream date. Instead flag it for HITL when the term uses a coded year prefix:
+`season_map` / hooks and do not affect this choice. For ambiguous coded year prefixes, leave
+`year_semantics` **null** in your output — guessing silently corrupts every downstream date.
+Instead flag it for HITL when the term uses a coded year prefix:
 
 - **YYYY + season suffix** — `2017SR`, `2018FA`, `2019SP` (the prefix could be the calendar year
   *or* the academic-year start, e.g. `2017SR` = Spring 2017 vs Spring 2018)
@@ -285,9 +285,15 @@ corrupts every downstream date. Instead flag it for HITL when the term uses a co
   the year means* is this item)
 - **Split year + season-code columns** — a numeric year column plus a short season/period code column
 
+**Explicit academic-year range exception:** A split `year_col` containing consecutive ranges such
+as `"2024-25"` or `"2024-2025"` is unambiguous: the first year is the academic-year start. Set
+`year_semantics: "academic_year_prefix"` directly and do **not** emit a year-semantics HITL item.
+Do not confuse this with period codes such as `"2025-20"` where the suffix is not the next year.
+
 Do **not** flag `year_semantics` for unambiguous shapes: spelled `Season YYYY` (`"Fall 2019"`),
 datetime term columns (``pd.to_datetime(term).year`` is already the calendar year), or **YYYYMM**
-month-fragment codes (`201308` — prefix is the calendar year of that month).
+month-fragment codes (`201308` — prefix is the calendar year of that month), or explicit
+consecutive academic-year ranges (`"2024-25"`).
 
 The HITL item is a simple `reentry: "terminal"` choice (not hook generation). Offer exactly two
 options whose `resolution` sets `year_semantics`:
@@ -554,17 +560,23 @@ Good `hitl_question` examples:
 (`calendar_literal`, default) or an **academic-year start** (`academic_year_prefix`, where
 SPRING/SUMMER roll forward one calendar year). This is about what the **year means**, NOT how the
 season is encoded — numeric period codes, letter suffixes, and spelled seasons are all handled by
-`season_map` / hooks and do not affect this choice. Leave `year_semantics`
-**null** in your output — you cannot disambiguate it from a single column, and guessing silently
-corrupts every downstream date. Instead flag it for HITL when the term uses a coded year prefix:
+`season_map` / hooks and do not affect this choice. For ambiguous coded year prefixes, leave
+`year_semantics` **null** in your output — guessing silently corrupts every downstream date.
+Instead flag it for HITL when the term uses a coded year prefix:
 
 - **YYYY + season suffix** — `2017SR`, `2018FA`, `2019SP`
 - **YYYY-NN period codes** — `2025-10`, `2025-20`
 - **YYYYPP compact period codes** — `202520`, `202430` (hyphenless `YYYY-NN`; same ambiguity)
 - **Split year + season-code columns** — a numeric year column plus a short season/period code column
 
+**Explicit academic-year range exception:** A split `year_col` containing consecutive ranges such
+as `"2024-25"` or `"2024-2025"` is unambiguous: the first year is the academic-year start. Set
+`year_semantics: "academic_year_prefix"` directly and do **not** emit a year-semantics HITL item.
+Do not confuse this with period codes such as `"2025-20"` where the suffix is not the next year.
+
 Do **not** flag `year_semantics` for spelled `Season YYYY` (`"Fall 2019"`), datetime term columns
-(their year is already the calendar year), or **YYYYMM** month-fragment codes (`201308`).
+(their year is already the calendar year), **YYYYMM** month-fragment codes (`201308`), or explicit
+consecutive academic-year ranges (`"2024-25"`).
 
 Emit a `reentry: "terminal"` HITLItem whose two options set `year_semantics` (not hook generation):
 
