@@ -566,18 +566,17 @@ def strip_trailing_decimal_strings(df_course: pd.DataFrame) -> pd.DataFrame:
     return df_course
 
 
-# Shared person-key aliases for raw / post-validation PDP and Edvise frames.
-STUDENT_ID_COL_CANDIDATES: tuple[str, ...] = (
+# PDP person-key aliases: raw STUDYID/GUID files vs post-Pandera ``student_id``.
+PDP_STUDENT_ID_COL_CANDIDATES: tuple[str, ...] = (
     "student_guid",
     "study_id",
     "student_id",
-    "learner_id",
 )
 
 
 def _infer_student_id_col(df: pd.DataFrame) -> str:
     """Infer the student ID column name from available columns."""
-    for col in STUDENT_ID_COL_CANDIDATES:
+    for col in PDP_STUDENT_ID_COL_CANDIDATES:
         if col in df.columns:
             return col
     return "student_id"
@@ -590,19 +589,20 @@ def resolve_misjoin_merge_key(
     preferred: str | None = None,
 ) -> str:
     """
-    Resolve the student-id column shared by cohort and course for misjoin checks.
+    Resolve the PDP student-id column shared by cohort and course for misjoin checks.
 
-    Prefers ``preferred`` (typically ``student_id_col_pre_val``) when present in
+    Prefers ``preferred`` (typically PDP ``student_id_col_pre_val``) when present in
     *both* frames. Otherwise falls back to the first shared name in
-    :data:`STUDENT_ID_COL_CANDIDATES`.
+    :data:`PDP_STUDENT_ID_COL_CANDIDATES`.
 
-    This covers training on raw PDP files (``study_id``) and inference on
-    API-validated copies that Pandera already renamed to ``student_id``.
+    Needed because API Pandera validation renames ``study_id`` / ``student_guid``
+    to ``student_id`` before writing GCS ``validated/`` inference inputs, while
+    training still reads raw bronze files with the pre-validation alias.
     """
     shared = set(df_cohort.columns) & set(df_course.columns)
     if preferred and preferred in shared:
         return preferred
-    for col in STUDENT_ID_COL_CANDIDATES:
+    for col in PDP_STUDENT_ID_COL_CANDIDATES:
         if col in shared:
             if preferred:
                 LOGGER.info(
@@ -614,7 +614,7 @@ def resolve_misjoin_merge_key(
     raise ValueError(
         "No shared student id column for misjoin check. "
         f"preferred={preferred!r}, "
-        f"shared={sorted(shared & set(STUDENT_ID_COL_CANDIDATES))}"
+        f"shared={sorted(shared & set(PDP_STUDENT_ID_COL_CANDIDATES))}"
     )
 
 
