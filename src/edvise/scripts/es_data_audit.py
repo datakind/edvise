@@ -61,6 +61,7 @@ from edvise.data_audit.eda import (
 
 from edvise.shared.logger import init_file_logging, resolve_run_path
 from edvise.shared.validation import require
+from edvise.utils.data_cleaning import resolve_misjoin_merge_key
 from edvise.data_audit.data_audit_cli import (
     apply_bronze_training_inputs_sys_path,
     flush_data_audit_logging,
@@ -260,10 +261,15 @@ class ESDataAuditTask:
             " Loaded raw cohort and course data: checking for mismatches in cohort and course files: "
         )
         # Edvise student/course columns (not PDP cohort/cohort_term or enrollment_intensity_first_term)
+        misjoin_merge_key = resolve_misjoin_merge_key(
+            df_cohort_raw,
+            df_course_raw,
+            preferred=self.cfg.student_id_col_pre_val,
+        )
         log_misjoined_records(
             df_cohort_raw,
             df_course_raw,
-            merge_key=self.cfg.student_id_col_pre_val,
+            merge_key=misjoin_merge_key,
             value_count_columns=["enrollment_type"],
             grouped_count_column_groups=[
                 ["entry_year", "entry_term"],

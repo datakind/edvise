@@ -566,14 +566,56 @@ def strip_trailing_decimal_strings(df_course: pd.DataFrame) -> pd.DataFrame:
     return df_course
 
 
+# Shared person-key aliases for raw / post-validation PDP and Edvise frames.
+STUDENT_ID_COL_CANDIDATES: tuple[str, ...] = (
+    "student_guid",
+    "study_id",
+    "student_id",
+    "learner_id",
+)
+
+
 def _infer_student_id_col(df: pd.DataFrame) -> str:
     """Infer the student ID column name from available columns."""
-    if "student_guid" in df.columns:
-        return "student_guid"
-    elif "study_id" in df.columns:
-        return "study_id"
-    else:
-        return "student_id"
+    for col in STUDENT_ID_COL_CANDIDATES:
+        if col in df.columns:
+            return col
+    return "student_id"
+
+
+def resolve_misjoin_merge_key(
+    df_cohort: pd.DataFrame,
+    df_course: pd.DataFrame,
+    *,
+    preferred: str | None = None,
+) -> str:
+    """
+    Resolve the student-id column shared by cohort and course for misjoin checks.
+
+    Prefers ``preferred`` (typically ``student_id_col_pre_val``) when present in
+    *both* frames. Otherwise falls back to the first shared name in
+    :data:`STUDENT_ID_COL_CANDIDATES`.
+
+    This covers training on raw PDP files (``study_id``) and inference on
+    API-validated copies that Pandera already renamed to ``student_id``.
+    """
+    shared = set(df_cohort.columns) & set(df_course.columns)
+    if preferred and preferred in shared:
+        return preferred
+    for col in STUDENT_ID_COL_CANDIDATES:
+        if col in shared:
+            if preferred:
+                LOGGER.info(
+                    "Configured misjoin merge key %r not in both frames; using %r",
+                    preferred,
+                    col,
+                )
+            return col
+    raise ValueError(
+        "No shared student id column for misjoin check. "
+        f"preferred={preferred!r}, "
+        f"shared={sorted(shared & set(STUDENT_ID_COL_CANDIDATES))}"
+    )
 
 
 def _omit_section_from_dup_key_if_unusable(

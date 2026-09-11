@@ -49,6 +49,7 @@ class TestInferStudentIdCol:
             (["student_guid", "name", "age"], "student_guid"),
             (["study_id", "name", "age"], "study_id"),
             (["student_id", "name", "age"], "student_id"),
+            (["learner_id", "name", "age"], "learner_id"),
             (["name", "age"], "student_id"),
             (["study_id", "student_guid", "student_id"], "student_guid"),
         ],
@@ -56,6 +57,47 @@ class TestInferStudentIdCol:
     def test_infer_student_id_col(self, columns, expected):
         df = pd.DataFrame({col: [] for col in columns})
         assert data_cleaning._infer_student_id_col(df) == expected
+
+
+class TestResolveMisjoinMergeKey:
+    def test_uses_preferred_when_shared(self):
+        cohort = pd.DataFrame({"study_id": [1], "cohort": ["2019"]})
+        course = pd.DataFrame({"study_id": [1], "grade": ["A"]})
+        assert (
+            data_cleaning.resolve_misjoin_merge_key(
+                cohort, course, preferred="study_id"
+            )
+            == "study_id"
+        )
+
+    def test_falls_back_to_student_id_when_preferred_missing(self):
+        # API-validated inference inputs: Pandera already renamed study_id → student_id
+        cohort = pd.DataFrame({"student_id": [1], "cohort": ["2019"]})
+        course = pd.DataFrame({"student_id": [1], "grade": ["A"]})
+        assert (
+            data_cleaning.resolve_misjoin_merge_key(
+                cohort, course, preferred="study_id"
+            )
+            == "student_id"
+        )
+
+    def test_falls_back_to_learner_id_for_edvise(self):
+        cohort = pd.DataFrame({"learner_id": [1], "entry_year": ["2019"]})
+        course = pd.DataFrame({"learner_id": [1], "grade": ["A"]})
+        assert (
+            data_cleaning.resolve_misjoin_merge_key(
+                cohort, course, preferred="missing_col"
+            )
+            == "learner_id"
+        )
+
+    def test_raises_when_no_shared_id(self):
+        cohort = pd.DataFrame({"study_id": [1]})
+        course = pd.DataFrame({"student_id": [1]})
+        with pytest.raises(ValueError, match="No shared student id column"):
+            data_cleaning.resolve_misjoin_merge_key(
+                cohort, course, preferred="study_id"
+            )
 
 
 class TestOmitSectionFromDupKey:
