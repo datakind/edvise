@@ -284,6 +284,10 @@ Instead flag it for HITL when the term uses a coded year prefix:
 
 - **YYYY + season suffix** — `2017SR`, `2018FA`, `2019SP` (the prefix could be the calendar year
   *or* the academic-year start, e.g. `2017SR` = Spring 2017 vs Spring 2018)
+- **Two-digit season+year** — `FA19`, `SP20`, `19FA`, `20SP` (same ambiguity after century
+  expansion: `SP20` = Spring 2020 vs Spring 2021). These encodings are `hook_required`; still
+  emit a **separate** `year_semantics` HITL item (hook confirmation does not cover year meaning).
+- **Opaque numeric term codes** — `2187`, `2167` (year is inferred, not a calendar date)
 - **YYYY-NN period codes** — `2025-10`, `2025-20`
 - **YYYYPP compact period codes** — `202520`, `202430` (same ambiguity as `YYYY-NN`; year from
   digits 1–4, period from digits 5–6 — confirming *how* to slice is hook HITL, confirming *what
@@ -561,6 +565,8 @@ Good `hitl_question` examples:
   Aug–Dec→Fall before hook generation proceeds."
 - "`semester` uses `2017SR`-style codes. The 4-digit prefix could be the calendar year (Spring 2017)
   or the academic-year start (Spring 2018). Confirm which `year_semantics` applies."
+- "`academic_term` uses `FA19` / `SP20` codes. Confirm century expansion in the hook item; confirm
+  calendar vs academic-year-start (`SP20` = Spring 2020 vs Spring 2021) in a **separate** terminal item."
 - "`academic_period` uses `202520`-style YYYYPP codes. Confirm period-code season mapping in one item;
   confirm calendar vs academic-year-start for the 4-digit prefix in a **separate** terminal item."
 
@@ -575,6 +581,9 @@ season is encoded — numeric period codes, letter suffixes, and spelled seasons
 Instead flag it for HITL when the term uses a coded year prefix:
 
 - **YYYY + season suffix** — `2017SR`, `2018FA`, `2019SP`
+- **Two-digit season+year** — `FA19`, `SP20`, `19FA`, `20SP` (same ambiguity; `hook_required`
+  plus a **separate** `year_semantics` item)
+- **Opaque numeric term codes** — `2187`, `2167`
 - **YYYY-NN period codes** — `2025-10`, `2025-20`
 - **YYYYPP compact period codes** — `202520`, `202430` (hyphenless `YYYY-NN`; same ambiguity)
 - **Split year + season-code columns** — a numeric year column plus a short season/period code column
