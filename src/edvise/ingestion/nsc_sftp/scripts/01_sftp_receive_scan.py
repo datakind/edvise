@@ -43,7 +43,7 @@ from edvise.ingestion.nsc_sftp.helpers import (
     reset_files_for_reingest,
     upsert_new_to_manifest,
 )
-from edvise.utils.sftp import connect_sftp, list_receive_files
+from edvise.ingestion.nsc_sftp.sftp import connect_sftp, list_receive_files
 
 dbutils = runtime.get_dbutils()
 spark = runtime.get_spark()
