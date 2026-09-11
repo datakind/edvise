@@ -256,6 +256,45 @@ def _finalize_season_year_order(
     return out
 
 
+def _warn_if_term_order_all_null(
+    df: pd.DataFrame,
+    cols: EdviseTermColumnSet,
+    term_config: dict,
+) -> None:
+    """Log when year extraction failed for every remaining row (silent all-null sort keys)."""
+    if df.empty or cols.term_order not in df.columns or cols.year not in df.columns:
+        return
+    n = len(df)
+    year_null = int(df[cols.year].isna().sum())
+    order_null = int(df[cols.term_order].isna().sum())
+    if year_null < n and order_null < n:
+        return
+
+    year_col = term_config.get("year_col")
+    term_col = term_config.get("term_col")
+    source = year_col or term_col
+    samples: list[str] = []
+    if isinstance(source, str) and source in df.columns:
+        samples = (
+            df[source].astype("string").dropna().drop_duplicates().head(8).tolist()
+        )
+
+    logger.warning(
+        "Term order produced all-null sort keys on %d row(s): %s null_rate=1.0, "
+        "%s null_rate=1.0 (year_col=%r term_col=%r season_col=%r "
+        "year_semantics=%r). Sample source values: %s. Downstream first_by "
+        "_term_order will not be chronological.",
+        n,
+        cols.year,
+        cols.term_order,
+        year_col,
+        term_col,
+        term_config.get("season_col"),
+        term_config.get("year_semantics"),
+        samples,
+    )
+
+
 def add_edvise_term_order(
     df: pd.DataFrame,
     term_config: dict,
@@ -391,7 +430,9 @@ def add_edvise_term_order(
             academic_year_range=academic_year_range,
         )
         ordered = _add_term_grain(ordered, cols)
-        return add_edvise_term_labels(ordered, term_config, columns=cols)
+        labeled = add_edvise_term_labels(ordered, term_config, columns=cols)
+        _warn_if_term_order_all_null(labeled, cols, term_config)
+        return labeled
 
     # --- Combined term_col path ---
     if term_col not in out.columns:
@@ -427,7 +468,9 @@ def add_edvise_term_order(
         year_semantics=year_semantics,
     )
     ordered = _add_term_grain(ordered, cols)
-    return add_edvise_term_labels(ordered, term_config, columns=cols)
+    labeled = add_edvise_term_labels(ordered, term_config, columns=cols)
+    _warn_if_term_order_all_null(labeled, cols, term_config)
+    return labeled
 
 
 def add_edvise_term_labels(

@@ -1,5 +1,7 @@
 """Tests for identity_agent.execution (in-memory transforms + school config / schema contract)."""
 
+import logging
+
 import pandas as pd
 import pytest
 
@@ -736,6 +738,39 @@ def test_split_year_does_not_treat_period_code_as_academic_year_range():
     assert pd.isna(out.loc[0, "_year"])
     assert pd.isna(out.loc[0, "_term_order"])
     assert pd.isna(out.loc[0, "_edvise_term_academic_year"])
+
+
+def test_term_order_warns_when_year_extraction_is_all_null(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    df = pd.DataFrame(
+        {
+            "year_value": ["AY25", "AY26"],
+            "academic_term": ["Fall", "Spring"],
+        }
+    )
+    cfg = TermOrderConfig(
+        year_col="year_value",
+        season_col="academic_term",
+        season_map=[
+            {"raw": "Spring", "canonical": "SPRING"},
+            {"raw": "Fall", "canonical": "FALL"},
+        ],
+        term_extraction="standard",
+    )
+
+    with caplog.at_level(
+        logging.WARNING,
+        logger="edvise.genai.mapping.identity_agent.term_normalization.term_order",
+    ):
+        out = apply_term_order_from_config(df, cfg)
+
+    assert out["_term_order"].isna().all()
+    assert any(
+        "Term order produced all-null sort keys" in rec.message
+        for rec in caplog.records
+    )
+    assert any("AY25" in rec.message for rec in caplog.records)
 
 
 def test_year_semantics_default_is_calendar_literal():
