@@ -150,6 +150,11 @@ So **standard is not a general parser**: it is those two rules. Layouts work whe
 ``Season_YYYY`` / ``Season YYYY``, ``YYYY`` + suffix codes, etc., **and** the first four-digit span is
 the intended **calendar year**.
 
+**Two-digit years are not standard mode.** Values such as `"FA19"`, `"SP20"`, `"19FA"`, or
+`"20SP"` contain no ``\\d{4}`` substring, so standard extraction produces an all-null `_year` and
+`_term_order`. Use `term_extraction: "hook_required"` with explicit century expansion and HITL
+review; never claim that the standard regex extracts a year from these values.
+
 **Split columns:** If ``year_col`` and ``season_col`` are set (no ``term_col``), standard mode reads
 calendar year numerically from ``year_col`` and maps ``season_col`` through ``season_map`` — no regex
 year scan on a combined string.
@@ -353,6 +358,11 @@ Use dtype and `unique_values` (or `sample_values` if `unique_values` is null) to
 So **standard is not a general parser**: it is those two rules. Layouts work when they coincide with
 ``Season_YYYY`` / ``Season YYYY``, ``YYYY`` + suffix codes, etc., **and** the first four-digit span is
 the intended **calendar year**.
+
+**Two-digit years are not standard mode.** Values such as `"FA19"`, `"SP20"`, `"19FA"`, or
+`"20SP"` contain no ``\\d{4}`` substring, so standard extraction produces an all-null `_year` and
+`_term_order`. Use `term_extraction: "hook_required"` with explicit century expansion and HITL
+review; never claim that the standard regex extracts a year from these values.
 
 **Split columns:** If ``year_col`` and ``season_col`` are set (no ``term_col``), standard mode reads
 calendar year numerically from ``year_col`` and maps ``season_col`` through ``season_map`` — no regex
