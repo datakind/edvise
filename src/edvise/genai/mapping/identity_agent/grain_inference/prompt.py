@@ -489,8 +489,8 @@ def _identity_reasoning_steps() -> str:
    `entry_term` / term) with `no_dedup` and `hitl_flag: false` — even when that longer
    key has `uniqueness_score=1.0`. Domain prior **one row per student** wins over
    profiler uniqueness; force HITL / `policy_required` (or an explicit learner-only
-   collapse still flagged for first-vs-latest). Treat semester/course tables separately
-   (those *do* keep term in the grain).
+   collapse still flagged for first-vs-latest). This override applies only to
+   student/demographic files — course and semester tables keep term in the grain.
 
 4. Determine dedup policy — PRIORITY: prefer collapse to one row per semantic grain **unless**
    DOMAIN PRIORS **forbid** dropping rows (**Repeat course enrollment — grade and credit preservation
