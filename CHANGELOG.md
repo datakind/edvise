@@ -1,3 +1,7 @@
+## 1.14.0 (2026-09-10)
+- feat(genai): model serving migration to Databricks Unity Catalog (#302)
+- feat: store old inference runs under model_id/inference/archive/run_id (#312)
+
 ## 1.13.0 (2026-09-08)
 - feat(genai): auto-select GenAI mapping onboard reference (#307)
 - fix(pdp): pass ingested PDP inference CSVs into data_audit (#308)
