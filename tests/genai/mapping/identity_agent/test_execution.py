@@ -1,5 +1,7 @@
 """Tests for identity_agent.execution (in-memory transforms + school config / schema contract)."""
 
+import logging
+
 import pandas as pd
 import pytest
 
@@ -681,6 +683,94 @@ def test_apply_term_order_split_year_season_columns():
     assert list(out["_year"]) == [2020, 2021]
     assert list(out["_season"]) == ["fa", "sp"]
     assert "_term_order" in out.columns
+
+
+def test_apply_term_order_split_academic_year_ranges():
+    """Explicit YYYY-YY ranges imply academic-year-prefix semantics per row."""
+    df = pd.DataFrame(
+        {
+            "academic_year": ["2025-26", "2025-26", "2024-2025", "2024"],
+            "academic_term": ["Fall", "Summer", "Spring", "Spring"],
+        }
+    )
+    cfg = TermOrderConfig(
+        year_col="academic_year",
+        season_col="academic_term",
+        season_map=[
+            {"raw": "Spring", "canonical": "SPRING"},
+            {"raw": "Summer", "canonical": "SUMMER"},
+            {"raw": "Fall", "canonical": "FALL"},
+        ],
+        term_extraction="standard",
+        # A stale calendar_literal must not override an explicit range in the data.
+        year_semantics="calendar_literal",
+    )
+
+    out = apply_term_order_from_config(df, cfg)
+
+    assert list(out["_year"]) == [2025, 2026, 2025, 2024]
+    assert list(out["_edvise_term_academic_year"]) == [
+        "2025-26",
+        "2025-26",
+        "2024-25",
+        "2023-24",
+    ]
+    assert out.loc[0, "_term_order"] < out.loc[1, "_term_order"]
+
+
+def test_split_year_does_not_treat_period_code_as_academic_year_range():
+    """A non-consecutive value such as YYYY-20 is a period code, not a year span."""
+    df = pd.DataFrame(
+        {
+            "year_value": ["2025-20"],
+            "academic_term": ["Spring"],
+        }
+    )
+    cfg = TermOrderConfig(
+        year_col="year_value",
+        season_col="academic_term",
+        season_map=[{"raw": "Spring", "canonical": "SPRING"}],
+        term_extraction="standard",
+    )
+
+    out = apply_term_order_from_config(df, cfg)
+
+    assert pd.isna(out.loc[0, "_year"])
+    assert pd.isna(out.loc[0, "_term_order"])
+    assert pd.isna(out.loc[0, "_edvise_term_academic_year"])
+
+
+def test_term_order_warns_when_year_extraction_is_all_null(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    df = pd.DataFrame(
+        {
+            "year_value": ["AY25", "AY26"],
+            "academic_term": ["Fall", "Spring"],
+        }
+    )
+    cfg = TermOrderConfig(
+        year_col="year_value",
+        season_col="academic_term",
+        season_map=[
+            {"raw": "Spring", "canonical": "SPRING"},
+            {"raw": "Fall", "canonical": "FALL"},
+        ],
+        term_extraction="standard",
+    )
+
+    with caplog.at_level(
+        logging.WARNING,
+        logger="edvise.genai.mapping.identity_agent.term_normalization.term_order",
+    ):
+        out = apply_term_order_from_config(df, cfg)
+
+    assert out["_term_order"].isna().all()
+    assert any(
+        "Term order produced all-null sort keys" in rec.message
+        for rec in caplog.records
+    )
+    assert any("AY25" in rec.message for rec in caplog.records)
 
 
 def test_year_semantics_default_is_calendar_literal():

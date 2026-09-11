@@ -121,6 +121,68 @@ def test_yyyymm_month_codes_do_not_need_year_semantics():
     assert term_config_needs_year_semantics_review(cfg) is False
 
 
+def test_two_digit_season_year_hook_needs_year_semantics():
+    cfg = {
+        "term_col": "academic_term",
+        "year_col": None,
+        "season_col": None,
+        "season_map": [
+            {"raw": "SP", "canonical": "SPRING"},
+            {"raw": "SU", "canonical": "SUMMER"},
+            {"raw": "FA", "canonical": "FALL"},
+        ],
+        "term_extraction": "hook_required",
+        "year_semantics": None,
+        "hook_spec": {
+            "file": "identity_hooks/u/term_hooks.py",
+            "functions": [
+                {
+                    "name": "year_extractor_course",
+                    "draft": "return 2000 + int(str(term)[-2:])",
+                },
+                {
+                    "name": "season_extractor_course",
+                    "draft": "return str(term)[:2]",
+                },
+            ],
+        },
+    }
+    assert term_config_needs_year_semantics_review(cfg) is True
+    cfg["year_semantics"] = "calendar_literal"
+    assert term_config_needs_year_semantics_review(cfg) is False
+
+
+def test_opaque_numeric_term_hook_needs_year_semantics():
+    cfg = {
+        "term_col": "entry_term",
+        "season_map": [
+            {"raw": "1", "canonical": "SPRING"},
+            {"raw": "4", "canonical": "SUMMER"},
+            {"raw": "7", "canonical": "FALL"},
+        ],
+        "term_extraction": "hook_required",
+        "year_semantics": None,
+        "hook_spec": {
+            "file": "identity_hooks/u/term_hooks.py",
+            "functions": [
+                {
+                    "name": "year_extractor_student",
+                    "draft": (
+                        "century_digit = int(str(term)[0]); "
+                        "year_within_century = int(str(term)[1:3]); "
+                        "return 2000 + year_within_century"
+                    ),
+                },
+                {
+                    "name": "season_extractor_student",
+                    "draft": "return str(term)[-1]",
+                },
+            ],
+        },
+    }
+    assert term_config_needs_year_semantics_review(cfg) is True
+
+
 def test_split_year_period_columns_need_year_semantics():
     cfg = {
         "term_col": None,

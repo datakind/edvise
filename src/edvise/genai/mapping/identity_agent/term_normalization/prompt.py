@@ -150,6 +150,11 @@ So **standard is not a general parser**: it is those two rules. Layouts work whe
 ``Season_YYYY`` / ``Season YYYY``, ``YYYY`` + suffix codes, etc., **and** the first four-digit span is
 the intended **calendar year**.
 
+**Two-digit years are not standard mode.** Values such as `"FA19"`, `"SP20"`, `"19FA"`, or
+`"20SP"` contain no ``\\d{4}`` substring, so standard extraction produces an all-null `_year` and
+`_term_order`. Use `term_extraction: "hook_required"` with explicit century expansion and HITL
+review; never claim that the standard regex extracts a year from these values.
+
 **Split columns:** If ``year_col`` and ``season_col`` are set (no ``term_col``), standard mode reads
 calendar year numerically from ``year_col`` and maps ``season_col`` through ``season_map`` — no regex
 year scan on a combined string.
@@ -273,21 +278,31 @@ Set `hitl_flag`: `true` when:
 (`calendar_literal`, default) or an **academic-year start** (`academic_year_prefix`, where
 SPRING/SUMMER roll forward one calendar year). This is about what the **year means**, NOT how the
 season is encoded — numeric period codes, letter suffixes, and spelled seasons are all handled by
-`season_map` / hooks and do not affect this choice. Leave `year_semantics`
-**null** in your output — you cannot disambiguate it from a single column, and guessing silently
-corrupts every downstream date. Instead flag it for HITL when the term uses a coded year prefix:
+`season_map` / hooks and do not affect this choice. For ambiguous coded year prefixes, leave
+`year_semantics` **null** in your output — guessing silently corrupts every downstream date.
+Instead flag it for HITL when the term uses a coded year prefix:
 
 - **YYYY + season suffix** — `2017SR`, `2018FA`, `2019SP` (the prefix could be the calendar year
   *or* the academic-year start, e.g. `2017SR` = Spring 2017 vs Spring 2018)
+- **Two-digit season+year** — `FA19`, `SP20`, `19FA`, `20SP` (same ambiguity after century
+  expansion: `SP20` = Spring 2020 vs Spring 2021). These encodings are `hook_required`; still
+  emit a **separate** `year_semantics` HITL item (hook confirmation does not cover year meaning).
+- **Opaque numeric term codes** — `2187`, `2167` (year is inferred, not a calendar date)
 - **YYYY-NN period codes** — `2025-10`, `2025-20`
 - **YYYYPP compact period codes** — `202520`, `202430` (same ambiguity as `YYYY-NN`; year from
   digits 1–4, period from digits 5–6 — confirming *how* to slice is hook HITL, confirming *what
   the year means* is this item)
 - **Split year + season-code columns** — a numeric year column plus a short season/period code column
 
+**Explicit academic-year range exception:** A split `year_col` containing consecutive ranges such
+as `"2024-25"` or `"2024-2025"` is unambiguous: the first year is the academic-year start. Set
+`year_semantics: "academic_year_prefix"` directly and do **not** emit a year-semantics HITL item.
+Do not confuse this with period codes such as `"2025-20"` where the suffix is not the next year.
+
 Do **not** flag `year_semantics` for unambiguous shapes: spelled `Season YYYY` (`"Fall 2019"`),
 datetime term columns (``pd.to_datetime(term).year`` is already the calendar year), or **YYYYMM**
-month-fragment codes (`201308` — prefix is the calendar year of that month).
+month-fragment codes (`201308` — prefix is the calendar year of that month), or explicit
+consecutive academic-year ranges (`"2024-25"`).
 
 The HITL item is a simple `reentry: "terminal"` choice (not hook generation). Offer exactly two
 options whose `resolution` sets `year_semantics`:
@@ -347,6 +362,11 @@ Use dtype and `unique_values` (or `sample_values` if `unique_values` is null) to
 So **standard is not a general parser**: it is those two rules. Layouts work when they coincide with
 ``Season_YYYY`` / ``Season YYYY``, ``YYYY`` + suffix codes, etc., **and** the first four-digit span is
 the intended **calendar year**.
+
+**Two-digit years are not standard mode.** Values such as `"FA19"`, `"SP20"`, `"19FA"`, or
+`"20SP"` contain no ``\\d{4}`` substring, so standard extraction produces an all-null `_year` and
+`_term_order`. Use `term_extraction: "hook_required"` with explicit century expansion and HITL
+review; never claim that the standard regex extracts a year from these values.
 
 **Split columns:** If ``year_col`` and ``season_col`` are set (no ``term_col``), standard mode reads
 calendar year numerically from ``year_col`` and maps ``season_col`` through ``season_map`` — no regex
@@ -545,6 +565,8 @@ Good `hitl_question` examples:
   Aug–Dec→Fall before hook generation proceeds."
 - "`semester` uses `2017SR`-style codes. The 4-digit prefix could be the calendar year (Spring 2017)
   or the academic-year start (Spring 2018). Confirm which `year_semantics` applies."
+- "`academic_term` uses `FA19` / `SP20` codes. Confirm century expansion in the hook item; confirm
+  calendar vs academic-year-start (`SP20` = Spring 2020 vs Spring 2021) in a **separate** terminal item."
 - "`academic_period` uses `202520`-style YYYYPP codes. Confirm period-code season mapping in one item;
   confirm calendar vs academic-year-start for the 4-digit prefix in a **separate** terminal item."
 
@@ -554,17 +576,26 @@ Good `hitl_question` examples:
 (`calendar_literal`, default) or an **academic-year start** (`academic_year_prefix`, where
 SPRING/SUMMER roll forward one calendar year). This is about what the **year means**, NOT how the
 season is encoded — numeric period codes, letter suffixes, and spelled seasons are all handled by
-`season_map` / hooks and do not affect this choice. Leave `year_semantics`
-**null** in your output — you cannot disambiguate it from a single column, and guessing silently
-corrupts every downstream date. Instead flag it for HITL when the term uses a coded year prefix:
+`season_map` / hooks and do not affect this choice. For ambiguous coded year prefixes, leave
+`year_semantics` **null** in your output — guessing silently corrupts every downstream date.
+Instead flag it for HITL when the term uses a coded year prefix:
 
 - **YYYY + season suffix** — `2017SR`, `2018FA`, `2019SP`
+- **Two-digit season+year** — `FA19`, `SP20`, `19FA`, `20SP` (same ambiguity; `hook_required`
+  plus a **separate** `year_semantics` item)
+- **Opaque numeric term codes** — `2187`, `2167`
 - **YYYY-NN period codes** — `2025-10`, `2025-20`
 - **YYYYPP compact period codes** — `202520`, `202430` (hyphenless `YYYY-NN`; same ambiguity)
 - **Split year + season-code columns** — a numeric year column plus a short season/period code column
 
+**Explicit academic-year range exception:** A split `year_col` containing consecutive ranges such
+as `"2024-25"` or `"2024-2025"` is unambiguous: the first year is the academic-year start. Set
+`year_semantics: "academic_year_prefix"` directly and do **not** emit a year-semantics HITL item.
+Do not confuse this with period codes such as `"2025-20"` where the suffix is not the next year.
+
 Do **not** flag `year_semantics` for spelled `Season YYYY` (`"Fall 2019"`), datetime term columns
-(their year is already the calendar year), or **YYYYMM** month-fragment codes (`201308`).
+(their year is already the calendar year), **YYYYMM** month-fragment codes (`201308`), or explicit
+consecutive academic-year ranges (`"2024-25"`).
 
 Emit a `reentry: "terminal"` HITLItem whose two options set `year_semantics` (not hook generation):
 
