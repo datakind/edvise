@@ -283,10 +283,7 @@ def credential_degree_series_to_canonical(series: pd.Series) -> pd.Series:
 
 def grade_series_normalized(series: pd.Series) -> pd.Series:
     """
-    Normalize grade for EDA: strip whitespace and uppercase.
-
-    Blank and stringified-null tokens (``<NA>``, ``NAN``, ``NONE``, ``NULL``)
-    become ``pd.NA`` so missing grades match PDP (real nulls, not strings).
+    Normalize grade: strip, uppercase, and map blank/stringified nulls to ``pd.NA``.
     """
     s = series.astype("string").str.strip().str.upper()
     return s.mask(s.eq("") | s.isin(["<NA>", "NAN", "NONE", "NULL"]))

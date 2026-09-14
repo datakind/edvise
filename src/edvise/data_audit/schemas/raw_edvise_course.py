@@ -30,7 +30,6 @@ from edvise.data_audit.schemas._edvise_shared import (
     _apply_course_schema_transforms,
     StudentIdField,
     YEAR_PATTERN,
-    grade_series_normalized,
 )
 
 # Letter grades and non-GPA status codes per product spec
@@ -242,13 +241,12 @@ class RawEdviseCourseDataSchema(pda.DataFrameModel):
     @classmethod
     def grade_is_valid(cls, series: pd.Series) -> pd.Series:
         """
-        Accept letter/status grades from ALLOWED_LETTER_GRADES, numeric
-        values in [0.0, 4.0], or missing/blank grades.
+        Accept letter/status grades from ALLOWED_LETTER_GRADES or any numeric
+        float in [0.0, 4.0] (e.g. "3.5", "2.0", "0"). Missing grades are valid.
         """
-        s = grade_series_normalized(series)
-        gpa = pd.to_numeric(s, errors="coerce")
+        gpa = pd.to_numeric(series, errors="coerce")
         return (
-            s.isna() | s.isin(ALLOWED_LETTER_GRADES) | gpa.between(0.0, 4.0)
+            series.isna() | series.isin(ALLOWED_LETTER_GRADES) | gpa.between(0.0, 4.0)
         ).fillna(False)
 
     @classmethod
