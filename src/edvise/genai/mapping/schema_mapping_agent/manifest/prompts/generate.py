@@ -27,6 +27,8 @@ from edvise.genai.mapping.shared.hitl.confidence import (
 )
 from edvise.genai.mapping.shared.pipeline_artifacts import coerce_pipeline_version
 
+from .common_rules import STEP2A_SHARED_POLICY_RULES
+
 
 def _manifest_schema_for_prompt(*, compact: bool = True) -> str:
     return (
@@ -585,6 +587,8 @@ def _step2a_rules_after_structure(
 - Use only source columns and tables present in the {institution_id} schema contract
 - Do not use any {institution_id} codebase or prior cleaning scripts as a reference
 - Flag unmappable fields with source_column: null, source_table: null, row_selection: null
+- Skip source columns with schema-contract `null_pct` 100 — see SHARED POLICY
+{STEP2A_SHARED_POLICY_RULES}
 
 
 JOINS AND ALIASES
@@ -735,6 +739,8 @@ ROW SELECTION
 
 UNMAPPABLE FIELDS
 - Unmappable fields are not automatically confidence: 1.0
+- Exception: all-null sources (`null_pct` 100) are automatically unmapped at confidence 1.0 —
+  see SHARED POLICY. Do not HITL to confirm that skip.
 - If a related but insufficient column exists (e.g. a flag instead of a count, a proxy instead of a direct match),
   lower confidence to reflect the ambiguity and flag for HITL review
 - Document what was found and why it is insufficient in the rationale
@@ -759,6 +765,7 @@ CONFIDENCE SCORING
   always flag for HITL review
 - **≤ {pipeline_hitl_t}** — pipeline HITL gate (same value as IdentityAgent grain/term): per-field confidence
   at or below this score is routed to refinement + HITL review
+- Do **not** lower confidence solely because Step 2b must parse/coerce datetime — see SHARED POLICY
 - CRITICAL: Do not inflate confidence because a mapping is structurally plausible.
   Confidence reflects how certain you are that this mapping produces the correct semantic output
   for every student/course record, not just that it produces valid output
@@ -817,8 +824,9 @@ DATETIME AND DATE TARGET FIELDS
 - For STRICT fields, do not treat numeric encodings (e.g. YYYYMM) as sufficient unless the contract lists that column
   as datetime — unmappable if only integers or strings without a datetime dtype.
 - For OUTCOME CONFERRAL-STYLE fields, raw `term` / YYYYMM-style encodings are the **expected** non-datetime sources
-  (Step 2b parses them to datetime); use lower confidence and validation_notes when parsing is required or when the
-  selected row is a credential-discriminated proxy."""
+  (Step 2b parses them to datetime). Note the parse in validation_notes. Lower confidence / HITL only for semantic
+  or row-selection uncertainty (e.g. a credential-discriminated proxy) — **not** for parsing itself
+  (see SHARED POLICY)."""
 
 
 def _step2a_json_output_rules() -> str:
