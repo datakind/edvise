@@ -283,15 +283,10 @@ def credential_degree_series_to_canonical(series: pd.Series) -> pd.Series:
 
 def grade_series_normalized(series: pd.Series) -> pd.Series:
     """
-    Normalize grade for EDA: strip whitespace and uppercase.
-
-    Args:
-        series: Raw grade values.
-
-    Returns:
-        String series with stripped, uppercased grades.
+    Normalize grade: strip, uppercase, and map blank/stringified nulls to ``pd.NA``.
     """
-    return series.astype(str).str.strip().str.upper().astype(pd.StringDtype())
+    s = series.astype("string").str.strip().str.upper()
+    return s.mask(s.eq("") | s.isin(["<NA>", "NAN", "NONE", "NULL"]))
 
 
 # ---------------------------------------------------------------------------
@@ -338,13 +333,13 @@ def _apply_course_schema_transforms(df: pd.DataFrame) -> pd.DataFrame:
     Normalizes only the fields that require it for Pandera coercion:
     - academic_term: mapped to FALL/WINTER/SPRING/SUMMER for categorical coercion
     - term_pell_recipient: normalized to Y/N
-
-    Does not touch term_degree or grade — those are free-form/custom-checked
-    in the raw schema.
+    - grade: blanks / stringified nulls → ``pd.NA`` (same as PDP missing grades)
     """
     df = df.copy()
     if "academic_term" in df.columns:
         df["academic_term"] = term_series_to_pdp(df["academic_term"])
     if "term_pell_recipient" in df.columns:
         df["term_pell_recipient"] = pell_series_to_pdp(df["term_pell_recipient"])
+    if "grade" in df.columns:
+        df["grade"] = grade_series_normalized(df["grade"])
     return df
