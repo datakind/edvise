@@ -24,22 +24,6 @@ from edvise.genai.mapping.schema_mapping_agent.transformation.schemas import (
 )
 
 
-@pytest.mark.parametrize(
-    ("function_name", "column"),
-    [
-        ("normalize_instructional_modality", "instructional_modality"),
-        ("normalize_instructor_appointment", "instructor_appointment_status"),
-        ("normalize_gateway_or_developmental_flag", "gateway_or_developmental_flag"),
-        ("normalize_yes_no", "gen_ed_flag"),
-    ],
-)
-def test_transformation_step_es_categorical_normalizers(function_name, column):
-    adapter = TypeAdapter(TransformationStep)
-    step = adapter.validate_python({"function_name": function_name, "column": column})
-    assert step.function_name == function_name
-    assert step.column == column
-
-
 def test_transformation_step_discriminated_union_cast_string():
     adapter = TypeAdapter(TransformationStep)
     step = adapter.validate_python({"function_name": "cast_string", "column": "raw_id"})

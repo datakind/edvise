@@ -79,26 +79,6 @@ def test_build_es_to_pdp_feature_token_map_includes_course_and_cohort_tokens():
             "num_courses_math_or_english_gateway_m",
         ),
         (
-            "num_courses_gateway_or_developmental_flag_developmental",
-            "edvise",
-            "num_courses_math_or_english_gateway_na",
-        ),
-        (
-            "num_courses_instructor_appointment_status_full_time",
-            "edvise",
-            "num_courses_course_instructor_employment_status_ft",
-        ),
-        (
-            "num_courses_instructor_appointment_status_adjunct",
-            "edvise",
-            "num_courses_course_instructor_employment_status_pt",
-        ),
-        (
-            "frac_courses_gen_ed_flag_yes",
-            "edvise",
-            "frac_courses_core_course_y",
-        ),
-        (
             "num_courses_course_grade_s",
             "edvise",
             "num_courses_course_grade_p",

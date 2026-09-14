@@ -6,7 +6,6 @@ from dataclasses import fields
 from functools import lru_cache
 
 from edvise.configs.schema_type import is_edvise_schema
-from edvise.data_audit.es_categorical_map import es_dummy_value_aliases
 from edvise.feature_generation.column_names import (
     CohortInputColumns,
     CourseInputColumns,
@@ -28,7 +27,28 @@ _ES_EXACT_COLUMN_ALIASES: dict[str, str] = {
 # Dummy-value suffixes after get_dummies, mapped onto the PDP features-table set.
 # Applied only as a trailing ``_{token}`` so single-letter codes (s/u) cannot
 # rewrite earlier parts of the column name.
-_ES_DUMMY_VALUE_ALIASES: dict[str, str] = es_dummy_value_aliases()
+_ES_DUMMY_VALUE_ALIASES: dict[str, str] = {
+    "gateway_english": "e",
+    "gateway_math": "m",
+    "pass": "p",
+    "sat": "p",
+    "s": "p",
+    "unsat": "f",
+    "u": "f",
+    "wd": "w",
+    "ip": "i",
+    "nr": "m",
+    "ng": "m",
+    "hybrid": "h",
+    "online": "o",
+    "in_person": "f",
+    "face_to_face": "f",
+    "f2f": "f",
+    # Alcorn instructional_modality. Add more as other ES schools send values.
+    "face_to_face_and_online": "h",
+    "online_internet_or_web": "o",
+    "web_based": "o",
+}
 
 # Edvise-only columns that pass through to the modeling dataset (see ESCleanup).
 ES_ONLY_FEATURES_TABLE_COLUMNS: tuple[str, ...] = (

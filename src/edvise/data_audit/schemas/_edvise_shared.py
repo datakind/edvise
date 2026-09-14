@@ -10,8 +10,6 @@ from typing import Any, Optional
 import numpy as np
 import pandas as pd
 
-from edvise.data_audit.es_categorical_map import canonicalize_es_course_categoricals
-
 try:
     import pandera as pda
 except ModuleNotFoundError:
@@ -324,7 +322,7 @@ def _apply_student_schema_transforms(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
-# Course schema transforms (academic_term, pell, grade, ES categoricals)
+# Course schema transforms (academic_term, term_pell_recipient)
 # ---------------------------------------------------------------------------
 
 
@@ -336,7 +334,6 @@ def _apply_course_schema_transforms(df: pd.DataFrame) -> pd.DataFrame:
     - academic_term: mapped to FALL/WINTER/SPRING/SUMMER for categorical coercion
     - term_pell_recipient: normalized to Y/N
     - grade: blanks / stringified nulls → ``pd.NA`` (same as PDP missing grades)
-    - ES free-text categoricals (modality, gateway, instructor, Y/N flags) → PDP codes
     """
     df = df.copy()
     if "academic_term" in df.columns:
@@ -345,4 +342,4 @@ def _apply_course_schema_transforms(df: pd.DataFrame) -> pd.DataFrame:
         df["term_pell_recipient"] = pell_series_to_pdp(df["term_pell_recipient"])
     if "grade" in df.columns:
         df["grade"] = grade_series_normalized(df["grade"])
-    return canonicalize_es_course_categoricals(df)
+    return df

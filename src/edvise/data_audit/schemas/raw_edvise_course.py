@@ -260,7 +260,7 @@ class RawEdviseCourseDataSchema(pda.DataFrameModel):
         lazy: bool = False,
         inplace: bool = False,
     ) -> pd.DataFrame:
-        """Normalize term, pell, grade, and ES course categoricals before validation."""
+        """Normalize academic_term and term_pell_recipient before validation."""
         check_obj = _apply_course_schema_transforms(check_obj)
         return super().validate(
             check_obj, head, tail, sample, random_state, lazy, inplace
