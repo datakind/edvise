@@ -529,11 +529,48 @@ def test_raw_edvise_course_schema_null_grade_passes() -> None:
     assert pd.isna(validated_df["grade"].iloc[0])
 
 
+@pytest.mark.parametrize("grade", [None, pd.NA, "", "   "])
+def test_raw_edvise_course_schema_missing_grade_passes(grade: object) -> None:
+    """Null, empty, and whitespace grades pass valid_grade (Spark CSV blanks)."""
+    row = _minimal_valid_course_row()
+    row["grade"] = grade
+    df = pd.DataFrame([row]).reindex(columns=COURSE_COLUMNS)
+    validated_df = RawEdviseCourseDataSchema.validate(df, lazy=True)
+    assert len(validated_df) == 1
+
+
+def test_raw_edvise_course_schema_string_dtype_null_grades_pass() -> None:
+    """Nullable string column with many NAs still passes valid_grade (Spark toPandas)."""
+    rows = []
+    for i, grade in enumerate(["A", pd.NA, None, "", "   ", "3.5", pd.NA] * 12):
+        row = _minimal_valid_course_row()
+        row["learner_id"] = f"s{i}"
+        row["grade"] = grade
+        rows.append(row)
+    df = pd.DataFrame(rows).reindex(columns=COURSE_COLUMNS)
+    df["grade"] = df["grade"].astype("string")
+    validated_df = RawEdviseCourseDataSchema.validate(df, lazy=True)
+    assert len(validated_df) == len(df)
+
+
 def test_raw_edvise_course_schema_bad_grade_fails() -> None:
     """Invalid grade value fails validation."""
     row = _minimal_valid_course_row()
     row["grade"] = "X"
     df = pd.DataFrame([row]).reindex(columns=COURSE_COLUMNS)
+    with pytest.raises((SchemaError, SchemaErrors)):
+        RawEdviseCourseDataSchema.validate(df, lazy=True)
+
+
+def test_raw_edvise_course_schema_invalid_grade_still_fails_among_nulls() -> None:
+    """A bad grade still fails when neighboring rows have missing grades."""
+    rows = []
+    for grade in [pd.NA, "X", ""]:
+        row = _minimal_valid_course_row()
+        row["grade"] = grade
+        rows.append(row)
+    df = pd.DataFrame(rows).reindex(columns=COURSE_COLUMNS)
+    df["grade"] = df["grade"].astype("string")
     with pytest.raises((SchemaError, SchemaErrors)):
         RawEdviseCourseDataSchema.validate(df, lazy=True)
 

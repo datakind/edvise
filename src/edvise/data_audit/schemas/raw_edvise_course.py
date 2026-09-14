@@ -143,7 +143,8 @@ class RawEdviseCourseDataSchema(pda.DataFrameModel):
 
     Required (must be present, non-null, format-checked): learner_id,
     academic_year, academic_term, course_prefix, course_number,
-    grade, course_credits_attempted, course_credits_earned.
+    course_credits_attempted, course_credits_earned. ``grade`` must be
+    present but may be null, empty, or whitespace (in-progress / missing).
     Optional columns (e.g. course_title, course_section_id, source_term_key) may be
     missing from the DataFrame or contain nulls; when present they are validated.
     Pandera does **not** enforce composite row uniqueness on this model
@@ -242,21 +243,20 @@ class RawEdviseCourseDataSchema(pda.DataFrameModel):
     def grade_is_valid(cls, series: pd.Series) -> pd.Series:
         """
         Accept letter/status grades from ALLOWED_LETTER_GRADES or any numeric
-        float in [0.0, 4.0] (e.g. "3.5", "2.0", "0").
+        float in [0.0, 4.0] (e.g. "3.5", "2.0", "0"). Missing grades (null,
+        empty, or whitespace) are valid.
+
+        Vectorized on purpose: ``Series.apply`` on nullable/Arrow string
+        columns often skips NA cells and leaves ``<NA>`` in the boolean
+        result, which Pandera treats as a failed element.
         """
-
-        def _is_valid(val: str) -> bool:
-            if pd.isna(val):
-                return True
-            s = str(val).strip().upper()
-            if s in ALLOWED_LETTER_GRADES:
-                return True
-            try:
-                return 0.0 <= float(s) <= 4.0
-            except (ValueError, TypeError):
-                return False
-
-        return series.apply(_is_valid)
+        s = series.astype("string").str.strip().str.upper()
+        is_missing = series.isna() | s.isna() | s.eq("")
+        is_letter = s.isin(ALLOWED_LETTER_GRADES)
+        numeric = pd.to_numeric(s, errors="coerce")
+        is_gpa = numeric.notna() & numeric.ge(0.0) & numeric.le(4.0)
+        # NA in the letter/GPA masks is "not valid", not "missing".
+        return is_missing.fillna(True) | is_letter.fillna(False) | is_gpa.fillna(False)
 
     @classmethod
     def validate(
