@@ -11,6 +11,9 @@ from edvise.data_audit.default_grade_map import (
     NON_NUMERIC_GRADE_CODES,
     NON_PASS_FAIL_GRADE_CODES,
 )
+from edvise.data_audit.instructional_modality_map import (
+    instructional_modality_series_to_pdp,
+)
 from . import constants, shared
 from .column_names import (
     CourseFeatureSpec,
@@ -53,6 +56,18 @@ def add_features(
             to be mapped to GPA strings at data audit (see ``preprocessing.features.grade_map``).
     """
     LOGGER.info("adding course features ...")
+    # Re-canonicalize ES free-text modality if silver skipped a re-audit.
+    if (
+        cols.delivery_method == "instructional_modality"
+        and cols.delivery_method in df.columns
+    ):
+        df = df.assign(
+            **{
+                cols.delivery_method: instructional_modality_series_to_pdp(
+                    df[cols.delivery_method]
+                )
+            }
+        )
     s = spec or CourseFeatureSpec.all()
     if s.course_grade and not s.course_grade_numeric:
         raise ValueError(

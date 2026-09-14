@@ -499,6 +499,15 @@ def test_raw_edvise_course_schema_required_columns_only_passes() -> None:
     assert validated_df["grade"].iloc[0] == "B"
 
 
+def test_raw_edvise_course_schema_canonicalizes_instructional_modality() -> None:
+    """Free-text instructional_modality is mapped to PDP F/O/H at validate time."""
+    row = _minimal_valid_course_row()
+    row["instructional_modality"] = "Face to Face and Online"
+    df = pd.DataFrame([row]).reindex(columns=COURSE_COLUMNS)
+    validated_df = RawEdviseCourseDataSchema.validate(df, lazy=True)
+    assert validated_df["instructional_modality"].iloc[0] == "H"
+
+
 def test_raw_edvise_course_schema_course_title_null_passes() -> None:
     """course_title may be present and null when other fields are valid."""
     row = _minimal_valid_course_row()

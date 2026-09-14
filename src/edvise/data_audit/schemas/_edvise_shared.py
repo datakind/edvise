@@ -10,6 +10,10 @@ from typing import Any, Optional
 import numpy as np
 import pandas as pd
 
+from edvise.data_audit.instructional_modality_map import (
+    instructional_modality_series_to_pdp,
+)
+
 try:
     import pandera as pda
 except ModuleNotFoundError:
@@ -322,7 +326,7 @@ def _apply_student_schema_transforms(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
-# Course schema transforms (academic_term, term_pell_recipient)
+# Course schema transforms (academic_term, term_pell_recipient, modality)
 # ---------------------------------------------------------------------------
 
 
@@ -334,6 +338,7 @@ def _apply_course_schema_transforms(df: pd.DataFrame) -> pd.DataFrame:
     - academic_term: mapped to FALL/WINTER/SPRING/SUMMER for categorical coercion
     - term_pell_recipient: normalized to Y/N
     - grade: blanks / stringified nulls → ``pd.NA`` (same as PDP missing grades)
+    - instructional_modality: mapped to PDP delivery_method F/O/H; unknown → ``pd.NA``
     """
     df = df.copy()
     if "academic_term" in df.columns:
@@ -342,4 +347,8 @@ def _apply_course_schema_transforms(df: pd.DataFrame) -> pd.DataFrame:
         df["term_pell_recipient"] = pell_series_to_pdp(df["term_pell_recipient"])
     if "grade" in df.columns:
         df["grade"] = grade_series_normalized(df["grade"])
+    if "instructional_modality" in df.columns:
+        df["instructional_modality"] = instructional_modality_series_to_pdp(
+            df["instructional_modality"]
+        )
     return df

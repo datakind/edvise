@@ -6,6 +6,7 @@ from dataclasses import fields
 from functools import lru_cache
 
 from edvise.configs.schema_type import is_edvise_schema
+from edvise.data_audit.instructional_modality_map import es_modality_dummy_aliases
 from edvise.feature_generation.column_names import (
     CohortInputColumns,
     CourseInputColumns,
@@ -39,15 +40,7 @@ _ES_DUMMY_VALUE_ALIASES: dict[str, str] = {
     "ip": "i",
     "nr": "m",
     "ng": "m",
-    "hybrid": "h",
-    "online": "o",
-    "in_person": "f",
-    "face_to_face": "f",
-    "f2f": "f",
-    # Longer labels first via length sort so "_online" does not steal hybrid.
-    "face_to_face_and_online": "h",
-    "online_internet_or_web": "o",
-    "web_based": "o",
+    **es_modality_dummy_aliases(),
 }
 
 # Edvise-only columns that pass through to the modeling dataset (see ESCleanup).

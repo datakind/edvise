@@ -24,6 +24,18 @@ from edvise.genai.mapping.schema_mapping_agent.transformation.schemas import (
 )
 
 
+def test_transformation_step_normalize_instructional_modality():
+    adapter = TypeAdapter(TransformationStep)
+    step = adapter.validate_python(
+        {
+            "function_name": "normalize_instructional_modality",
+            "column": "instructional_modality",
+        }
+    )
+    assert step.function_name == "normalize_instructional_modality"
+    assert step.column == "instructional_modality"
+
+
 def test_transformation_step_discriminated_union_cast_string():
     adapter = TypeAdapter(TransformationStep)
     step = adapter.validate_python({"function_name": "cast_string", "column": "raw_id"})

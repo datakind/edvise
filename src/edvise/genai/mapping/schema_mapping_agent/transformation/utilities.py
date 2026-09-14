@@ -28,6 +28,9 @@ import numpy as np
 import pandas as pd
 
 from edvise.data_audit.custom_cleaning import _cast_series_to_nullable_dtype
+from edvise.data_audit.instructional_modality_map import (
+    instructional_modality_series_to_pdp,
+)
 from edvise.data_audit.schemas._edvise_shared import (
     credential_degree_series_to_canonical,
     enrollment_series_to_pdp,
@@ -294,6 +297,20 @@ def normalize_pell(s: pd.Series) -> pd.Series:
     Unmapped values → pd.NA.
     """
     return pell_series_to_pdp(s)
+
+
+def normalize_instructional_modality(s: pd.Series) -> pd.Series:
+    """
+    Normalize instructional_modality to PDP delivery_method codes.
+
+    Input:  "Face to Face and Online", "web-based", "Online Internet or Web", "F"
+    Output: "H",                       "O",         "O",                     "F"
+
+    Matching is case-insensitive after snake_case. Unmapped values → pd.NA.
+    Prefer this over map_values for common synonyms. Use map_values + HITL
+    only for leftover institution-specific codes.
+    """
+    return instructional_modality_series_to_pdp(s)
 
 
 def normalize_credential(s: pd.Series) -> pd.Series:

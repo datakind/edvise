@@ -176,6 +176,12 @@ class NormalizePellStep(StrictBaseModel):
     rationale: Optional[str] = None
 
 
+class NormalizeInstructionalModalityStep(StrictBaseModel):
+    function_name: Literal["normalize_instructional_modality"]
+    column: str
+    rationale: Optional[str] = None
+
+
 class NormalizeCredentialStep(StrictBaseModel):
     function_name: Literal["normalize_credential"]
     column: str
@@ -326,6 +332,7 @@ TransformationStep = Annotated[
         NormalizeGradeStep,
         NormalizeEnrollmentStep,
         NormalizePellStep,
+        NormalizeInstructionalModalityStep,
         NormalizeCredentialStep,
         NormalizeStudentAgeStep,
         FillNullsStep,
@@ -876,6 +883,7 @@ def get_transformation_map_schema_context() -> str:
         NormalizeGradeStep,
         NormalizeEnrollmentStep,
         NormalizePellStep,
+        NormalizeInstructionalModalityStep,
         NormalizeCredentialStep,
         NormalizeStudentAgeStep,
         FillNullsStep,
