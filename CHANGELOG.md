@@ -1,3 +1,7 @@
+## 1.14.1 (2026-09-11)
+- refactor: move sftp helpers into ingestion/nsc_sftp (#317)
+- fix(pdp): resolve misjoin merge key for API-validated inference inputs (#328)
+
 ## 1.14.0 (2026-09-10)
 - feat(genai): model serving migration to Databricks Unity Catalog (#302)
 - feat: store old inference runs under model_id/inference/archive/run_id (#312)

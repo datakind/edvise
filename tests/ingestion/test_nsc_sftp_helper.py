@@ -7,7 +7,7 @@ from edvise.ingestion.nsc_sftp.helpers import (
 )
 from edvise.utils.institution_naming import databricksify_inst_name
 from edvise.utils.data_cleaning import convert_to_snake_case, detect_institution_column
-from edvise.utils.sftp import download_sftp_atomic
+from edvise.ingestion.nsc_sftp.sftp import download_sftp_atomic
 
 
 def test_normalize_col():

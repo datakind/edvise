@@ -216,4 +216,8 @@ marimo/_lsp/
 __marimo__/
 
 # Claude
-.claude/
+#  Keep personal/local overrides out of git, but let shared skills be checked in and
+#  synced across the team.
+.claude/*
+!.claude/skills/
+!.claude/skills/**
