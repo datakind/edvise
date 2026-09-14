@@ -238,7 +238,7 @@ class RawEdviseCourseDataSchema(pda.DataFrameModel):
     # ------------------------------------------------------------------ #
     # Custom checks
     # ------------------------------------------------------------------ #
-    @pda.check("grade", name="valid_grade")
+    @pda.check("grade", name="valid_grade", ignore_na=False)
     @classmethod
     def grade_is_valid(cls, series: pd.Series) -> pd.Series:
         """
@@ -247,9 +247,15 @@ class RawEdviseCourseDataSchema(pda.DataFrameModel):
         """
         s = grade_series_normalized(series)
         gpa = pd.to_numeric(s, errors="coerce")
-        return (
-            s.isna() | s.eq("") | s.isin(ALLOWED_LETTER_GRADES) | gpa.between(0.0, 4.0)
-        ).fillna(False)
+        # Spark/toPandas and astype(str) stringify nulls as "<NA>" / "NAN".
+        missing = (
+            series.isna()
+            | s.isna()
+            | s.eq("")
+            | s.isin(["<NA>", "NAN", "NONE", "NULL"])
+        )
+        valid = s.isin(ALLOWED_LETTER_GRADES) | gpa.between(0.0, 4.0)
+        return (missing | valid).fillna(False)
 
     @classmethod
     def validate(

@@ -519,7 +519,7 @@ def test_raw_edvise_course_schema_valid_with_optionals() -> None:
     assert len(validated_df) == 1
 
 
-@pytest.mark.parametrize("grade", [pd.NA, None, "", "   "])
+@pytest.mark.parametrize("grade", [pd.NA, None, "", "   ", "<NA>", "nan"])
 def test_raw_edvise_course_schema_null_grade_passes(grade: object) -> None:
     """Null, empty, and whitespace grades are allowed (Spark/CSV blanks)."""
     row = _minimal_valid_course_row()
