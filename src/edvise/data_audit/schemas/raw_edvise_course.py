@@ -30,6 +30,7 @@ from edvise.data_audit.schemas._edvise_shared import (
     _apply_course_schema_transforms,
     StudentIdField,
     YEAR_PATTERN,
+    grade_series_normalized,
 )
 
 # Letter grades and non-GPA status codes per product spec
@@ -63,6 +64,15 @@ ALLOWED_LETTER_GRADES = {
     "M",
     "O",
 }
+
+
+def is_valid_grade_series(series: pd.Series) -> pd.Series:
+    """True for ALLOWED_LETTER_GRADES, numeric GPA in [0, 4], or missing/blank."""
+    s = grade_series_normalized(series)
+    gpa = pd.to_numeric(s, errors="coerce")
+    return (
+        s.isna() | s.eq("") | s.isin(ALLOWED_LETTER_GRADES) | gpa.between(0.0, 4.0)
+    ).fillna(False)
 
 
 CreditsField = ft.partial(pda.Field, nullable=False, ge=0.0)
@@ -143,8 +153,7 @@ class RawEdviseCourseDataSchema(pda.DataFrameModel):
 
     Required (must be present, non-null, format-checked): learner_id,
     academic_year, academic_term, course_prefix, course_number,
-    course_credits_attempted, course_credits_earned. ``grade`` must be
-    present but may be null, empty, or whitespace (in-progress / missing).
+    grade, course_credits_attempted, course_credits_earned.
     Optional columns (e.g. course_title, course_section_id, source_term_key) may be
     missing from the DataFrame or contain nulls; when present they are validated.
     Pandera does **not** enforce composite row uniqueness on this model
@@ -241,22 +250,8 @@ class RawEdviseCourseDataSchema(pda.DataFrameModel):
     @pda.check("grade", name="valid_grade")
     @classmethod
     def grade_is_valid(cls, series: pd.Series) -> pd.Series:
-        """
-        Accept letter/status grades from ALLOWED_LETTER_GRADES or any numeric
-        float in [0.0, 4.0] (e.g. "3.5", "2.0", "0"). Missing grades (null,
-        empty, or whitespace) are valid.
-
-        Vectorized on purpose: ``Series.apply`` on nullable/Arrow string
-        columns often skips NA cells and leaves ``<NA>`` in the boolean
-        result, which Pandera treats as a failed element.
-        """
-        s = series.astype("string").str.strip().str.upper()
-        is_missing = series.isna() | s.isna() | s.eq("")
-        is_letter = s.isin(ALLOWED_LETTER_GRADES)
-        numeric = pd.to_numeric(s, errors="coerce")
-        is_gpa = numeric.notna() & numeric.ge(0.0) & numeric.le(4.0)
-        # NA in the letter/GPA masks is "not valid", not "missing".
-        return is_missing.fillna(True) | is_letter.fillna(False) | is_gpa.fillna(False)
+        """Letter/status grades, numeric [0.0, 4.0], or missing/blank."""
+        return is_valid_grade_series(series)
 
     @classmethod
     def validate(

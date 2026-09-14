@@ -291,7 +291,7 @@ def grade_series_normalized(series: pd.Series) -> pd.Series:
     Returns:
         String series with stripped, uppercased grades.
     """
-    return series.astype(str).str.strip().str.upper().astype(pd.StringDtype())
+    return series.astype("string").str.strip().str.upper()
 
 
 # ---------------------------------------------------------------------------
