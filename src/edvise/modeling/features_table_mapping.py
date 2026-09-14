@@ -39,6 +39,11 @@ _ES_DUMMY_VALUE_ALIASES: dict[str, str] = {
     "ip": "i",
     "nr": "m",
     "ng": "m",
+    "hybrid": "h",
+    "online": "o",
+    "in_person": "f",
+    "face_to_face": "f",
+    "f2f": "f",
 }
 
 # Edvise-only columns that pass through to the modeling dataset (see ESCleanup).
