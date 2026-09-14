@@ -248,6 +248,11 @@ For **opaque numeric codes** (e.g. `"1192"` with no visible year in the string):
 - Reason about positional structure from unique value samples
 - Draft `year_extractor` and `season_extractor` as single Python expressions
 - `season_extractor` output must match a `raw` key in `season_map`
+- A **leading century digit selects** the century — it is not arithmetic. In Banner/PeopleSoft
+  codes such as `2187` (Fall 2018) or `2257` (Fall 2025), `2` means the 2000s, so the year is
+  `2000 + int(str(term)[1:3])`. Never write `int(str(term)[0]) * 100 + 2000 + ...`, which
+  yields 2218 for `2187`. Every drafted `year_extractor` must return a year in the range the
+  source data plausibly covers; sanity-check your expression against the sampled values.
 - Mark all drafts as requiring human review
 
 For **date columns**:
@@ -467,6 +472,9 @@ For **opaque numeric codes** (e.g. `"1192"` with no visible year in the string):
 - Reason about positional structure from unique value samples
 - Draft `year_extractor` and `season_extractor` as single Python expressions
 - `season_extractor` output must match a `raw` key in `season_map`
+- A **leading century digit selects** the century — it is not arithmetic. For `2187` (Fall 2018)
+  the year is `2000 + int(str(term)[1:3])`; `int(str(term)[0]) * 100 + 2000 + ...` yields 2218
+  and is always wrong. Sanity-check the drafted expression against the sampled values.
 - Mark all drafts as requiring human review
 
 For **date columns**:

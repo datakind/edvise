@@ -928,6 +928,78 @@ def test_apply_term_order_split_year_datetime_coerced_from_strings():
     assert out["_edvise_term_academic_year"].iloc[1] == "2021-22"
 
 
+def _banner_term_config() -> TermOrderConfig:
+    return TermOrderConfig(
+        term_col="entry_term",
+        season_map=[
+            {"raw": "1", "canonical": "SPRING"},
+            {"raw": "4", "canonical": "SUMMER"},
+            {"raw": "7", "canonical": "FALL"},
+        ],
+        term_extraction="hook_required",
+        hook_spec=HookSpec(
+            file="identity_hooks/seminole/term_hooks.py",
+            functions=[
+                HookFunctionSpec(
+                    name="year_extractor_student", description="year", draft=None
+                ),
+                HookFunctionSpec(
+                    name="season_extractor_student", description="season", draft=None
+                ),
+            ],
+        ),
+    )
+
+
+def test_apply_term_order_raises_when_season_extraction_drops_every_row():
+    """A term code coerced to datetime ('2187' -> '2187-01-01') must fail, not empty the frame."""
+    df = pd.DataFrame({"entry_term": pd.to_datetime(["2187-01-01", "2254-01-01"])})
+    with pytest.raises(ValueError, match="Season extraction matched no rows"):
+        apply_term_order_from_config(
+            df,
+            _banner_term_config(),
+            year_extractor=lambda t: 2000 + int(str(t)[1:3]),
+            season_extractor=lambda t: str(t)[3:],
+        )
+
+
+def test_apply_term_order_raises_on_implausible_extracted_years():
+    """Century digit multiplied instead of selected: 2187 -> 2218 is never a real term year."""
+    df = pd.DataFrame({"entry_term": ["2187", "2254"]})
+    with pytest.raises(ValueError, match="no plausible years"):
+        apply_term_order_from_config(
+            df,
+            _banner_term_config(),
+            year_extractor=lambda t: int(str(t)[0]) * 100 + 2000 + int(str(t)[1:3]),
+            season_extractor=lambda t: str(t)[3:],
+        )
+
+
+def test_apply_term_order_accepts_correct_banner_century_expansion():
+    df = pd.DataFrame({"entry_term": ["2187", "2254"]})
+    out = apply_term_order_from_config(
+        df,
+        _banner_term_config(),
+        year_extractor=lambda t: 2000 + int(str(t)[1:3]),
+        season_extractor=lambda t: str(t)[3:],
+    )
+    assert list(out["_year"]) == [2018, 2025]
+    assert list(out["_edvise_term_season"]) == ["FALL", "SUMMER"]
+
+
+def test_apply_term_order_warns_when_only_some_years_implausible(caplog):
+    df = pd.DataFrame({"entry_term": ["2187", "2994"]})
+    with caplog.at_level(logging.WARNING):
+        out = apply_term_order_from_config(
+            df,
+            _banner_term_config(),
+            year_extractor=lambda t: 2000 + int(str(t)[1:3]),
+            season_extractor=lambda t: str(t)[3:],
+        )
+    assert list(out["_year"]) == [2018, 2099]
+    assert "outside" in caplog.text
+
+
 def test_apply_term_order_exclude_tokens_prefix():
     """HITL exclude_tokens: drop rows whose raw term values start with a listed prefix."""
     df = pd.DataFrame(

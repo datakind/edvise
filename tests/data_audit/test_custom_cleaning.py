@@ -454,6 +454,18 @@ def test_generate_column_training_dtype_calendar_year_strings_stay_int64():
     assert int(out.iloc[-1]) == 2025
 
 
+def test_generate_column_training_dtype_term_codes_above_year_range_stay_int64():
+    """Banner term codes (2187, 2257) must not be datetime-parsed into '2187-01-01'."""
+    opts = DtypeGenerationOptions()
+    s = pd.Series(
+        ["2187", "2191", "2211", "2254", "2257"] * 500,
+        name="entry_term",
+    )
+    out = generate_column_training_dtype(s, opts)
+    assert str(out.dtype) == "Int64"
+    assert sorted(out.unique().tolist()) == [2187, 2191, 2211, 2254, 2257]
+
+
 def test_generate_training_dtypes_calendar_year_column():
     df = pd.DataFrame(
         {

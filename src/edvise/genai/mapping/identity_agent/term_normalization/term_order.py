@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import importlib.util
 import logging
 import re
@@ -81,6 +82,9 @@ def _normalize_term_config_column_names(tc: dict) -> dict:
 # FALL and WINTER of year N belong to academic year N → N+1.
 # SPRING and SUMMER of year N belong to academic year N-1 → N.
 _ACADEMIC_YEAR_START_SEASONS = {"FALL", "WINTER"}
+# Extracted term years outside this window indicate a broken year extractor, not real data.
+_MIN_PLAUSIBLE_TERM_YEAR = 1900
+_PLAUSIBLE_TERM_YEAR_LOOKAHEAD = 10
 _ACADEMIC_YEAR_RANGE_RE = re.compile(
     r"^\s*(\d{4})\s*[-/\N{EN DASH}\N{EM DASH}]\s*(\d{2}|\d{4})\s*$"
 )
@@ -217,6 +221,64 @@ def _calendar_year_from_semantics(
     return year.where(~rolls_forward, other=year + 1)
 
 
+def _term_config_source_description(term_config: dict | None) -> str:
+    if not term_config:
+        return "term_config unavailable"
+    return (
+        f"term_col={term_config.get('term_col')!r} "
+        f"year_col={term_config.get('year_col')!r} "
+        f"season_col={term_config.get('season_col')!r} "
+        f"term_extraction={term_config.get('term_extraction')!r}"
+    )
+
+
+def _validate_extracted_years(
+    year: pd.Series,
+    term_config: dict | None,
+) -> None:
+    """
+    Raise when *every* extracted year is outside a plausible range.
+
+    A miscoded year extractor yields years that are non-null and therefore invisible to
+    :func:`_warn_if_term_order_all_null`, but still wrong — for example a Banner ``2187``
+    hook that multiplies the leading century digit instead of using it to select the
+    century produces 2218. Rows sort and label without error, silently misordered.
+    """
+    non_null = year.dropna()
+    if non_null.empty:
+        return
+
+    max_year = dt.date.today().year + _PLAUSIBLE_TERM_YEAR_LOOKAHEAD
+    out_of_range = non_null[
+        (non_null < _MIN_PLAUSIBLE_TERM_YEAR) | (non_null > max_year)
+    ]
+    if out_of_range.empty:
+        return
+
+    samples = sorted({int(v) for v in out_of_range.unique()})[:8]
+    source = _term_config_source_description(term_config)
+    if len(out_of_range) < len(non_null):
+        logger.warning(
+            "Term year extraction produced %d of %d row(s) outside %d-%d (%s). "
+            "Sample out-of-range years: %s.",
+            len(out_of_range),
+            len(non_null),
+            _MIN_PLAUSIBLE_TERM_YEAR,
+            max_year,
+            source,
+            samples,
+        )
+        return
+
+    raise ValueError(
+        f"Term year extraction produced no plausible years: all {len(non_null)} row(s) "
+        f"fall outside {_MIN_PLAUSIBLE_TERM_YEAR}-{max_year} ({source}). "
+        f"Sample extracted years: {samples}. Check the year extractor — for coded terms "
+        "such as 2187 the leading digit selects the century (2 -> 2000s) rather than being "
+        "added to the year, so the year is 2000 + int(term[1:3]), not century_digit * 100 + 2000."
+    )
+
+
 def _finalize_season_year_order(
     out: pd.DataFrame,
     season_norm: pd.Series,
@@ -226,6 +288,7 @@ def _finalize_season_year_order(
     raw_to_canonical: dict[str, str] | None = None,
     year_semantics: str | None = None,
     academic_year_range: pd.Series | None = None,
+    term_config: dict | None = None,
 ) -> pd.DataFrame:
     out = out.copy()
     out[cols.season] = season_norm.astype("string")
@@ -234,12 +297,22 @@ def _finalize_season_year_order(
     valid = set(raw_to_rank.keys())
     unexpected = found - valid
     if unexpected:
+        mask = season_norm.isin(valid)
+        if len(out) > 0 and not bool(mask.any()):
+            raise ValueError(
+                f"Season extraction matched no rows: all {len(out)} row(s) produced a token "
+                f"outside season_map, so term ordering would drop the entire dataset. "
+                f"Unexpected tokens: {sorted(str(t) for t in unexpected)[:8]}. "
+                f"season_map raw keys: {sorted(valid)} ({_term_config_source_description(term_config)}). "
+                "Check that the season extractor returns a season_map raw key, and that the "
+                "source column kept its original dtype — a bare 4-digit term code coerced to "
+                "datetime becomes '2187-01-01', so positional slicing returns '7-01-01'."
+            )
         logger.warning(
             "Unexpected season tokens: %s. Filtering to valid: %s",
             unexpected,
             valid,
         )
-        mask = season_norm.isin(valid)
         out = out[mask]
         season_norm = season_norm[mask]
 
@@ -250,6 +323,7 @@ def _finalize_season_year_order(
         year_semantics,
         academic_year_range=academic_year_range,
     )
+    _validate_extracted_years(out[cols.year], term_config)
 
     season_rank = season_norm.map(raw_to_rank).astype("Int64")
     out[cols.term_order] = (out[cols.year] * 100 + season_rank).astype("Int64")
@@ -428,6 +502,7 @@ def add_edvise_term_order(
             raw_to_canonical=raw_to_canonical,
             year_semantics=year_semantics,
             academic_year_range=academic_year_range,
+            term_config=term_config,
         )
         ordered = _add_term_grain(ordered, cols)
         labeled = add_edvise_term_labels(ordered, term_config, columns=cols)
@@ -466,6 +541,7 @@ def add_edvise_term_order(
         cols,
         raw_to_canonical=raw_to_canonical,
         year_semantics=year_semantics,
+        term_config=term_config,
     )
     ordered = _add_term_grain(ordered, cols)
     labeled = add_edvise_term_labels(ordered, term_config, columns=cols)
