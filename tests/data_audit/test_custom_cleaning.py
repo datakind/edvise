@@ -245,6 +245,13 @@ def test_clean_dataset_dedupe_fn_and_pk_dedupe():
     assert out.sort_values("id")["x"].tolist() == [11, 20]
 
 
+def test_clean_dataset_raises_when_output_is_empty():
+    df = pd.DataFrame({"id": [1, 2], "a": [pd.NA, pd.NA]})
+    spec = CleanSpec(non_null_columns=["a"], unique_keys=["id"])
+    with pytest.raises(ValueError, match="produced 0 rows"):
+        clean_dataset(df, spec, dataset_name="student")
+
+
 def test_clean_dataset_raises_when_primary_key_not_unique_after_cleaning():
     df = pd.DataFrame({"id": [1, 1], "x": [10, 11]})
     spec = CleanSpec(unique_keys=["id"])

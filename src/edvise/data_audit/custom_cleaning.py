@@ -660,6 +660,7 @@ def clean_dataset(
             else (cleaning_cfg.student_id_alias if cleaning_cfg else None),
         )
     g = df.copy()
+    n_in = len(g)
 
     # 1) normalize column names
     spec._orig_cols_ = list(g.columns)
@@ -813,6 +814,16 @@ def clean_dataset(
             spec.term_column,
         )
         g = spec.term_order_fn(g, spec.term_column)
+
+    if g.empty:
+        label = dataset_name or "dataset"
+        raise ValueError(
+            f"{label} - clean_dataset produced 0 rows (started with {n_in} row(s)). "
+            "Refusing to write an empty cleaned dataset. Typical causes: every row "
+            "failed a required-column drop, exclude_tokens, or term-order season "
+            "filtering (for example a 4-digit term code coerced to datetime so "
+            "positional season extraction no longer matches season_map)."
+        )
 
     return g
 
