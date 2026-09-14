@@ -1,3 +1,6 @@
+## 1.14.2 (2026-09-14)
+- fix(genai): student grain HITL and academic-year range term order (#331)
+
 ## 1.14.1 (2026-09-11)
 - refactor: move sftp helpers into ingestion/nsc_sftp (#317)
 - fix(pdp): resolve misjoin merge key for API-validated inference inputs (#328)
