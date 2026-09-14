@@ -66,15 +66,6 @@ ALLOWED_LETTER_GRADES = {
 }
 
 
-def is_valid_grade_series(series: pd.Series) -> pd.Series:
-    """True for ALLOWED_LETTER_GRADES, numeric GPA in [0, 4], or missing/blank."""
-    s = grade_series_normalized(series)
-    gpa = pd.to_numeric(s, errors="coerce")
-    return (
-        s.isna() | s.eq("") | s.isin(ALLOWED_LETTER_GRADES) | gpa.between(0.0, 4.0)
-    ).fillna(False)
-
-
 CreditsField = ft.partial(pda.Field, nullable=False, ge=0.0)
 
 # Manifest + SMA execution: these target keys must map (ENTITY_GRAIN in
@@ -250,8 +241,15 @@ class RawEdviseCourseDataSchema(pda.DataFrameModel):
     @pda.check("grade", name="valid_grade")
     @classmethod
     def grade_is_valid(cls, series: pd.Series) -> pd.Series:
-        """Letter/status grades, numeric [0.0, 4.0], or missing/blank."""
-        return is_valid_grade_series(series)
+        """
+        Accept letter/status grades from ALLOWED_LETTER_GRADES, numeric
+        values in [0.0, 4.0], or missing/blank grades.
+        """
+        s = grade_series_normalized(series)
+        gpa = pd.to_numeric(s, errors="coerce")
+        return (
+            s.isna() | s.eq("") | s.isin(ALLOWED_LETTER_GRADES) | gpa.between(0.0, 4.0)
+        ).fillna(False)
 
     @classmethod
     def validate(
