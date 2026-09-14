@@ -94,12 +94,6 @@ def test_course_id(df, prefix_col, number_col, exp):
             2.0,
             pd.Series([True, False, True, False, True, pd.NA, pd.NA], dtype="boolean"),
         ),
-        (
-            pd.DataFrame({"grade": ["4", "<NA>", "", "nan"]}, dtype="string"),
-            "grade",
-            1.0,
-            pd.Series([True, pd.NA, pd.NA, pd.NA], dtype="boolean"),
-        ),
     ],
 )
 def test_course_passed(df, col, min_passing_grade, exp):

@@ -220,13 +220,8 @@ def _grade_is_passing(grade: str, min_passing_grade: float) -> bool | None:
         return True
     elif grade == "F":
         return False
-    try:
-        value = float(grade)
-    except (TypeError, ValueError):
-        return None
-    if np.isnan(value):
-        return None
-    return value >= min_passing_grade
+    else:
+        return float(grade) >= min_passing_grade
 
 
 def convert_number_of_courses_cols_to_term_flag_cols(df, col_prefix, orig_col):

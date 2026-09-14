@@ -247,15 +247,9 @@ class RawEdviseCourseDataSchema(pda.DataFrameModel):
         """
         s = grade_series_normalized(series)
         gpa = pd.to_numeric(s, errors="coerce")
-        # Spark/toPandas and astype(str) stringify nulls as "<NA>" / "NAN".
-        missing = (
-            series.isna()
-            | s.isna()
-            | s.eq("")
-            | s.isin(["<NA>", "NAN", "NONE", "NULL"])
-        )
-        valid = s.isin(ALLOWED_LETTER_GRADES) | gpa.between(0.0, 4.0)
-        return (missing | valid).fillna(False)
+        return (
+            s.isna() | s.isin(ALLOWED_LETTER_GRADES) | gpa.between(0.0, 4.0)
+        ).fillna(False)
 
     @classmethod
     def validate(

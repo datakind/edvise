@@ -528,6 +528,7 @@ def test_raw_edvise_course_schema_null_grade_passes(grade: object) -> None:
     df["grade"] = df["grade"].astype("string")
     validated_df = RawEdviseCourseDataSchema.validate(df, lazy=True)
     assert len(validated_df) == 1
+    assert pd.isna(validated_df["grade"].iloc[0])
 
 
 def test_raw_edvise_course_schema_bad_grade_fails() -> None:
