@@ -237,26 +237,17 @@ class RawEdviseCourseDataSchema(pda.DataFrameModel):
     # ------------------------------------------------------------------ #
     # Custom checks
     # ------------------------------------------------------------------ #
-    @pda.check("grade", name="valid_grade")
+    @pda.check("grade", name="valid_grade", ignore_na=False)
     @classmethod
     def grade_is_valid(cls, series: pd.Series) -> pd.Series:
         """
         Accept letter/status grades from ALLOWED_LETTER_GRADES or any numeric
-        float in [0.0, 4.0] (e.g. "3.5", "2.0", "0").
+        float in [0.0, 4.0] (e.g. "3.5", "2.0", "0"). Missing grades are valid.
         """
-
-        def _is_valid(val: str) -> bool:
-            if pd.isna(val):
-                return True
-            s = str(val).strip().upper()
-            if s in ALLOWED_LETTER_GRADES:
-                return True
-            try:
-                return 0.0 <= float(s) <= 4.0
-            except (ValueError, TypeError):
-                return False
-
-        return series.apply(_is_valid)
+        gpa = pd.to_numeric(series, errors="coerce")
+        return (
+            series.isna() | series.isin(ALLOWED_LETTER_GRADES) | gpa.between(0.0, 4.0)
+        ).fillna(False)
 
     @classmethod
     def validate(
