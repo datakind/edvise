@@ -41,6 +41,10 @@ ES_DUMMY_FEATURES_MAPPED_TO_PDP = (
     "num_courses_instructional_modality_face_to_face_and_online",
     "num_courses_instructional_modality_online_internet_or_web",
     "num_courses_instructional_modality_web_based",
+    "num_courses_instructor_appointment_status_full_time",
+    "num_courses_instructor_appointment_status_adjunct",
+    "num_courses_gateway_or_developmental_flag_developmental",
+    "frac_courses_gen_ed_flag_yes",
 )
 
 

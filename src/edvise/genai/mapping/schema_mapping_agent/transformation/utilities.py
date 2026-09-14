@@ -28,8 +28,11 @@ import numpy as np
 import pandas as pd
 
 from edvise.data_audit.custom_cleaning import _cast_series_to_nullable_dtype
-from edvise.data_audit.instructional_modality_map import (
+from edvise.data_audit.es_categorical_map import (
+    gateway_flag_series_to_pdp,
     instructional_modality_series_to_pdp,
+    instructor_appointment_series_to_pdp,
+    yes_no_series_to_pdp,
 )
 from edvise.data_audit.schemas._edvise_shared import (
     credential_degree_series_to_canonical,
@@ -311,6 +314,42 @@ def normalize_instructional_modality(s: pd.Series) -> pd.Series:
     only for leftover institution-specific codes.
     """
     return instructional_modality_series_to_pdp(s)
+
+
+def normalize_instructor_appointment(s: pd.Series) -> pd.Series:
+    """
+    Normalize instructor_appointment_status to PDP FT/PT.
+
+    Input:  "Full Time", "adjunct", "PT"
+    Output: "FT",        "PT",      "PT"
+
+    Unmapped values → pd.NA. Prefer this over map_values for common synonyms.
+    """
+    return instructor_appointment_series_to_pdp(s)
+
+
+def normalize_gateway_or_developmental_flag(s: pd.Series) -> pd.Series:
+    """
+    Normalize gateway_or_developmental_flag to PDP E/M/NA.
+
+    Input:  "Gateway English", "gateway_math", "developmental"
+    Output: "E",               "M",            "NA"
+
+    Unmapped values → pd.NA. Prefer this over map_values for common synonyms.
+    """
+    return gateway_flag_series_to_pdp(s)
+
+
+def normalize_yes_no(s: pd.Series) -> pd.Series:
+    """
+    Normalize Y/N-like ES flags (gen_ed_flag, prerequisite_flag, intent_to_transfer_flag).
+
+    Input:  "Yes", "true", "N"
+    Output: "Y",   "Y",    "N"
+
+    Unmapped values → pd.NA.
+    """
+    return yes_no_series_to_pdp(s)
 
 
 def normalize_credential(s: pd.Series) -> pd.Series:

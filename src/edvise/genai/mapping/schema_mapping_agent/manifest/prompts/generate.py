@@ -142,6 +142,23 @@ _RAW_EDVISE_COURSE_FIELD_SEMANTIC_NOTES: dict[str, str] = {
         "or H (hybrid / blended / face-to-face and online). NOT the structural format "
         "(lecture vs lab); that is instructional_format."
     ),
+    "instructor_appointment_status": (
+        "Instructor employment status. Canonicalize to PDP FT (full-time / tenured) "
+        "or PT (part-time / adjunct)."
+    ),
+    "gateway_or_developmental_flag": (
+        "Whether the course is a math or English gateway. Canonicalize to PDP E "
+        "(English gateway), M (math gateway), or NA (not a gateway / developmental)."
+    ),
+    "gen_ed_flag": (
+        "Whether the course counts as general education / core. Canonicalize to Y/N."
+    ),
+    "prerequisite_flag": (
+        "Whether the course has a prerequisite. Canonicalize to Y/N."
+    ),
+    "intent_to_transfer_flag": (
+        "Whether the student intends to transfer this term. Canonicalize to Y/N."
+    ),
 }
 
 

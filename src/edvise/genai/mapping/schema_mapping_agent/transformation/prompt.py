@@ -531,8 +531,8 @@ STEP ORDERING
   not after. The map keys must match the values that actually arrive at that step.
 - Apply type casting steps (cast_string, cast_nullable_int, etc.) after value transformations
   unless an earlier step requires a specific type as input
-- Apply domain-specific normalization (normalize_grade, normalize_instructional_modality, etc.) as needed; canonical term season and academic year come from IdentityAgent `_edvise_term_*` columns (or other manifest-listed IA term columns), not SMA string parsers
-- For ``instructional_modality``, prefer ``normalize_instructional_modality`` (maps common synonyms to F/O/H). Use ``map_values`` + HITL only for leftover institution-specific codes the platform map does not cover
+- Apply domain-specific normalization (normalize_grade, normalize_instructional_modality, normalize_instructor_appointment, normalize_gateway_or_developmental_flag, normalize_yes_no, etc.) as needed; canonical term season and academic year come from IdentityAgent `_edvise_term_*` columns (or other manifest-listed IA term columns), not SMA string parsers
+- For ES closed categoricals, prefer the platform normalizer over ``map_values``: ``instructional_modality`` → F/O/H, ``instructor_appointment_status`` → FT/PT, ``gateway_or_developmental_flag`` → E/M/NA, ``gen_ed_flag`` / ``prerequisite_flag`` / ``intent_to_transfer_flag`` → Y/N. Use ``map_values`` + HITL only for leftover institution-specific codes the platform map does not cover
 
 {_step2b_confidence_and_hitl_rules()}
 {_step2b_cohort_entry_term_transformation_rules()}
