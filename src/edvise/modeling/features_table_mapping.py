@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import fields
 from functools import lru_cache
 
-from edvise.configs.schema_type import is_edvise_schema
+from edvise.shared.schema_type import is_edvise_schema
 from edvise.feature_generation.column_names import (
     CohortInputColumns,
     CourseInputColumns,

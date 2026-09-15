@@ -1,7 +1,7 @@
 """Merge checkpoint, selection, and target data; cleanup; splits and sample weights.
 
 Supports PDP and Edvise ES project configs. ``--schema_type`` selects the config
-class (see :mod:`edvise.configs.schema_type`).
+class (see :mod:`edvise.shared.schema_type`).
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ print("Repo root:", repo_root)
 print("src_path:", src_path)
 print("sys.path:", sys.path)
 
-from edvise.configs.schema_type import project_config_class
+from edvise.shared.schema_type import project_config_class
 from edvise.dataio.read import read_config, read_parquet
 from edvise.dataio.write import write_parquet
 from edvise.model_prep import cleanup_features as cleanup, training_params
