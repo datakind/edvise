@@ -72,6 +72,15 @@ class CheckpointsTask:
         cp = preprocessing_cfg.checkpoint
         student_id_col: str = self.cfg.student_id_col
 
+        # Narrow away legacy CheckpointConfig (no sort_cols/include_cols/type_).
+        if not isinstance(
+            cp, (pdp_cfg.CheckpointBaseConfig, es_cfg.CheckpointBaseConfig)
+        ):
+            raise ValueError(
+                f"Unsupported checkpoint config type: {type(cp).__name__!r}. "
+                "checkpoints.py supports PDP/ES checkpoint configs only."
+            )
+
         sort_cols = cp.sort_cols
         include_cols = cp.include_cols
 
