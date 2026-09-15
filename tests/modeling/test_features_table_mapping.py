@@ -32,6 +32,31 @@ def test_build_es_to_pdp_feature_token_map_includes_course_and_cohort_tokens():
             "num_courses_delivery_method_f",
         ),
         (
+            "num_courses_instructional_modality_hybrid",
+            "edvise",
+            "num_courses_delivery_method_h",
+        ),
+        (
+            "num_courses_instructional_modality_online",
+            "edvise",
+            "num_courses_delivery_method_o",
+        ),
+        (
+            "num_courses_instructional_modality_face_to_face_and_online",
+            "edvise",
+            "num_courses_delivery_method_h",
+        ),
+        (
+            "num_courses_instructional_modality_online_internet_or_web",
+            "edvise",
+            "num_courses_delivery_method_o",
+        ),
+        (
+            "num_courses_instructional_modality_web_based",
+            "edvise",
+            "num_courses_delivery_method_o",
+        ),
+        (
             "frac_courses_gen_ed_flag_y",
             "edvise",
             "frac_courses_core_course_y",

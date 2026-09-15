@@ -28,6 +28,10 @@ from edvise.genai.mapping.identity_agent.hitl.schemas import (
 from edvise.genai.mapping.identity_agent.term_normalization.prompt import (
     parse_institution_term_contracts_with_hitl,
 )
+from edvise.genai.mapping.identity_agent.profiling.schemas import (
+    RawColumnProfile,
+    RawTableProfile,
+)
 from edvise.genai.mapping.identity_agent.term_normalization.schemas import (
     InstitutionTermContract,
     TermContract,
@@ -285,11 +289,6 @@ def test_raise_term_semantic_validation_error_if_any_raises_validation_error():
 
 
 def test_build_parse_rejects_st_thomas_bad_course_with_profile():
-    from edvise.genai.mapping.identity_agent.profiling.schemas import (
-        RawColumnProfile,
-        RawTableProfile,
-    )
-
     inst = InstitutionTermContract(
         institution_id="st_thomas_uni",
         datasets={"course": _st_thomas_bad_course_contract()},
@@ -339,6 +338,73 @@ def test_build_parse_rejects_st_thomas_bad_course_with_profile():
     )
     with pytest.raises(ValidationError):
         parse_fn(json.dumps(payload))
+
+
+def _combined_standard_term_with_profile(
+    values: list[str],
+) -> tuple[InstitutionTermContract, dict[str, dict[str, object]]]:
+    contract = TermContract(
+        institution_id=INST,
+        table="course",
+        term_config=TermOrderConfig(
+            term_col="academic_term",
+            season_map=[
+                {"raw": "SP", "canonical": "SPRING"},
+                {"raw": "SU", "canonical": "SUMMER"},
+                {"raw": "FA", "canonical": "FALL"},
+            ],
+            term_extraction="standard",
+            year_semantics="calendar_literal",
+        ),
+        confidence=0.85,
+        hitl_flag=False,
+        reasoning="combined term",
+    )
+    profile = RawTableProfile(
+        institution_id=INST,
+        dataset="course",
+        row_count=len(values),
+        column_count=1,
+        columns=[
+            RawColumnProfile(
+                name="academic_term",
+                dtype="string",
+                null_rate=0.0,
+                null_rate_including_tokens=0.0,
+                unique_count=len(set(values)),
+                unique_values=values,
+                sample_values=values,
+            )
+        ],
+    )
+    return (
+        InstitutionTermContract(
+            institution_id=INST,
+            datasets={"course": contract},
+        ),
+        {"course": {"raw_table_profile": profile}},
+    )
+
+
+def test_semantic_validation_rejects_standard_two_digit_year_terms():
+    inst, run_by_dataset = _combined_standard_term_with_profile(
+        ["FA19", "SP20", "SU20", "FA25"]
+    )
+
+    errors = collect_term_semantic_validation_errors(inst, run_by_dataset)
+
+    assert len(errors) == 1
+    assert "contain no 4-digit year substring" in errors[0]
+    assert "FA19" in errors[0]
+    assert "hook_required" in errors[0]
+
+
+def test_semantic_validation_allows_standard_four_digit_year_terms():
+    inst, run_by_dataset = _combined_standard_term_with_profile(
+        ["2019FA", "2020SP", "2020SU"]
+    )
+
+    assert collect_term_semantic_validation_errors(inst, run_by_dataset) == []
 
 
 def _minimal_term_config(*, season_map: list[dict[str, str]]) -> TermOrderConfig:

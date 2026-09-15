@@ -38,6 +38,9 @@ ES_DUMMY_FEATURES_MAPPED_TO_PDP = (
     "cumfrac_num_courses_course_grade_s",
     "cumfrac_num_courses_course_grade_u",
     "frac_courses_gateway_or_developmental_flag_gateway_english",
+    "num_courses_instructional_modality_face_to_face_and_online",
+    "num_courses_instructional_modality_online_internet_or_web",
+    "num_courses_instructional_modality_web_based",
 )
 
 

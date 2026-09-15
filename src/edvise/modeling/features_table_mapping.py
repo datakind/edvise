@@ -39,6 +39,15 @@ _ES_DUMMY_VALUE_ALIASES: dict[str, str] = {
     "ip": "i",
     "nr": "m",
     "ng": "m",
+    "hybrid": "h",
+    "online": "o",
+    "in_person": "f",
+    "face_to_face": "f",
+    "f2f": "f",
+    # Instructional_modality suffixes. Add more as other ES schools send values.
+    "face_to_face_and_online": "h",
+    "online_internet_or_web": "o",
+    "web_based": "o",
 }
 
 # Edvise-only columns that pass through to the modeling dataset (see ESCleanup).

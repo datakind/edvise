@@ -36,7 +36,7 @@ from edvise.ingestion.nsc_sftp.constants import (
     SFTP_VERIFY_DOWNLOAD,
 )
 from edvise.utils.data_cleaning import convert_to_snake_case, detect_institution_column
-from edvise.utils.sftp import download_sftp_atomic
+from edvise.ingestion.nsc_sftp.sftp import download_sftp_atomic
 
 LOGGER = logging.getLogger(__name__)
 

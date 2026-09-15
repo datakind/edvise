@@ -10,9 +10,9 @@ if TYPE_CHECKING:
         InstitutionTermContract,
     )
 
-_CALENDAR_MONTH_RAWS = {f"{m:02d}" for m in range(1, 13)} | {
-    str(m) for m in range(1, 13)
-}
+# YYYYMM fragments use zero-padded months. Unpadded digits (1/4/7) are typical
+# Banner-style season codes on opaque terms like 2187, not calendar months.
+_PADDED_CALENDAR_MONTH_RAWS = {f"{m:02d}" for m in range(1, 13)}
 _SPELLED_SEASON_RAWS = {"fall", "spring", "summer", "winter"}
 _YEAR_SEMANTICS_VALUES = frozenset({"calendar_literal", "academic_year_prefix"})
 
@@ -43,8 +43,11 @@ def term_config_needs_year_semantics_review(term_cfg: dict[str, Any] | None) -> 
     """
     Return True when the reviewer must confirm ``term_config.year_semantics``.
 
-    Orthogonal to ``term_extraction == hook_required``: datetime hook columns return False;
-    compact ``YYYYPP`` / ``YYYY-NN`` period codes and YYYY+suffix encodings return True.
+    Orthogonal to ``term_extraction == hook_required``: datetime hook columns and
+    YYYYMM month-fragment encodings return False (calendar year is unambiguous).
+    Coded years return True when ``year_semantics`` is still unset: compact
+    ``YYYYPP`` / ``YYYY-NN`` period codes, YYYY+suffix encodings, two-digit
+    season+year tokens (``FA19``, ``19FA``), and opaque numeric term codes.
     """
     if not term_cfg:
         return False
@@ -67,13 +70,13 @@ def term_config_needs_year_semantics_review(term_cfg: dict[str, Any] | None) -> 
             return False
         if "strftime" in season_draft or "%b" in season_draft or "%B" in season_draft:
             return False
-        if raws and raws <= _CALENDAR_MONTH_RAWS:
+        if raws and raws <= _PADDED_CALENDAR_MONTH_RAWS:
             return False
-        if "[:4]" in year_draft and (
-            (raws and not raws <= _CALENDAR_MONTH_RAWS) or "[4:6]" in season_draft
-        ):
-            return True
-        return False
+        if raws and {r.lower() for r in raws} <= _SPELLED_SEASON_RAWS:
+            return False
+        # Remaining hooks extract a coded year (YYYY+suffix, YYYYPP, FA19 / 19FA,
+        # opaque numeric terms). Calendar vs academic-year-start is ambiguous.
+        return True
 
     if extraction == "standard" and raws:
         if {r.lower() for r in raws} <= _SPELLED_SEASON_RAWS:
@@ -148,7 +151,8 @@ def collect_term_year_semantics_hitl_coverage_errors(
             continue
         errors.append(
             f"dataset {table!r}: term_config uses a coded year prefix (YYYY+suffix, "
-            "YYYY-NN / YYYYPP period codes, or split year + period-code columns) but "
+            "two-digit season+year such as FA19, YYYY-NN / YYYYPP period codes, "
+            "opaque numeric terms, or split year + period-code columns) but "
             "hitl_items has no covering reentry='terminal' year_semantics item. Emit a "
             "separate HITLItem for this table (or its hook_group_tables) whose options "
             "set year_semantics to calendar_literal and academic_year_prefix — "
