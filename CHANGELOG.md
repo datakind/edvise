@@ -1,3 +1,12 @@
+## 1.14.4 (2026-09-15)
+- fix(es): map other instructional_modality dummies onto existing feature-table keys (#340)
+
+## 1.14.3 (2026-09-14)
+- fix: accept missing grades in Edvise valid_grade check (#335)
+
+## 1.14.2 (2026-09-14)
+- fix(genai): student grain HITL and academic-year range term order (#331)
+
 ## 1.14.1 (2026-09-11)
 - refactor: move sftp helpers into ingestion/nsc_sftp (#317)
 - fix(pdp): resolve misjoin merge key for API-validated inference inputs (#328)
