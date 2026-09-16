@@ -26,8 +26,8 @@ def test_es_only_columns_defined_in_features_table(feature_table_data, feature_c
     assert is_feature_defined_in_table(feature_col, feature_table_data)
 
 
-# ES dummy names from the training failure, resolved via PDP features-table keys.
-ES_DUMMY_FEATURES_MAPPED_TO_PDP = (
+# ES dummy names from the training failure plus unseen values handled by family regexes.
+ES_DUMMY_FEATURES = (
     "num_courses_course_grade_s",
     "num_courses_course_grade_u",
     "frac_courses_course_grade_nr",
@@ -41,10 +41,24 @@ ES_DUMMY_FEATURES_MAPPED_TO_PDP = (
     "num_courses_instructional_modality_face_to_face_and_online",
     "num_courses_instructional_modality_online_internet_or_web",
     "num_courses_instructional_modality_web_based",
+    "num_courses_instructional_modality_fully_online",
+    "num_courses_instructional_modality_hybrid_asynchronous",
+    "num_courses_instructional_modality_hybrid_synchronous",
+    "num_courses_instructional_modality_online_asynchronous",
+    "num_courses_instructional_modality_online_mix",
+    "num_courses_instructional_modality_online_synchronous",
+    "num_courses_instructional_modality_web_enhanced",
+    "cumfrac_num_courses_instructional_modality_online_that_is_hybrid",
+    "num_courses_gateway_or_developmental_flag_no",
+    "frac_courses_gateway_or_developmental_flag_no",
+    "cumfrac_num_courses_gateway_or_developmental_flag_no",
+    "num_courses_instructional_modality_hyflex_synchronous",
+    "frac_courses_course_grade_not_reported_by_source",
+    "cumfrac_num_courses_instructor_appointment_status_visiting_professor",
 )
 
 
-@pytest.mark.parametrize("feature_col", ES_DUMMY_FEATURES_MAPPED_TO_PDP)
+@pytest.mark.parametrize("feature_col", ES_DUMMY_FEATURES)
 def test_es_dummy_features_resolve_to_pdp_features_table(
     feature_table_data, feature_col
 ):

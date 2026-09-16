@@ -1,7 +1,7 @@
 """Student selection for SST pipeline (PDP or Edvise ES configs).
 
 ``--schema_type`` selects the project config model (see
-:mod:`edvise.configs.schema_type`).
+:mod:`edvise.shared.schema_type`).
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ print("src_path:", src_path)
 print("sys.path:", sys.path)
 
 from edvise import student_selection
-from edvise.configs.schema_type import project_config_class
+from edvise.shared.schema_type import project_config_class
 from edvise.dataio.read import read_config
 from edvise.shared.logger import (
     local_fs_path,

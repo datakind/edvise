@@ -28,7 +28,7 @@ from pyspark.sql import SparkSession
 from mlflow.tracking import MlflowClient
 
 from edvise import configs, modeling, dataio
-from edvise.configs.schema_type import project_config_class
+from edvise.shared.schema_type import project_config_class
 from edvise.modeling.h2o_ml import utils as h2o_utils
 from edvise.reporting.model_card.base import ModelCard
 from edvise.reporting.model_card.h2o_pdp import H2OPDPModelCard
