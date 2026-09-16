@@ -66,6 +66,19 @@ _ES_DUMMY_VALUE_ALIASES: dict[str, str] = {
     "online_synchronous": "o",
     "online_that_is_hybrid": "h",
     "web_enhanced": "f",
+    # Instructor appointment suffixes. Add more as other ES schools send values.
+    "adjunct_assistant_professor": "pt",
+    "adjunct_instructor": "pt",
+    "adjunct_professor": "pt",
+    "teaching_assistant": "pt",
+    "research_assistant_professor": "ft",
+    "visiting_assistant_professor": "ft",
+    "visiting_research_asst_prof": "ft",
+    "visiting_professor": "ft",
+    "assistant_professor": "ft",
+    "associate_professor": "ft",
+    "instructor": "ft",
+    "professor": "ft",
 }
 
 # Edvise-only columns that pass through to the modeling dataset (see ESCleanup).

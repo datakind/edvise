@@ -102,6 +102,66 @@ def test_build_es_to_pdp_feature_token_map_includes_course_and_cohort_tokens():
             "num_courses_math_or_english_gateway_na",
         ),
         (
+            "num_courses_instructor_appointment_status_adjunct_assistant_professor",
+            "edvise",
+            "num_courses_course_instructor_employment_status_pt",
+        ),
+        (
+            "num_courses_instructor_appointment_status_adjunct_instructor",
+            "edvise",
+            "num_courses_course_instructor_employment_status_pt",
+        ),
+        (
+            "num_courses_instructor_appointment_status_adjunct_professor",
+            "edvise",
+            "num_courses_course_instructor_employment_status_pt",
+        ),
+        (
+            "num_courses_instructor_appointment_status_teaching_assistant",
+            "edvise",
+            "num_courses_course_instructor_employment_status_pt",
+        ),
+        (
+            "num_courses_instructor_appointment_status_assistant_professor",
+            "edvise",
+            "num_courses_course_instructor_employment_status_ft",
+        ),
+        (
+            "num_courses_instructor_appointment_status_associate_professor",
+            "edvise",
+            "num_courses_course_instructor_employment_status_ft",
+        ),
+        (
+            "num_courses_instructor_appointment_status_instructor",
+            "edvise",
+            "num_courses_course_instructor_employment_status_ft",
+        ),
+        (
+            "num_courses_instructor_appointment_status_professor",
+            "edvise",
+            "num_courses_course_instructor_employment_status_ft",
+        ),
+        (
+            "num_courses_instructor_appointment_status_research_assistant_professor",
+            "edvise",
+            "num_courses_course_instructor_employment_status_ft",
+        ),
+        (
+            "num_courses_instructor_appointment_status_visiting_assistant_professor",
+            "edvise",
+            "num_courses_course_instructor_employment_status_ft",
+        ),
+        (
+            "num_courses_instructor_appointment_status_visiting_professor",
+            "edvise",
+            "num_courses_course_instructor_employment_status_ft",
+        ),
+        (
+            "num_courses_instructor_appointment_status_visiting_research_asst_prof",
+            "edvise",
+            "num_courses_course_instructor_employment_status_ft",
+        ),
+        (
             "frac_courses_gen_ed_flag_no",
             "edvise",
             "frac_courses_core_course_no",

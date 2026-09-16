@@ -52,6 +52,18 @@ ES_DUMMY_FEATURES_MAPPED_TO_PDP = (
     "num_courses_gateway_or_developmental_flag_no",
     "frac_courses_gateway_or_developmental_flag_no",
     "cumfrac_num_courses_gateway_or_developmental_flag_no",
+    "num_courses_instructor_appointment_status_adjunct_assistant_professor",
+    "num_courses_instructor_appointment_status_adjunct_instructor",
+    "num_courses_instructor_appointment_status_adjunct_professor",
+    "num_courses_instructor_appointment_status_assistant_professor",
+    "num_courses_instructor_appointment_status_associate_professor",
+    "num_courses_instructor_appointment_status_instructor",
+    "num_courses_instructor_appointment_status_professor",
+    "num_courses_instructor_appointment_status_research_assistant_professor",
+    "num_courses_instructor_appointment_status_teaching_assistant",
+    "num_courses_instructor_appointment_status_visiting_assistant_professor",
+    "num_courses_instructor_appointment_status_visiting_professor",
+    "num_courses_instructor_appointment_status_visiting_research_asst_prof",
 )
 
 
