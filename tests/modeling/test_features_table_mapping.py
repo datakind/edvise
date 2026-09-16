@@ -57,6 +57,56 @@ def test_build_es_to_pdp_feature_token_map_includes_course_and_cohort_tokens():
             "num_courses_delivery_method_o",
         ),
         (
+            "num_courses_instructional_modality_fully_online",
+            "edvise",
+            "num_courses_delivery_method_o",
+        ),
+        (
+            "num_courses_instructional_modality_hybrid_asynchronous",
+            "edvise",
+            "num_courses_delivery_method_h",
+        ),
+        (
+            "num_courses_instructional_modality_hybrid_synchronous",
+            "edvise",
+            "num_courses_delivery_method_h",
+        ),
+        (
+            "num_courses_instructional_modality_online_asynchronous",
+            "edvise",
+            "num_courses_delivery_method_o",
+        ),
+        (
+            "num_courses_instructional_modality_online_mix",
+            "edvise",
+            "num_courses_delivery_method_o",
+        ),
+        (
+            "num_courses_instructional_modality_online_synchronous",
+            "edvise",
+            "num_courses_delivery_method_o",
+        ),
+        (
+            "cumfrac_num_courses_instructional_modality_online_that_is_hybrid",
+            "edvise",
+            "cumfrac_num_courses_delivery_method_h",
+        ),
+        (
+            "num_courses_instructional_modality_web_enhanced",
+            "edvise",
+            "num_courses_delivery_method_f",
+        ),
+        (
+            "num_courses_gateway_or_developmental_flag_no",
+            "edvise",
+            "num_courses_math_or_english_gateway_na",
+        ),
+        (
+            "frac_courses_gen_ed_flag_no",
+            "edvise",
+            "frac_courses_core_course_no",
+        ),
+        (
             "frac_courses_gen_ed_flag_y",
             "edvise",
             "frac_courses_core_course_y",

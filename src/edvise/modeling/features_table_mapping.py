@@ -22,6 +22,16 @@ from edvise.feature_generation.column_names import (
 _ES_EXACT_COLUMN_ALIASES: dict[str, str] = {
     "pell_recipient_year_1": "student_is_pell_recipient_first_year",
     "pell_recipient_year1": "student_is_pell_recipient_first_year",
+    # Whole-column: a trailing "_no" dummy alias would also rewrite gen-ed Y/N.
+    "num_courses_gateway_or_developmental_flag_no": (
+        "num_courses_math_or_english_gateway_na"
+    ),
+    "frac_courses_gateway_or_developmental_flag_no": (
+        "frac_courses_math_or_english_gateway_na"
+    ),
+    "cumfrac_num_courses_gateway_or_developmental_flag_no": (
+        "cumfrac_num_courses_math_or_english_gateway_na"
+    ),
 }
 
 # Dummy-value suffixes after get_dummies, mapped onto the PDP features-table set.
@@ -48,6 +58,14 @@ _ES_DUMMY_VALUE_ALIASES: dict[str, str] = {
     "face_to_face_and_online": "h",
     "online_internet_or_web": "o",
     "web_based": "o",
+    "fully_online": "o",
+    "hybrid_asynchronous": "h",
+    "hybrid_synchronous": "h",
+    "online_asynchronous": "o",
+    "online_mix": "o",
+    "online_synchronous": "o",
+    "online_that_is_hybrid": "h",
+    "web_enhanced": "f",
 }
 
 # Edvise-only columns that pass through to the modeling dataset (see ESCleanup).

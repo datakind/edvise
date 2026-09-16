@@ -41,6 +41,17 @@ ES_DUMMY_FEATURES_MAPPED_TO_PDP = (
     "num_courses_instructional_modality_face_to_face_and_online",
     "num_courses_instructional_modality_online_internet_or_web",
     "num_courses_instructional_modality_web_based",
+    "num_courses_instructional_modality_fully_online",
+    "num_courses_instructional_modality_hybrid_asynchronous",
+    "num_courses_instructional_modality_hybrid_synchronous",
+    "num_courses_instructional_modality_online_asynchronous",
+    "num_courses_instructional_modality_online_mix",
+    "num_courses_instructional_modality_online_synchronous",
+    "num_courses_instructional_modality_web_enhanced",
+    "cumfrac_num_courses_instructional_modality_online_that_is_hybrid",
+    "num_courses_gateway_or_developmental_flag_no",
+    "frac_courses_gateway_or_developmental_flag_no",
+    "cumfrac_num_courses_gateway_or_developmental_flag_no",
 )
 
 
