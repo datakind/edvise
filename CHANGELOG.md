@@ -1,3 +1,7 @@
+## 1.14.5 (2026-09-16)
+- refactor: move schema_type.py from configs to shared (#318)
+- refactor(es): feature value regex fallbacks for free-text fields (#344)
+
 ## 1.14.4 (2026-09-15)
 - fix(es): map other instructional_modality dummies onto existing feature-table keys (#340)
 
