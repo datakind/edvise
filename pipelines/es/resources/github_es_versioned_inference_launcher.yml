@@ -1,9 +1,10 @@
-# ES versioned inference launcher — materialize-only first slice.
+# ES versioned inference launcher — materialize + validate slices.
 #
 # Resolves the model's ES pipeline_version, fetches archived ES DAB YAML into
 #   /Volumes/{ws}/default/edvise_releases/es/{version}/
 # and for GenAI schools also fetches GenAI execute YAML (at registry pipeline_version) into
 #   …/es/{version}/genai/
+# then validates runtime compatibility and parameter contracts for those snapshots.
 #
 # Does not replace github_sourced_genai_es_inference_pipeline (fallback remains).
 resources:
@@ -11,9 +12,10 @@ resources:
     edvise_es_versioned_inference_launcher:
       name: edvise_es_versioned_inference_launcher
       description: >
-        Version-safe ES inference entry point (materialize slice). Resolves the model's
-        ES pipeline_version and materializes archived ES (+ optional GenAI) DAB YAML
-        onto the release volume. Validate/trigger segments land in follow-up work.
+        Version-safe ES inference entry point (materialize + validate). Resolves the
+        model's ES pipeline_version, materializes archived ES (+ optional GenAI) DAB YAML
+        onto the release volume, and validates runtime/parameter contracts. Trigger
+        (segmented child runs) lands in follow-up work.
       webhook_notifications:
         on_failure:
           - id: ${var.inference_slack_webhook_id}
@@ -45,6 +47,60 @@ resources:
               - "{{job.parameters.github_repo}}"
               - --is_genai_institution
               - "{{job.parameters.is_genai_institution}}"
+              - --launcher_run_id
+              - "{{job.parameters.launcher_run_id}}"
+          job_cluster_key: edvise-es-versioned-inference-launcher-cluster
+        - task_key: versioned_inference_launcher_validate
+          description: >
+            Validate archived ES bundle (DBR/Python) and parameter contract. For GenAI
+            schools, also require …/genai/ snapshot, check GenAI runtime compatibility,
+            and record both ES and GenAI pipeline_version on the launcher event.
+          depends_on:
+            - task_key: materialize_runtime_bundle
+          spark_python_task:
+            python_file: src/edvise/scripts/inference_launcher_validate_es.py
+            source: GIT
+            parameters:
+              - --databricks_institution_name
+              - "{{job.parameters.databricks_institution_name}}"
+              - --model_name
+              - "{{job.parameters.model_name}}"
+              - --model_run_id
+              - "{{job.parameters.model_run_id}}"
+              - --DB_workspace
+              - "{{job.parameters.DB_workspace}}"
+              - --schema_type
+              - "{{job.parameters.schema_type}}"
+              - --release_base_path
+              - "{{job.parameters.release_base_path}}"
+              - --git_url
+              - "{{job.parameters.git_url}}"
+              - --is_genai_institution
+              - "{{job.parameters.is_genai_institution}}"
+              - --batch_id
+              - "{{job.parameters.batch_id}}"
+              - --validated_blob_paths_json
+              - "{{job.parameters.validated_blob_paths_json}}"
+              - --config_file_name
+              - "{{job.parameters.config_file_name}}"
+              - --genai_inputs_toml_path
+              - "{{job.parameters.genai_inputs_toml_path}}"
+              - --term_filter
+              - "{{job.parameters.term_filter}}"
+              - --gcp_bucket_name
+              - "{{job.parameters.gcp_bucket_name}}"
+              - --datakind_notification_email
+              - "{{job.parameters.datakind_notification_email}}"
+              - --DK_CC_EMAIL
+              - "{{job.parameters.DK_CC_EMAIL}}"
+              - --ds_run_as
+              - "{{job.parameters.ds_run_as}}"
+              - --service_account_executer
+              - "{{job.parameters.service_account_executer}}"
+              - --datakind_group_to_manage_workflow
+              - "{{job.parameters.datakind_group_to_manage_workflow}}"
+              - --inference_parameters_json
+              - "{{job.parameters.inference_parameters_json}}"
               - --launcher_run_id
               - "{{job.parameters.launcher_run_id}}"
           job_cluster_key: edvise-es-versioned-inference-launcher-cluster
