@@ -84,6 +84,7 @@ def materialize_runtime_bundle_dir(
     pipeline_version: str,
     *,
     schema_type: str = "pdp",
+    layout: DabBundleLayout | None = None,
     github_repo: str | None = None,
     git_ref: str | None = None,
     skip_snapshot_if_present: bool = True,
@@ -92,7 +93,7 @@ def materialize_runtime_bundle_dir(
 ) -> Path:
     """Ensure ``release_dir`` contains ``databricks_bundle_snapshot/`` (DAB YAML only)."""
     release_dir.mkdir(parents=True, exist_ok=True)
-    layout = resolve_dab_bundle_layout(schema_type)
+    resolved_layout = layout or resolve_dab_bundle_layout(schema_type)
     token = github_token or os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
     resolved_ref = (git_ref or "").strip() or None
     if not resolved_ref:
@@ -102,7 +103,7 @@ def materialize_runtime_bundle_dir(
     materialize_dab_snapshot_from_github(
         release_dir,
         resolved_ref,
-        layout=layout,
+        layout=resolved_layout,
         github_repo=github_repo or DEFAULT_GITHUB_REPO,
         skip_if_present=skip_snapshot_if_present,
         token=token,
@@ -113,6 +114,6 @@ def materialize_runtime_bundle_dir(
         "Runtime bundle snapshot ready at %s (pipeline_version=%s, schema_type=%s)",
         release_dir,
         pipeline_version,
-        layout.schema_type,
+        resolved_layout.schema_type,
     )
     return release_dir
