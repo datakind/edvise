@@ -1,26 +1,20 @@
 import logging
 import pathlib
-import re
 import typing as t
 
+from edvise.dataio.filename_matching import (
+    filename_match_score,
+    normalize_filename_match_text,
+)
 from edvise.utils.databricks import in_databricks, local_fs_path
 
 LOGGER = logging.getLogger(__name__)
 
 _BRONZE_PREDICT_FILE_EXTENSIONS = (".csv", ".parquet")
 _LEGACY_BRONZE_GCS_UPLOADS_SUBDIR = "gcs_uploads"
-_MATCH_SEPARATOR_RE = re.compile(r"[^a-z0-9]+")
 
 
-def normalize_predict_file_match_text(raw: str) -> str:
-    """
-    Casefold and collapse every non-alphanumeric run to ``_`` for keyword matching.
-
-    Institutions respell the same extract across drops (``DE-ID Transfer File`` vs
-    ``de_id_transfer_file``), so separators and case must not decide whether a
-    ``predict_file_keyword`` matches.
-    """
-    return _MATCH_SEPARATOR_RE.sub("_", str(raw).lower()).strip("_")
+normalize_predict_file_match_text = normalize_filename_match_text
 
 
 def predict_file_keywords(ds: t.Mapping[str, t.Any]) -> list[str]:
@@ -30,16 +24,32 @@ def predict_file_keywords(ds: t.Mapping[str, t.Any]) -> list[str]:
     Accepts a single string or a list of alternates, so a renamed extract is a config
     change rather than a failed run. Blank entries are dropped.
     """
-    raw = ds.get("predict_file_keyword")
-    if raw is None:
-        return []
-    values = raw if isinstance(raw, (list, tuple)) else [raw]
     needles: list[str] = []
-    for value in values:
+    for value in _predict_file_keyword_values(ds):
         needle = normalize_predict_file_match_text(value)
         if needle and needle not in needles:
             needles.append(needle)
     return needles
+
+
+def _predict_file_keyword_values(ds: t.Mapping[str, t.Any]) -> list[str]:
+    """Stripped raw ``predict_file_keyword`` values for shared filename scoring."""
+    raw = ds.get("predict_file_keyword")
+    if raw is None:
+        return []
+    values = raw if isinstance(raw, (list, tuple)) else [raw]
+    keywords: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        text = str(value).strip()
+        if not text:
+            continue
+        key = text.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        keywords.append(text)
+    return keywords
 
 
 def path_exists(p: str) -> bool:
@@ -145,7 +155,7 @@ def _is_bronze_predict_candidate(path: pathlib.Path) -> bool:
 def _keyword_matches_in_directory(
     directory: str, needles: t.Sequence[str]
 ) -> list[pathlib.Path]:
-    """Candidate files in ``directory`` whose normalized name contains any needle."""
+    """Candidate files in ``directory`` matching any configured filename keyword."""
     base = pathlib.Path(local_fs_path(directory))
     if not base.is_dir():
         return []
@@ -153,8 +163,9 @@ def _keyword_matches_in_directory(
     for entry in base.iterdir():
         if not _is_bronze_predict_candidate(entry):
             continue
-        haystack = normalize_predict_file_match_text(entry.name)
-        if any(needle in haystack for needle in needles):
+        if any(
+            filename_match_score(needle, entry.name) is not None for needle in needles
+        ):
             matches.append(entry)
     matches.sort(key=lambda p: p.stat().st_mtime, reverse=True)
     return matches
@@ -174,17 +185,17 @@ def find_predict_file_in_directory(
     modification time.
     """
     dir_s = (directory or "").strip()
-    needles = predict_file_keywords({"predict_file_keyword": keyword})
+    keywords = _predict_file_keyword_values({"predict_file_keyword": keyword})
     if not dir_s:
         raise ValueError(f"{label}: search directory must be non-empty.")
-    if not needles:
+    if not keywords:
         raise ValueError(f"{label}: predict_file_keyword must be non-empty.")
 
     base = pathlib.Path(local_fs_path(dir_s))
     if not base.is_dir():
         raise FileNotFoundError(f"{label}: search directory not found: {dir_s}")
 
-    matches = _keyword_matches_in_directory(dir_s, needles)
+    matches = _keyword_matches_in_directory(dir_s, keywords)
     if not matches:
         raise FileNotFoundError(
             f"{label}: no matching file under {dir_s} (keyword={keyword!r}). "
@@ -228,9 +239,10 @@ def resolve_legacy_bronze_predict_file(
     validated for this run. Newest-by-mtime only breaks ties **within** one directory.
     """
     explicit = (ds.get("predict_file_path") or ds.get("file_path") or "").strip()
+    keywords = _predict_file_keyword_values(ds)
     needles = predict_file_keywords(ds)
 
-    if needles:
+    if keywords:
         search_dirs = legacy_bronze_predict_search_dirs(
             db_workspace, institution_id, ds, bronze_batch_dir=bronze_batch_dir
         )
@@ -240,7 +252,7 @@ def resolve_legacy_bronze_predict_file(
                     "%s: search directory not found, skipping: %s", dataset_key, dir_
                 )
                 continue
-            matches = _keyword_matches_in_directory(dir_, needles)
+            matches = _keyword_matches_in_directory(dir_, keywords)
             if not matches:
                 continue
             chosen = matches[0]
