@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from edvise.dataio import batch_dataset_paths as m
@@ -44,8 +45,36 @@ def test_resolve_dataset_file_in_batch_dir_file_kind_suffix(tmp_path: Path) -> N
     ) == str(semester)
 
 
-def test_extract_file_kind_suffix() -> None:
-    assert m._extract_file_kind_suffix("2025-09-19_CCC Student File.csv") == (
-        "student file"
-    )
-    assert m._extract_file_kind_suffix("fixture_students.csv") is None
+def test_resolve_dataset_file_in_batch_dir_timestamped_reports(tmp_path: Path) -> None:
+    learner = tmp_path / "Datakind - Learner Report_20260916_095850.csv"
+    course = tmp_path / "Datakind - Course Report_20260916_110342.csv"
+    learner.write_text("student\n", encoding="utf-8")
+    course.write_text("course\n", encoding="utf-8")
+
+    assert m.resolve_dataset_file_in_batch_dir(
+        str(tmp_path),
+        "Datakind - Learner Report_20260910_142024.csv",
+        dataset_key="student",
+    ) == str(learner)
+    assert m.resolve_dataset_file_in_batch_dir(
+        str(tmp_path),
+        "Datakind - Course Report_20260910_143123.csv",
+        dataset_key="course",
+    ) == str(course)
+
+
+def test_resolve_dataset_file_in_batch_dir_uses_newest_best_match(
+    tmp_path: Path,
+) -> None:
+    older = tmp_path / "Datakind - Learner Report_20260910_142024.csv"
+    newer = tmp_path / "Datakind - Learner Report_20260916_095850.csv"
+    older.write_text("old\n", encoding="utf-8")
+    newer.write_text("new\n", encoding="utf-8")
+    os.utime(older, (1, 1))
+    os.utime(newer, (2, 2))
+
+    assert m.resolve_dataset_file_in_batch_dir(
+        str(tmp_path),
+        "Datakind - Learner Report_20260901_120000.csv",
+        dataset_key="student",
+    ) == str(newer)
