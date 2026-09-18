@@ -216,6 +216,8 @@ def propagate_union_libraries_for_submit(
     union: list[dict[str, Any]] = []
     seen: set[str] = set()
     for task in tasks:
+        if not _task_requires_compute(task):
+            continue
         for lib in task.get("libraries") or []:
             name = _pypi_package_name(lib)
             if name is None or name in seen:
@@ -227,6 +229,9 @@ def propagate_union_libraries_for_submit(
 
     enriched: list[dict[str, Any]] = []
     for task in tasks:
+        if not _task_requires_compute(task):
+            enriched.append(copy.deepcopy(task))
+            continue
         merged = copy.deepcopy(task)
         existing = {
             n
@@ -250,6 +255,13 @@ def propagate_union_libraries_for_submit(
     return enriched
 
 
+def _task_requires_compute(task: dict[str, Any]) -> bool:
+    """False for condition / run_job tasks (no job_cluster_key on archived ES YAML)."""
+    if "condition_task" in task or "run_job_task" in task:
+        return False
+    return True
+
+
 def inline_job_clusters_for_submit(
     tasks: list[Any],
     job_clusters: list[Any],
@@ -260,6 +272,7 @@ def inline_job_clusters_for_submit(
     ``runs/submit`` does not support shared ``job_clusters``; attach ``new_cluster`` per task.
 
     DAB-deployed jobs use ``job_cluster_key`` + ``job_clusters``; submit requires inline clusters.
+    Condition / run_job tasks are passed through without compute.
     """
     cluster_map = _job_cluster_map(job_clusters)
     if not cluster_map:
@@ -271,6 +284,11 @@ def inline_job_clusters_for_submit(
         if not isinstance(raw, dict):
             continue
         task = copy.deepcopy(raw)
+        if not _task_requires_compute(task):
+            task.pop("job_cluster_key", None)
+            task.pop("libraries", None)
+            submit_tasks.append(task)
+            continue
         key = task.pop("job_cluster_key", None)
         if isinstance(key, str) and key.strip():
             cluster_key = key.strip()
