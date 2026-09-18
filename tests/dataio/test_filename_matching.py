@@ -1,0 +1,60 @@
+"""Tests for shared institutional extract filename matching."""
+
+from edvise.dataio.filename_matching import (
+    filename_match_score,
+    filename_match_tokens,
+    normalize_filename_match_text,
+)
+
+
+def test_normalize_filename_match_text_ignores_case_and_separators() -> None:
+    assert (
+        normalize_filename_match_text("DE-ID Transfer File.csv")
+        == "de_id_transfer_file_csv"
+    )
+
+
+def test_filename_match_tokens_drops_volatile_and_generic_tokens() -> None:
+    assert filename_match_tokens(
+        "Datakind - Learner Report_20260910_142024.csv"
+    ) == frozenset({"datakind", "student"})
+
+
+def test_filename_match_tokens_canonicalizes_dataset_aliases() -> None:
+    assert filename_match_tokens("Learner Export.csv") == filename_match_tokens(
+        "Student File.parquet"
+    )
+
+
+def test_filename_match_score_matches_timestamped_extracts_by_stable_tokens() -> None:
+    assert filename_match_score(
+        "Datakind - Learner Report_20260910_142024.csv",
+        "Datakind - Learner Report_20260916_095850.csv",
+        dataset_key="student",
+    )
+
+
+def test_filename_match_score_rejects_wrong_dataset_semantics() -> None:
+    assert (
+        filename_match_score(
+            "Datakind - Learner Report_20260910_142024.csv",
+            "Datakind - Course Report_20260916_095850.csv",
+            dataset_key="student",
+        )
+        is None
+    )
+
+
+def test_filename_match_score_allows_dataset_alias_with_changed_prefix() -> None:
+    assert filename_match_score(
+        "2025-09-19_CCC Student File.csv",
+        "1782516108693_2026_01_20_Edvise Learner Report.csv",
+        dataset_key="student",
+    )
+
+
+def test_filename_match_score_matches_multiword_keyword_tokens() -> None:
+    assert filename_match_score(
+        "transfer advisement",
+        "DEIDENTIFIED_ir_trn_transfer-advisement_Fall_26.csv",
+    )
