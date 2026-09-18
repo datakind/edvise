@@ -1,26 +1,20 @@
 import logging
 import pathlib
-import re
 import typing as t
 
+from edvise.dataio.filename_matching import (
+    filename_match_score,
+    normalize_filename_match_text,
+)
 from edvise.utils.databricks import in_databricks, local_fs_path
 
 LOGGER = logging.getLogger(__name__)
 
 _BRONZE_PREDICT_FILE_EXTENSIONS = (".csv", ".parquet")
 _LEGACY_BRONZE_GCS_UPLOADS_SUBDIR = "gcs_uploads"
-_MATCH_SEPARATOR_RE = re.compile(r"[^a-z0-9]+")
 
 
-def normalize_predict_file_match_text(raw: str) -> str:
-    """
-    Casefold and collapse every non-alphanumeric run to ``_`` for keyword matching.
-
-    Institutions respell the same extract across drops (``DE-ID Transfer File`` vs
-    ``de_id_transfer_file``), so separators and case must not decide whether a
-    ``predict_file_keyword`` matches.
-    """
-    return _MATCH_SEPARATOR_RE.sub("_", str(raw).lower()).strip("_")
+normalize_predict_file_match_text = normalize_filename_match_text
 
 
 def predict_file_keywords(ds: t.Mapping[str, t.Any]) -> list[str]:
@@ -145,7 +139,7 @@ def _is_bronze_predict_candidate(path: pathlib.Path) -> bool:
 def _keyword_matches_in_directory(
     directory: str, needles: t.Sequence[str]
 ) -> list[pathlib.Path]:
-    """Candidate files in ``directory`` whose normalized name contains any needle."""
+    """Candidate files in ``directory`` matching any configured filename keyword."""
     base = pathlib.Path(local_fs_path(directory))
     if not base.is_dir():
         return []
@@ -153,8 +147,9 @@ def _keyword_matches_in_directory(
     for entry in base.iterdir():
         if not _is_bronze_predict_candidate(entry):
             continue
-        haystack = normalize_predict_file_match_text(entry.name)
-        if any(needle in haystack for needle in needles):
+        if any(
+            filename_match_score(needle, entry.name) is not None for needle in needles
+        ):
             matches.append(entry)
     matches.sort(key=lambda p: p.stat().st_mtime, reverse=True)
     return matches
