@@ -29,12 +29,20 @@ def resolve_es_raw_dataset_paths(
     if not course_name:
         raise ValueError("raw_course must be set in ES config.")
 
-    cohort_path = resolve_dataset_file_in_batch_dir(batch_dir, cohort_name)
+    cohort_path = resolve_dataset_file_in_batch_dir(
+        batch_dir,
+        cohort_name,
+        dataset_key="cohort",
+    )
     if cohort_path is None:
         raise FileNotFoundError(
             f"Cohort file {cohort_name!r} not found under {batch_dir!r}."
         )
-    course_path = resolve_dataset_file_in_batch_dir(batch_dir, course_name)
+    course_path = resolve_dataset_file_in_batch_dir(
+        batch_dir,
+        course_name,
+        dataset_key="course",
+    )
     if course_path is None:
         raise FileNotFoundError(
             f"Course file {course_name!r} not found under {batch_dir!r}."
