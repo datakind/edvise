@@ -24,7 +24,9 @@ from edvise.configs.es import InferenceConfig as ESInferenceConfig
 from edvise.dataio.read import read_parquet, read_config
 from edvise.student_selection.filter_inference import (
     exclude_training_cohort_students,
+    filter_inference_open_window,
     filter_inference_term,
+    latest_as_of_term,
     parse_term_filter_param,
 )
 from edvise.dataio.write import write_parquet
@@ -111,6 +113,81 @@ class InferencePrepTask:
         cleaner = feature_cleanup_for_schema(self.args.schema_type)
         return cleaner.clean_up_labeled_dataset_cols_and_vals(df_labeled, cfg=self.cfg)
 
+    def _select_open_window_students(
+        self,
+        df: pd.DataFrame,
+        *,
+        inf_terms: list[str],
+        cohort_pair: tuple[str, str] | None,
+    ) -> pd.DataFrame:
+        """Score students whose intensity window is not yet complete.
+
+        ``inference.term`` is the as-of term (latest label wins). Training-cohort
+        exclusion is skipped: elapsed time vs the target intensity limits is the
+        leak guard.
+        """
+        preproc = self.cfg.preprocessing
+        target = getattr(preproc, "target", None)
+        selection = getattr(preproc, "selection", None)
+        limits = getattr(target, "intensity_time_limits", None) or getattr(
+            selection, "intensity_time_limits", None
+        )
+        if not limits:
+            raise ValueError(
+                "restrict_to_open_target_window requires intensity_time_limits "
+                "on preprocessing.target or preprocessing.selection."
+            )
+        num_terms_in_year = int(getattr(target, "num_terms_in_year", None) or 2)
+        years_to_degree_col = getattr(target, "years_to_degree_col", None)
+        exclude_graduates = bool(getattr(self.cfg.inference, "exclude_graduates", True))
+        as_of_term = latest_as_of_term(inf_terms, num_terms_in_year)
+        LOGGER.info(
+            "Selecting inference students still inside the on-time window "
+            "as of %s (restrict_to_open_target_window=true). "
+            "Skipping training-cohort exclusion.",
+            as_of_term,
+        )
+        cohort_year_col, cohort_term_col = (
+            cohort_pair if cohort_pair is not None else ("cohort", "cohort_term")
+        )
+        return filter_inference_open_window(
+            df,
+            as_of_term=as_of_term,
+            intensity_time_limits=limits,
+            num_terms_in_year=num_terms_in_year,
+            years_to_degree_col=years_to_degree_col,
+            exclude_graduates=exclude_graduates,
+            cohort_term_column=cohort_term_col,
+            cohort_column=cohort_year_col,
+        )
+
+    def _exclude_training_cohort_students(
+        self,
+        df: pd.DataFrame,
+        *,
+        cohort_pair: tuple[str, str] | None,
+    ) -> pd.DataFrame:
+        training_cohorts = (
+            self.cfg.modeling.training.cohort
+            if self.cfg.modeling and self.cfg.modeling.training
+            else None
+        )
+        if not training_cohorts:
+            return df
+        if cohort_pair is None:
+            LOGGER.warning(
+                "Training cohorts configured but cohort columns not found; "
+                "skipping stop-out exclusion."
+            )
+            return df
+        cy, ct = cohort_pair
+        return exclude_training_cohort_students(
+            df,
+            training_cohorts=training_cohorts,
+            cohort_term_column=ct,
+            cohort_column=cy,
+        )
+
     def run(self):
         # Enforce inference mode & resolve <silver>/<run_id>/inference/
         if self.cfg.model.run_id is None:
@@ -171,35 +248,28 @@ class InferencePrepTask:
             "Merge produced 0 labeled rows (checkpoint ∩ selected ∩ selected_students is empty).",
         )
 
-        LOGGER.info(
-            " Selecting students for inference, i.e. met the checkpoint in term(s) of interest"
-        )
         if self.cfg.inference is None or self.cfg.inference.term is None:
             raise ValueError("cfg.inference.term must be configured.")
 
         inf_terms = self.cfg.inference.term
-        df_selected_terms = filter_inference_term(df_labeled, term_list=inf_terms)
-
-        cohort_pair = cohort_pair_columns(df_selected_terms)
-        training_cohorts = (
-            self.cfg.modeling.training.cohort
-            if self.cfg.modeling and self.cfg.modeling.training
-            else None
+        use_open_window = bool(
+            getattr(self.cfg.inference, "restrict_to_open_target_window", False)
         )
-        if training_cohorts:
-            if cohort_pair is not None:
-                cy, ct = cohort_pair
-                df_selected_terms = exclude_training_cohort_students(
-                    df_selected_terms,
-                    training_cohorts=training_cohorts,
-                    cohort_term_column=ct,
-                    cohort_column=cy,
-                )
-            else:
-                LOGGER.warning(
-                    "Training cohorts configured but cohort columns not found; "
-                    "skipping stop-out exclusion."
-                )
+        cohort_pair = cohort_pair_columns(df_labeled)
+
+        if use_open_window:
+            df_selected_terms = self._select_open_window_students(
+                df_labeled, inf_terms=inf_terms, cohort_pair=cohort_pair
+            )
+        else:
+            LOGGER.info(
+                "Selecting students for inference who met the checkpoint "
+                "in term(s) of interest"
+            )
+            df_selected_terms = filter_inference_term(df_labeled, term_list=inf_terms)
+            df_selected_terms = self._exclude_training_cohort_students(
+                df_selected_terms, cohort_pair=cohort_pair
+            )
 
         if cohort_pair is not None:
             cy, ct = cohort_pair

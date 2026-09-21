@@ -89,4 +89,8 @@ topn_runs_included = 5
 [inference]
 num_top_features = 5
 min_prob_pos_label = 0.5
-cohort = ['fall 2024-25']
+# As-of term when restrict_to_open_target_window is true; otherwise checkpoint terms.
+term = ['spring 2025-26']
+# Score only students not yet enrolled long enough to be labelable (FT/PT limits above).
+restrict_to_open_target_window = true
+exclude_graduates = true

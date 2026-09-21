@@ -1,3 +1,7 @@
+## Unreleased
+- feat: optional intensity-window inference selection so students already
+  labelable for training cannot leak into scoring
+
 ## 1.14.5 (2026-09-16)
 - refactor: move schema_type.py from configs to shared (#318)
 - refactor(es): feature value regex fallbacks for free-text fields (#344)
