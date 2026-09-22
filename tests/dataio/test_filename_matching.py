@@ -3,15 +3,7 @@
 from edvise.dataio.filename_matching import (
     filename_match_score,
     filename_match_tokens,
-    normalize_filename_match_text,
 )
-
-
-def test_normalize_filename_match_text_ignores_case_and_separators() -> None:
-    assert (
-        normalize_filename_match_text("DE-ID Transfer File.csv")
-        == "de_id_transfer_file_csv"
-    )
 
 
 def test_filename_match_tokens_drops_volatile_and_generic_tokens() -> None:
@@ -46,10 +38,35 @@ def test_filename_match_score_rejects_wrong_dataset_semantics() -> None:
 
 
 def test_filename_match_score_allows_dataset_alias_with_changed_prefix() -> None:
-    assert filename_match_score(
-        "2025-09-19_CCC Student File.csv",
-        "1782516108693_2026_01_20_Edvise Learner Report.csv",
-        dataset_key="student",
+    assert (
+        filename_match_score(
+            "2025-09-19_CCC Student File.csv",
+            "1782516108693_2026_01_20_Edvise Learner Report.csv",
+            dataset_key="student",
+        )
+        == 100
+    )
+
+
+def test_filename_match_score_tokenizes_compound_dataset_key() -> None:
+    assert (
+        filename_match_score(
+            "2025-09-19_CCC Student File.csv",
+            "1782516108693_2026_01_20_Edvise Learner Report.csv",
+            dataset_key="raw_student",
+        )
+        == 100
+    )
+
+
+def test_filename_match_score_dataset_key_requires_token_in_both_names() -> None:
+    assert (
+        filename_match_score(
+            "financial aid.csv",
+            "Edvise Student File.csv",
+            dataset_key="raw_student",
+        )
+        is None
     )
 
 
