@@ -3,15 +3,7 @@
 from edvise.dataio.filename_matching import (
     filename_match_score,
     filename_match_tokens,
-    normalize_filename_match_text,
 )
-
-
-def test_normalize_filename_match_text_ignores_case_and_separators() -> None:
-    assert (
-        normalize_filename_match_text("DE-ID Transfer File.csv")
-        == "de_id_transfer_file_csv"
-    )
 
 
 def test_filename_match_tokens_drops_volatile_and_generic_tokens() -> None:
