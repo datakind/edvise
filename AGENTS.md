@@ -127,8 +127,10 @@ Git-flow, driven end-to-end by chained GitHub Actions — there's no manual tagg
    dispatches **Finish Release**.
 3. **Finish Release** (`finish-release.yml`) opens the `release/<version> -> main` PR (blocked by `pre-release.yml`
    unless `CHANGELOG.md` was touched). Merging that PR triggers the same workflow's tag job: tags `v<version>`,
-   dispatches `release-deploy.yml` for that tag, and opens a `main -> develop` back-merge PR. Merging the
-   back-merge PR deletes the `release/<version>` branch.
+   dispatches `release-deploy.yml` for that tag, and opens a `sync/<version> -> develop` back-merge PR
+   (throwaway head so GitHub's Update branch cannot merge `develop` into `main`). Merging the
+   back-merge PR deletes the `release/<version>` and `sync/<version>` branches. Start Release refuses to
+   cut a new release while that sync PR (or a `main` → `develop` PR) is still open.
 4. **release-deploy.yml** (on the `v*` tag push) fans out in parallel: core DAB bundles (`deploy.yml`, gated to
    staging_sst_01 only on a `v*` tag ref), the GenAI mapping bundle, the GenAI HITL Streamlit app, and the
    metadata dashboard app — each redeployed to both `dev` and `staging`.
