@@ -12,6 +12,7 @@ import copy
 import json
 import logging
 import re
+import sys
 import time
 from datetime import timedelta
 from pathlib import Path
@@ -647,14 +648,18 @@ def log_child_run_monitor_url(
     status: str = "submitted",
 ) -> None:
     """
-    Log the child run URL on its own line so Databricks keeps it clickable.
+    Emit the child run URL so Databricks Jobs logs can linkify it.
 
-    Long ``monitor at <url>`` lines often lose linkification once the run log scrolls
-    or truncates; a bare ``https://…`` line stays clickable.
+    Logger format prefixes every ``logger.info`` line (e.g.
+    ``INFO trigger_…: https://…``), which prevents auto-linkification. Print the
+    bare URL on its own stdout line instead; keep a short logger line for context.
     """
     logger.info("Child inference run_id=%s %s", run_id, status)
     if monitor_url and str(monitor_url).strip():
-        logger.info("%s", str(monitor_url).strip())
+        url = str(monitor_url).strip()
+        # Bare URL only — no logger name / level prefix.
+        print(url, flush=True, file=sys.stdout)
+        logger.info("Child run_id=%s URL printed above (stdout)", run_id)
     else:
         logger.info(
             "(no run_page_url; search Workflows for run_id=%s)",

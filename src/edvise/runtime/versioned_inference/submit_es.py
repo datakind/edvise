@@ -106,7 +106,9 @@ class EsChildRunIds:
         return out
 
     def log_monitor_urls(self, logger: logging.Logger = LOGGER) -> None:
-        """Re-emit each child URL on its own line (survives long polling noise)."""
+        """Re-emit each child URL as a bare stdout line (clickable in Jobs UI)."""
+        from edvise.runtime.versioned_inference.submit import log_child_run_monitor_url
+
         pairs = (
             ("es_full", self.es_full, self.es_full_url),
             ("es_prefix", self.es_prefix, self.es_prefix_url),
@@ -116,9 +118,8 @@ class EsChildRunIds:
         for label, run_id, url in pairs:
             if run_id is None:
                 continue
-            logger.info("Child run summary (%s) run_id=%s", label, run_id)
-            if url:
-                logger.info("%s", url)
+            logger.info("Child run summary (%s)", label)
+            log_child_run_monitor_url(run_id, url, logger=logger, status="summary")
 
 
 @dataclass
