@@ -42,6 +42,25 @@ def test_filename_match_score_allows_dataset_alias_with_changed_prefix() -> None
         "2025-09-19_CCC Student File.csv",
         "1782516108693_2026_01_20_Edvise Learner Report.csv",
         dataset_key="student",
+    ) == 100
+
+
+def test_filename_match_score_tokenizes_compound_dataset_key() -> None:
+    assert filename_match_score(
+        "2025-09-19_CCC Student File.csv",
+        "1782516108693_2026_01_20_Edvise Learner Report.csv",
+        dataset_key="raw_student",
+    ) == 100
+
+
+def test_filename_match_score_dataset_key_requires_token_in_both_names() -> None:
+    assert (
+        filename_match_score(
+            "financial aid.csv",
+            "Edvise Student File.csv",
+            dataset_key="raw_student",
+        )
+        is None
     )
 
 

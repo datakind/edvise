@@ -7,30 +7,24 @@ import pathlib
 from edvise.dataio.path_management import normalize_predict_file_match_text
 
 _GENERIC_TOKENS = {
-    "csv",
     "data",
     "dataset",
     "extract",
     "export",
     "file",
-    "parquet",
     "report",
 }
 _DATASET_TOKEN_ALIASES = {
     "cohort": "student",
     "learner": "student",
     "learners": "student",
-    "student": "student",
     "students": "student",
-    "course": "course",
     "courses": "course",
-    "semester": "semester",
     "semesters": "semester",
     "term": "semester",
     "terms": "semester",
     "award": "degree",
     "awards": "degree",
-    "degree": "degree",
     "degrees": "degree",
 }
 
@@ -62,9 +56,10 @@ def filename_match_score(
     Score a candidate filename, returning ``None`` when it is not a safe match.
 
     Full normalized substring matches rank first, followed by complete stable-token
-    matches. When a dataset key is supplied, its semantic token is a final fallback
-    that tolerates changing institution/vendor prefixes such as ``CCC Student File``
-    becoming ``Edvise Student File``.
+    matches. When a dataset key is supplied, a final fallback of 100 applies only if
+    some token from that key appears in **both** names, so a bronze slot named
+    ``raw_student`` can still bind ``CCC Student File`` to ``Edvise Learner Report``
+    without attaching an unrelated configured name such as ``financial aid.csv``.
     """
     configured = normalize_predict_file_match_text(pathlib.Path(configured_name).name)
     candidate = normalize_predict_file_match_text(pathlib.Path(candidate_name).name)
@@ -76,10 +71,8 @@ def filename_match_score(
     if configured_tokens and configured_tokens <= candidate_tokens:
         return 200 + len(configured_tokens)
 
-    key_token = _DATASET_TOKEN_ALIASES.get(
-        normalize_predict_file_match_text(dataset_key or "")
-    )
-    if key_token and key_token in candidate_tokens:
-        return 100 + int(key_token in configured_tokens)
+    key_tokens = filename_match_tokens(dataset_key or "")
+    if key_tokens & configured_tokens & candidate_tokens:
+        return 100
 
     return None
