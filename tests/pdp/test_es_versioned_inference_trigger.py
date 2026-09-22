@@ -20,15 +20,19 @@ from edvise.runtime.versioned_inference.child_run_values import (  # noqa: E402
     require_ingestion_handoff,
 )
 from edvise.runtime.versioned_inference.es_segments import (  # noqa: E402
-    classical_es_task_keys,
+    es_full_task_keys,
     es_prefix_task_keys,
     es_suffix_task_keys,
     replace_task_value_refs,
 )
 from edvise.runtime.versioned_inference.submit_es import (  # noqa: E402
+    EsChildRunIds,
     build_genai_execute_parameter_overrides,
     plan_es_versioned_submit,
     submit_es_versioned_inference_from_bundle,
+)
+from edvise.runtime.versioned_inference.io_chain import (  # noqa: E402
+    assert_ingestion_outputs_ready,
 )
 
 _ES_YML = _REPO_ROOT / "pipelines/es/resources/github_es_inference.yml"
@@ -83,10 +87,10 @@ def _stage_release_dir(tmp_path: Path, *, with_genai: bool) -> Path:
 
 
 @pytest.mark.skipif(not _ES_YML.is_file(), reason="ES inference YAML missing")
-def test_es_segment_keys_classical_excludes_condition_and_run_job() -> None:
+def test_es_segment_keys_es_full_excludes_condition_and_run_job() -> None:
     raw = yaml.safe_load(_ES_YML.read_text(encoding="utf-8"))
     job = raw["resources"]["jobs"]["github_sourced_genai_es_inference_pipeline"]
-    keys = classical_es_task_keys(job["tasks"])
+    keys = es_full_task_keys(job["tasks"])
     assert "data_ingestion" in keys
     assert "data_audit" in keys
     assert "output_publish" in keys
@@ -97,6 +101,34 @@ def test_es_segment_keys_classical_excludes_condition_and_run_job() -> None:
     assert "data_ingestion" not in suffix
     assert "data_audit" in suffix
     assert "output_publish" in suffix
+
+
+def test_es_child_run_ids_payload_names_by_path() -> None:
+    full = EsChildRunIds(
+        is_genai=False, es_full=111, es_full_url="https://example/full"
+    )
+    assert full.as_payload() == {
+        "is_genai_institution": "false",
+        "child_run_es_full": "111",
+        "child_inference_run_id": "111",
+    }
+    genai = EsChildRunIds(
+        is_genai=True,
+        es_prefix=1,
+        genai_execute=2,
+        es_suffix=3,
+        es_prefix_url="https://example/p",
+        genai_execute_url="https://example/g",
+        es_suffix_url="https://example/s",
+    )
+    payload = genai.as_payload()
+    assert payload["child_run_es_prefix"] == "1"
+    assert payload["child_run_genai_execute"] == "2"
+    assert payload["child_run_es_suffix"] == "3"
+    assert payload["child_inference_run_id"] == "3"
+    assert "child_run_es_prefix_or_classical" not in payload
+    assert "child_run_es_full" not in payload
+    assert not any(k.endswith("_url") for k in payload)
 
 
 def test_replace_task_value_refs_only_data_ingestion() -> None:
@@ -152,7 +184,7 @@ def test_build_genai_execute_parameter_overrides_suffixes_db_run_id() -> None:
     not (_ES_YML.is_file() and _ES_DAB.is_file()),
     reason="ES pipeline files missing",
 )
-def test_plan_classical_es_submit_strips_clusterless_tasks(tmp_path: Path) -> None:
+def test_plan_es_full_submit_strips_clusterless_tasks(tmp_path: Path) -> None:
     release = _stage_release_dir(tmp_path, with_genai=False)
     plan = plan_es_versioned_submit(
         release,
@@ -160,14 +192,14 @@ def test_plan_classical_es_submit_strips_clusterless_tasks(tmp_path: Path) -> No
         is_genai=False,
         parameter_overrides=_minimal_overrides(),
     )
-    assert plan.classical_body is not None
-    keys = [t["task_key"] for t in plan.classical_body["tasks"]]
+    assert plan.es_full_body is not None
+    keys = [t["task_key"] for t in plan.es_full_body["tasks"]]
     assert "data_ingestion" in keys
     assert "check_is_genai_institution" not in keys
     assert "genai_mapping_execute" not in keys
-    assert plan.classical_body["git_source"]["git_commit"] == _ES_SHA
-    # Classical keeps task-value refs inside one run (Databricks resolves them).
-    assert all("new_cluster" in t for t in plan.classical_body["tasks"])
+    assert plan.es_full_body["git_source"]["git_commit"] == _ES_SHA
+    # ES-full keeps task-value refs inside one run (Databricks resolves them).
+    assert all("new_cluster" in t for t in plan.es_full_body["tasks"])
 
 
 @pytest.mark.skipif(
@@ -223,13 +255,15 @@ def test_submit_es_genai_dry_run_orchestrates_three_phases(tmp_path: Path) -> No
             db_workspace="dev_sst_02",
             databricks_institution_name="city_cols_of_chicago",
         )
-    assert ids.classical_or_prefix == 0
+    assert ids.es_prefix == 0
     assert ids.genai_execute == 0
     assert ids.es_suffix == 0
+    assert ids.is_genai is True
+    assert "child_run_es_prefix" in ids.as_payload()
 
 
 @pytest.mark.skipif(not _ES_YML.is_file(), reason="ES inference YAML missing")
-def test_submit_es_classical_dry_run(tmp_path: Path) -> None:
+def test_submit_es_full_dry_run(tmp_path: Path) -> None:
     release = _stage_release_dir(tmp_path, with_genai=False)
     ids = submit_es_versioned_inference_from_bundle(
         release,
@@ -239,9 +273,26 @@ def test_submit_es_classical_dry_run(tmp_path: Path) -> None:
         dry_run=True,
         wait_for_completion=False,
     )
-    assert ids.classical_or_prefix == 0
+    assert ids.es_full == 0
+    assert ids.es_prefix is None
     assert ids.genai_execute is None
     assert ids.es_suffix is None
+    assert ids.as_payload()["child_run_es_full"] == "0"
+
+
+def test_assert_ingestion_outputs_ready_requires_config(tmp_path: Path) -> None:
+    config = tmp_path / "config.toml"
+    config.write_text("x=1\n", encoding="utf-8")
+    assert_ingestion_outputs_ready(
+        {"config_file_path": str(config), "bronze_batch_dir": ""},
+    )
+    with pytest.raises(FileNotFoundError, match="config_file_path"):
+        assert_ingestion_outputs_ready(
+            {
+                "config_file_path": str(tmp_path / "missing.toml"),
+                "bronze_batch_dir": "",
+            },
+        )
 
 
 def test_submit_es_genai_waits_prefix_then_handoff(tmp_path: Path) -> None:
@@ -269,6 +320,20 @@ def test_submit_es_genai_waits_prefix_then_handoff(tmp_path: Path) -> None:
             "edvise.runtime.versioned_inference.submit_es.resolve_handoff_after_prefix",
             return_value=dict(DRY_RUN_INGESTION_HANDOFF),
         ),
+        patch(
+            "edvise.runtime.versioned_inference.submit_es.assert_ingestion_outputs_ready",
+        ),
+        patch(
+            "edvise.runtime.versioned_inference.submit_es.assert_genai_execute_outputs_ready",
+            return_value="exec_1",
+        ),
+        patch(
+            "edvise.runtime.versioned_inference.submit_es.assert_es_inference_outputs_ready",
+        ),
+        patch(
+            "edvise.runtime.versioned_inference.submit_es.fetch_run_page_url",
+            return_value="https://example.databricks.com/#job/1/run/9",
+        ),
     ):
         ids = submit_es_versioned_inference_from_bundle(
             release,
@@ -283,6 +348,7 @@ def test_submit_es_genai_waits_prefix_then_handoff(tmp_path: Path) -> None:
             workspace_client=client,
             db_workspace="dev_sst_02",
             databricks_institution_name="city_cols_of_chicago",
+            model_run_id="modelrun123",
         )
     assert len(submit_calls) == 3
     assert [t["task_key"] for t in submit_calls[0]["tasks"]] == ["data_ingestion"]
@@ -292,7 +358,9 @@ def test_submit_es_genai_waits_prefix_then_handoff(tmp_path: Path) -> None:
     ]
     assert "data_audit" in [t["task_key"] for t in submit_calls[2]["tasks"]]
     assert wait_mock.call_count == 3
-    assert ids.classical_or_prefix == 101
+    assert ids.es_prefix == 101
     assert ids.genai_execute == 102
     assert ids.es_suffix == 103
     assert ids.primary == 103
+    assert ids.as_payload()["child_run_es_prefix"] == "101"
+    assert ids.es_prefix_url is not None

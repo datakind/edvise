@@ -98,9 +98,13 @@ def spark_task_keys_in_order(tasks: list[Any]) -> list[str]:
     return keys
 
 
-def classical_es_task_keys(tasks: list[Any]) -> set[str]:
-    """All spark tasks (no condition / run_job) for a single classical child run."""
+def es_full_task_keys(tasks: list[Any]) -> set[str]:
+    """All spark tasks (no condition / run_job) for a single non-GenAI ES child run."""
     return set(spark_task_keys_in_order(tasks))
+
+
+# Back-compat alias (prefer :func:`es_full_task_keys`).
+classical_es_task_keys = es_full_task_keys
 
 
 def es_prefix_task_keys() -> set[str]:

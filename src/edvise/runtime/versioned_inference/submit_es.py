@@ -25,13 +25,18 @@ from edvise.runtime.versioned_inference.es_segments import (
     DATA_INGESTION_TASK_KEY,
     INGESTION_HANDOFF_KEYS,
     apply_ingestion_handoff_to_job,
-    classical_es_task_keys,
+    es_full_task_keys,
     es_prefix_task_keys,
     es_suffix_task_keys,
     job_with_selected_tasks,
 )
 from edvise.runtime.versioned_inference.genai_registry import (
     resolve_genai_pipeline_version_from_registry,
+)
+from edvise.runtime.versioned_inference.io_chain import (
+    assert_es_inference_outputs_ready,
+    assert_genai_execute_outputs_ready,
+    assert_ingestion_outputs_ready,
 )
 from edvise.runtime.versioned_inference.parameters import (
     resolve_versioned_job_parameters,
@@ -40,6 +45,8 @@ from edvise.runtime.versioned_inference.pipeline_version_ref import git_ref_kind
 from edvise.runtime.versioned_inference.submit import (
     DEFAULT_GIT_URL,
     build_submit_run_body,
+    fetch_run_page_url,
+    log_child_run_monitor_url,
     submit_inference_run,
     wait_for_inference_run,
 )
@@ -53,39 +60,76 @@ _ES_SCHEMA = "edvise"
 class EsChildRunIds:
     """Child run ids produced by the ES versioned trigger."""
 
-    classical_or_prefix: int | None = None
+    is_genai: bool
+    # Non-GenAI: one full ES spark DAG.
+    es_full: int | None = None
+    # GenAI dual-pin segments.
+    es_prefix: int | None = None
     genai_execute: int | None = None
     es_suffix: int | None = None
+    # Optional monitor URLs (logged alone so Databricks keeps them clickable).
+    es_full_url: str | None = None
+    es_prefix_url: str | None = None
+    genai_execute_url: str | None = None
+    es_suffix_url: str | None = None
 
     @property
     def primary(self) -> int:
         """Id used for launcher ``child_inference_run_id`` (final ES segment when split)."""
-        for value in (self.es_suffix, self.classical_or_prefix, self.genai_execute):
+        for value in (self.es_suffix, self.es_full, self.es_prefix, self.genai_execute):
             if value is not None:
                 return int(value)
         return 0
 
     def as_payload(self) -> dict[str, str]:
-        out: dict[str, str] = {}
-        if self.classical_or_prefix is not None:
-            out["child_run_es_prefix_or_classical"] = str(self.classical_or_prefix)
-        if self.genai_execute is not None:
-            out["child_run_genai_execute"] = str(self.genai_execute)
-        if self.es_suffix is not None:
-            out["child_run_es_suffix"] = str(self.es_suffix)
+        """
+        Structured child-run ids for launcher events / logs.
+
+        Non-GenAI: ``child_run_es_full``
+        GenAI: ``child_run_es_prefix``, ``child_run_genai_execute``, ``child_run_es_suffix``
+        Always: ``child_inference_run_id`` (final ES run).
+        """
+        out: dict[str, str] = {
+            "is_genai_institution": "true" if self.is_genai else "false"
+        }
+        if self.is_genai:
+            if self.es_prefix is not None:
+                out["child_run_es_prefix"] = str(self.es_prefix)
+            if self.genai_execute is not None:
+                out["child_run_genai_execute"] = str(self.genai_execute)
+            if self.es_suffix is not None:
+                out["child_run_es_suffix"] = str(self.es_suffix)
+        else:
+            if self.es_full is not None:
+                out["child_run_es_full"] = str(self.es_full)
         out["child_inference_run_id"] = str(self.primary)
         return out
+
+    def log_monitor_urls(self, logger: logging.Logger = LOGGER) -> None:
+        """Re-emit each child URL on its own line (survives long polling noise)."""
+        pairs = (
+            ("es_full", self.es_full, self.es_full_url),
+            ("es_prefix", self.es_prefix, self.es_prefix_url),
+            ("genai_execute", self.genai_execute, self.genai_execute_url),
+            ("es_suffix", self.es_suffix, self.es_suffix_url),
+        )
+        for label, run_id, url in pairs:
+            if run_id is None:
+                continue
+            logger.info("Child run summary (%s) run_id=%s", label, run_id)
+            if url:
+                logger.info("%s", url)
 
 
 @dataclass
 class EsSubmitPlan:
-    """Resolved parameters and bodies for classical or dual-pin GenAI paths."""
+    """Resolved parameters and bodies for ES-full or dual-pin GenAI paths."""
 
     is_genai: bool
     es_pipeline_version: str
     genai_pipeline_version: str | None
     es_parameters: dict[str, str]
-    classical_body: dict[str, Any] | None = None
+    es_full_body: dict[str, Any] | None = None
     prefix_body: dict[str, Any] | None = None
     genai_body: dict[str, Any] | None = None
     suffix_body: dict[str, Any] | None = None
@@ -191,7 +235,7 @@ def plan_es_versioned_submit(
     logger: logging.Logger = LOGGER,
 ) -> EsSubmitPlan:
     """
-    Build classical or dual-pin submit bodies from archived snapshots.
+    Build ES-full or dual-pin submit bodies from archived snapshots.
 
     For GenAI, ``handoff`` may be omitted when only planning the prefix body;
     ``genai_body`` / ``suffix_body`` require handoff (or dry-run placeholders).
@@ -220,12 +264,12 @@ def plan_es_versioned_submit(
     )
 
     if not is_genai:
-        plan.classical_body = build_segment_submit_body(
+        plan.es_full_body = build_segment_submit_body(
             es_job,
-            keep_keys=classical_es_task_keys(es_job.get("tasks") or []),
+            keep_keys=es_full_task_keys(es_job.get("tasks") or []),
             pipeline_version=es_pipeline_version,
             git_url=git_url,
-            run_name=_run_name(inst, model, "classical", es_pipeline_version),
+            run_name=_run_name(inst, model, "full", es_pipeline_version),
             parameter_overrides=es_params,
             access_control_overrides=acl,
             inference_job_key=es_layout.inference_job_key,
@@ -273,7 +317,6 @@ def plan_es_versioned_submit(
         stable_trigger=None,
         logger=logger,
     )
-    # GenAI execute is submitted as its full spark DAG (ia → sma).
     genai_keys = {
         str(t.get("task_key", "")).strip()
         for t in (genai_job.get("tasks") or [])
@@ -313,13 +356,16 @@ def _submit_and_maybe_wait(
     wait_timeout_seconds: float | None,
     workspace_client: Any | None,
     logger: logging.Logger,
-) -> int:
+) -> tuple[int, str | None]:
     run_id = submit_inference_run(
         body,
         dry_run=dry_run,
         workspace_client=workspace_client,
         logger=logger,
     )
+    url: str | None = None
+    if not dry_run and run_id and workspace_client is not None:
+        url = fetch_run_page_url(workspace_client, run_id, logger=logger)
     if wait and not dry_run and run_id:
         wait_for_inference_run(
             run_id,
@@ -328,7 +374,13 @@ def _submit_and_maybe_wait(
             timeout_seconds=wait_timeout_seconds,
             logger=logger,
         )
-    return run_id
+        # Re-emit URL after long polling so it stays findable / clickable.
+        if url:
+            log_child_run_monitor_url(run_id, url, logger=logger, status="succeeded")
+        elif workspace_client is not None:
+            url = fetch_run_page_url(workspace_client, run_id, logger=logger)
+            log_child_run_monitor_url(run_id, url, logger=logger, status="succeeded")
+    return run_id, url
 
 
 def resolve_handoff_after_prefix(
@@ -404,6 +456,7 @@ def submit_es_versioned_inference_from_bundle(
     git_url: str = DEFAULT_GIT_URL,
     db_workspace: str = "",
     databricks_institution_name: str = "",
+    model_run_id: str = "",
     dry_run: bool = False,
     wait_for_completion: bool = True,
     poll_interval_seconds: float = 30.0,
@@ -412,16 +465,22 @@ def submit_es_versioned_inference_from_bundle(
     logger: logging.Logger = LOGGER,
 ) -> EsChildRunIds:
     """
-    Classical: one spark-only ES child run @ ``es_pipeline_version``.
+    Non-GenAI: one spark-only ES-full child run @ ``es_pipeline_version``.
 
     GenAI: prefix @ ES → GenAI execute @ registry → ES suffix @ ES (shared ``db_run_id``).
+    Hard I/O checks link bronze → GenAI pipeline_input → silver inference.
     """
+    db_ws = db_workspace or parameter_overrides.get("DB_workspace", "")
+    inst = databricks_institution_name or parameter_overrides.get(
+        "databricks_institution_name", ""
+    )
+    db_run_id = str(parameter_overrides.get("db_run_id", "") or "").strip()
+
     genai_version: str | None = None
     if is_genai:
         genai_version = resolve_genai_pipeline_version_from_registry(
-            db_workspace or parameter_overrides.get("DB_workspace", ""),
-            databricks_institution_name
-            or parameter_overrides.get("databricks_institution_name", ""),
+            db_ws,
+            inst,
             logger=logger,
         )
         genai_dir = genai_snapshot_dir(release_dir)
@@ -446,15 +505,15 @@ def submit_es_versioned_inference_from_bundle(
             git_url=git_url,
             logger=logger,
         )
-        assert plan.classical_body is not None
+        assert plan.es_full_body is not None
         logger.info(
-            "Classical ES submit at git %s %s (%s tasks)",
+            "ES-full submit at git %s %s (%s tasks)",
             git_ref_kind(es_pipeline_version),
             es_pipeline_version,
-            len(plan.classical_body.get("tasks") or []),
+            len(plan.es_full_body.get("tasks") or []),
         )
-        run_id = _submit_and_maybe_wait(
-            plan.classical_body,
+        run_id, url = _submit_and_maybe_wait(
+            plan.es_full_body,
             dry_run=dry_run,
             wait=wait_for_completion,
             poll_interval_seconds=poll_interval_seconds,
@@ -462,7 +521,17 @@ def submit_es_versioned_inference_from_bundle(
             workspace_client=workspace_client,
             logger=logger,
         )
-        return EsChildRunIds(classical_or_prefix=run_id)
+        if not dry_run and wait_for_completion and model_run_id.strip():
+            assert_es_inference_outputs_ready(
+                db_ws,
+                inst,
+                model_run_id,
+                db_run_id=db_run_id,
+                logger=logger,
+            )
+        child = EsChildRunIds(is_genai=False, es_full=run_id, es_full_url=url)
+        child.log_monitor_urls(logger)
+        return child
 
     # --- GenAI dual-pin ---
     plan_prefix = plan_es_versioned_submit(
@@ -483,8 +552,7 @@ def submit_es_versioned_inference_from_bundle(
         git_ref_kind(es_pipeline_version),
         es_pipeline_version,
     )
-    # Always wait for prefix so handoff exists (even when --no-wait on final segment).
-    prefix_id = _submit_and_maybe_wait(
+    prefix_id, prefix_url = _submit_and_maybe_wait(
         plan_prefix.prefix_body,
         dry_run=dry_run,
         wait=True,
@@ -501,6 +569,9 @@ def submit_es_versioned_inference_from_bundle(
         workspace_client=workspace_client,
         logger=logger,
     )
+    if not dry_run:
+        assert_ingestion_outputs_ready(handoff, logger=logger)
+
     plan = plan_es_versioned_submit(
         release_dir,
         es_pipeline_version=es_pipeline_version,
@@ -521,7 +592,7 @@ def submit_es_versioned_inference_from_bundle(
         genai_version,
         handoff.get("bronze_batch_dir", ""),
     )
-    genai_id = _submit_and_maybe_wait(
+    genai_id, genai_url = _submit_and_maybe_wait(
         plan.genai_body,
         dry_run=dry_run,
         wait=True,
@@ -530,13 +601,20 @@ def submit_es_versioned_inference_from_bundle(
         workspace_client=workspace_client,
         logger=logger,
     )
+    if not dry_run:
+        assert_genai_execute_outputs_ready(
+            db_ws,
+            inst,
+            bronze_batch_dir=handoff.get("bronze_batch_dir", ""),
+            logger=logger,
+        )
 
     logger.info(
         "ES suffix (data_audit…) at git %s %s",
         git_ref_kind(es_pipeline_version),
         es_pipeline_version,
     )
-    suffix_id = _submit_and_maybe_wait(
+    suffix_id, suffix_url = _submit_and_maybe_wait(
         plan.suffix_body,
         dry_run=dry_run,
         wait=wait_for_completion,
@@ -545,8 +623,23 @@ def submit_es_versioned_inference_from_bundle(
         workspace_client=workspace_client,
         logger=logger,
     )
-    return EsChildRunIds(
-        classical_or_prefix=prefix_id,
+    if not dry_run and wait_for_completion and model_run_id.strip():
+        assert_es_inference_outputs_ready(
+            db_ws,
+            inst,
+            model_run_id,
+            db_run_id=db_run_id,
+            logger=logger,
+        )
+
+    child = EsChildRunIds(
+        is_genai=True,
+        es_prefix=prefix_id,
         genai_execute=genai_id,
         es_suffix=suffix_id,
+        es_prefix_url=prefix_url,
+        genai_execute_url=genai_url,
+        es_suffix_url=suffix_url,
     )
+    child.log_monitor_urls(logger)
+    return child

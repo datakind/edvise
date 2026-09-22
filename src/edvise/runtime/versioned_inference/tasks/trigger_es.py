@@ -1,4 +1,4 @@
-"""ES launcher task 3: dual-pin / classical versioned inference submit."""
+"""ES launcher task 3: dual-pin / ES-full versioned inference submit."""
 
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Submit versioned ES inference from archived bundle YAML. "
-            "Classical schools: one spark-only child run at the model ES "
+            "Non-GenAI schools: one ES-full spark child run at the model ES "
             "pipeline_version. GenAI schools: three dual-pin child runs "
             "(ES prefix → GenAI @ registry → ES suffix)."
         ),
@@ -143,6 +143,7 @@ def main(argv: list[str] | None = None) -> None:
             git_url=inputs.git_url,
             db_workspace=db_ws,
             databricks_institution_name=inst,
+            model_run_id=model_run_id,
             dry_run=args.dry_run,
             wait_for_completion=not args.no_wait,
             poll_interval_seconds=args.poll_interval_seconds,
@@ -178,22 +179,14 @@ def main(argv: list[str] | None = None) -> None:
             payload=payload,
             logger=LOGGER,
         )
-        if args.no_wait:
-            LOGGER.info(
-                "ES versioned inference submitted (no-wait; training model_run_id=%s, "
-                "parent_launcher_run_id=%s, child_ids=%s, db_run_id=%s)",
-                model_run_id,
-                launcher_run_id,
-                child_ids.as_payload(),
-                db_run_id,
-            )
-        else:
-            LOGGER.info(
-                "ES versioned inference completed successfully "
-                "(training model_run_id=%s, parent_launcher_run_id=%s, "
-                "child_ids=%s, db_run_id=%s)",
-                model_run_id,
-                launcher_run_id,
-                child_ids.as_payload(),
-                db_run_id,
-            )
+        # Final summary: ids as structured payload, then URLs alone (clickable).
+        LOGGER.info(
+            "ES versioned inference %s (training model_run_id=%s, "
+            "parent_launcher_run_id=%s, db_run_id=%s, child_ids=%s)",
+            "submitted (no-wait)" if args.no_wait else "completed successfully",
+            model_run_id,
+            launcher_run_id,
+            db_run_id,
+            child_ids.as_payload(),
+        )
+        child_ids.log_monitor_urls(LOGGER)
