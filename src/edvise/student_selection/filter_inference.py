@@ -4,6 +4,7 @@ import typing as t
 
 import pandas as pd
 
+from edvise.shared.utils import cohort_pair_columns
 from edvise.utils.data_cleaning import convert_intensity_time_limits
 from edvise.utils.types import IntensityTimeLimitsType
 
@@ -151,8 +152,20 @@ def exclude_training_cohort_students(
     training_cohorts: list[str],
     cohort_term_column: str = "cohort_term",
     cohort_column: str = "cohort",
+    *,
+    as_of_term: str | None = None,
+    intensity_time_limits: IntensityTimeLimitsType | None = None,
+    num_terms_in_year: int = 2,
+    enrollment_intensity_col: str | None = None,
 ) -> pd.DataFrame:
-    """Exclude students whose entry cohort was used in model training."""
+    """Exclude students whose entry cohort was used in model training.
+
+    A cohort is recorded once any student in it is labelable, which is
+    usually the full-time limit. Part-time classmates in that cohort often
+    are not labelable yet and were never in the training set. When
+    ``intensity_time_limits`` are provided, those students stay; anyone
+    already past their own limit is still excluded.
+    """
     training_labels = _normalize_label_list(training_cohorts)
     if not training_labels:
         return df
@@ -167,6 +180,27 @@ def exclude_training_cohort_students(
 
     labels = _joined_labels(df, cohort_term_column, cohort_column)
     exclude_mask = labels.isin(training_labels)
+    if as_of_term and intensity_time_limits:
+        still_open = _still_inside_intensity_window(
+            df,
+            as_of_term=as_of_term,
+            intensity_time_limits=intensity_time_limits,
+            num_terms_in_year=num_terms_in_year,
+            cohort_term_column=cohort_term_column,
+            cohort_column=cohort_column,
+            enrollment_intensity_col=enrollment_intensity_col,
+        )
+        n_kept = int((exclude_mask & still_open).sum())
+        if n_kept:
+            logging.info(
+                "Kept %d training-cohort students still inside their intensity "
+                "window as of %s. Their cohort is on the training list because "
+                "other intensities were already labelable.",
+                n_kept,
+                as_of_term,
+            )
+        exclude_mask = exclude_mask & ~still_open
+
     n_excluded = int(exclude_mask.sum())
     if n_excluded:
         logging.info(
@@ -272,54 +306,42 @@ def resolve_enrollment_intensity_col(df: pd.DataFrame) -> str:
     )
 
 
-def filter_inference_open_window(
+def _still_inside_intensity_window(
     df: pd.DataFrame,
     *,
     as_of_term: str,
     intensity_time_limits: IntensityTimeLimitsType,
     num_terms_in_year: int,
-    years_to_degree_col: str | None = None,
-    exclude_graduates: bool = True,
-    cohort_term_column: str = "cohort_term",
-    cohort_column: str = "cohort",
-    checkpoint_term_col: str = "academic_term",
-    checkpoint_year_col: str = "academic_year",
-    enrollment_intensity_col: str | None = None,
-) -> pd.DataFrame:
-    """Keep students whose on-time window is not yet complete.
+    cohort_term_column: str,
+    cohort_column: str,
+    enrollment_intensity_col: str | None,
+) -> pd.Series:
+    """True where elapsed time is strictly less than the student's own limit.
 
-    A student is kept when, as of ``as_of_term``:
-
-    - their checkpoint term is on or before that term (already reached the
-      checkpoint, e.g. 30 credits)
-    - elapsed core terms since first cohort enrollment are **strictly less
-      than** the intensity-specific limit (e.g. 3.0 years full-time, 4.5
-      part-time). Students enrolled long enough to be labelable for training
-      are excluded so they cannot leak into inference.
-    - if ``exclude_graduates``, ``years_to_degree_col`` is null
+    Unknown intensity or start term is False so those training-cohort rows
+    stay excluded.
     """
-    if enrollment_intensity_col is None:
-        enrollment_intensity_col = resolve_enrollment_intensity_col(df)
-
-    required = {
-        cohort_term_column,
-        cohort_column,
-        checkpoint_term_col,
-        checkpoint_year_col,
-        enrollment_intensity_col,
-    }
-    missing = sorted(col for col in required if col not in df.columns)
-    if missing:
-        raise ValueError(
-            f"Cannot apply open-window inference filter; missing columns {missing}."
+    try:
+        if enrollment_intensity_col is None:
+            enrollment_intensity_col = resolve_enrollment_intensity_col(df)
+    except ValueError:
+        logging.warning(
+            "Intensity limits are configured but no enrollment intensity "
+            "column was found; excluding the full training cohort."
         )
+        return pd.Series(False, index=df.index)
+
+    if enrollment_intensity_col not in df.columns:
+        logging.warning(
+            "Intensity limits are configured but %r is missing; excluding "
+            "the full training cohort.",
+            enrollment_intensity_col,
+        )
+        return pd.Series(False, index=df.index)
 
     as_of_idx = academic_term_index(*parse_term_label(as_of_term), num_terms_in_year)
     start_idx = _term_index_series(
         df[cohort_term_column], df[cohort_column], num_terms_in_year
-    )
-    ckpt_idx = _term_index_series(
-        df[checkpoint_term_col], df[checkpoint_year_col], num_terms_in_year
     )
     elapsed_years = (as_of_idx - start_idx + 1) / float(num_terms_in_year)
     intensity_num_years = convert_intensity_time_limits(
@@ -328,51 +350,128 @@ def filter_inference_open_window(
     year_limit = _intensity_year_limit(
         df[enrollment_intensity_col], intensity_num_years
     )
+    still_open = elapsed_years.lt(year_limit) & start_idx.notna() & year_limit.notna()
+    return still_open.fillna(False)
 
-    reached_checkpoint = ckpt_idx.le(as_of_idx)
-    still_open = elapsed_years.lt(year_limit)
-    keep = reached_checkpoint & still_open & start_idx.notna() & year_limit.notna()
 
-    n_before = len(df)
-    n_not_yet_ckpt = int((~reached_checkpoint.fillna(False)).sum())
-    n_labelable = int(
-        (reached_checkpoint.fillna(False) & ~still_open.fillna(False)).sum()
+def _resolve_intensity_time_limits(
+    preprocessing: object | None,
+) -> IntensityTimeLimitsType | None:
+    target = getattr(preprocessing, "target", None)
+    selection = getattr(preprocessing, "selection", None)
+    return getattr(target, "intensity_time_limits", None) or getattr(
+        selection, "intensity_time_limits", None
     )
-    n_unknown = int(
-        (keep.isna() | (reached_checkpoint & still_open & year_limit.isna())).sum()
-    )
 
-    if exclude_graduates:
-        if not years_to_degree_col or years_to_degree_col not in df.columns:
-            logging.warning(
-                "exclude_graduates is set but %r is missing; skipping "
-                "graduate exclusion.",
-                years_to_degree_col,
-            )
-        else:
-            graduated = df[years_to_degree_col].notna()
-            n_graduated = int((keep.fillna(False) & graduated).sum())
-            keep = keep & ~graduated
-            logging.info("Excluded %d students who already graduated.", n_graduated)
 
-    df_filtered = df.loc[keep.fillna(False)].copy()
-    logging.info(
-        "Open-window inference as of %s: kept %d/%d. "
-        "Not yet at checkpoint=%d; already labelable (enrolled "
-        ">= intensity limit)=%d; unknown intensity/start=%d.",
-        as_of_term,
-        len(df_filtered),
-        n_before,
-        n_not_yet_ckpt,
-        n_labelable,
-        n_unknown,
-    )
-    if df_filtered.empty and not df.empty:
-        raise ValueError(
-            "Open-window inference filter resulted in empty DataFrame; "
-            f"as_of_term={as_of_term!r}."
+def resolve_inference_terms_from_param(
+    cfg: t.Any,
+    *,
+    schema_type: str,
+    term_filter: str | None,
+    job_type: str = "inference",
+) -> None:
+    """Set ``cfg.inference.term`` from ``--term_filter`` when the job param is provided."""
+    if job_type != "inference":
+        return
+
+    from edvise.configs.es import InferenceConfig as ESInferenceConfig
+    from edvise.configs.pdp import InferenceConfig as PDPInferenceConfig
+    from edvise.shared.schema_type import is_edvise_schema
+
+    param = parse_term_filter_param(term_filter)
+    if param is not None:
+        inference_config_cls = (
+            ESInferenceConfig if is_edvise_schema(schema_type) else PDPInferenceConfig
         )
-    return df_filtered
+        if cfg.inference is None:
+            cfg.inference = inference_config_cls(cohort=param)
+        else:
+            cfg.inference.term = param
+        logging.info("Inference cohort source: job param; term_filter=%s", param)
+    else:
+        logging.info(
+            "Inference cohort source: config; cohort=%s",
+            cfg.inference.term if cfg.inference else None,
+        )
+
+
+def select_inference_students(
+    df: pd.DataFrame,
+    *,
+    inf_terms: list[str],
+    preprocessing: object | None = None,
+    cohort_pair: tuple[str, str] | None = None,
+    training_cohorts: list[str] | None = None,
+) -> pd.DataFrame:
+    """Filter merged checkpoint rows to the inference scoring population.
+
+    Training-cohort exclusion always runs. When the frozen config has
+    intensity time limits, students in those cohorts whose own window is
+    still open are kept. That is the usual part-time case: the cohort was
+    listed because full-time classmates were already labelable.
+    """
+    logging.info(
+        "Selecting students for inference who met the checkpoint in term(s) of interest"
+    )
+    df_filtered = filter_inference_term(df, term_list=inf_terms)
+    if not training_cohorts:
+        return df_filtered
+    cohort_pair = cohort_pair or cohort_pair_columns(df_filtered)
+    if cohort_pair is None:
+        logging.warning(
+            "Training cohorts configured but cohort columns not found; "
+            "skipping stop-out exclusion."
+        )
+        return df_filtered
+
+    cohort_year_column, cohort_term_column = cohort_pair
+    limits = _resolve_intensity_time_limits(preprocessing)
+    window_kwargs: dict[str, t.Any] = {}
+    if limits:
+        target = getattr(preprocessing, "target", None)
+        num_terms_in_year = int(getattr(target, "num_terms_in_year", None) or 2)
+        as_of_term = latest_as_of_term(inf_terms, num_terms_in_year)
+        logging.info(
+            "Training-cohort exclusion keeps students still inside their "
+            "intensity window as of %s.",
+            as_of_term,
+        )
+        window_kwargs = {
+            "as_of_term": as_of_term,
+            "intensity_time_limits": limits,
+            "num_terms_in_year": num_terms_in_year,
+        }
+    return exclude_training_cohort_students(
+        df_filtered,
+        training_cohorts=training_cohorts,
+        cohort_term_column=cohort_term_column,
+        cohort_column=cohort_year_column,
+        **window_kwargs,
+    )
+
+
+def log_inference_selection_breakdown(
+    df: pd.DataFrame,
+    cohort_pair: tuple[str, str] | None,
+) -> None:
+    if cohort_pair is not None:
+        cohort_column, cohort_term_column = cohort_pair
+        logging.info(
+            "Cohort & Cohort Term breakdowns (counts):\n%s",
+            df[[cohort_column, cohort_term_column]]
+            .value_counts(dropna=False)
+            .sort_index()
+            .to_string(),
+        )
+    if {"academic_year", "academic_term"}.issubset(df.columns):
+        logging.info(
+            "Term breakdowns (counts):\n%s",
+            df[["academic_year", "academic_term"]]
+            .value_counts(dropna=False)
+            .sort_index()
+            .to_string(),
+        )
 
 
 def filter_inference_term(

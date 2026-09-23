@@ -7,9 +7,9 @@ from edvise.student_selection.filter_inference import (
     _filter_by_joined_columns,
     exclude_training_cohort_students,
     filter_inference_cohort,
-    filter_inference_open_window,
     filter_inference_term,
     latest_as_of_term,
+    select_inference_students,
 )
 
 
@@ -296,15 +296,20 @@ def test_exclude_training_cohort_students_all_excluded_raises():
         )
 
 
-def _open_window_row(
+_INTENSITY_LIMITS = {
+    "FULL-TIME": (3.0, "year"),
+    "PART-TIME": (4.5, "year"),
+}
+
+
+def _checkpoint_row(
     *,
     student_id: int,
     cohort_term: str,
     cohort: str,
     intensity: str,
-    ckpt_term: str,
-    ckpt_year: str,
-    years_to_degree,
+    ckpt_term: str = "SPRING",
+    ckpt_year: str = "2025-26",
 ) -> dict:
     return {
         "id": student_id,
@@ -313,7 +318,6 @@ def _open_window_row(
         "student_term_enrollment_intensity": intensity,
         "academic_term": ckpt_term,
         "academic_year": ckpt_year,
-        "first_year_to_associates_at_cohort_inst": years_to_degree,
     }
 
 
@@ -327,119 +331,160 @@ def test_latest_as_of_term_picks_latest_on_two_term_calendar():
     )
 
 
-def test_open_window_keeps_in_window_pt_and_drops_labelable_ft():
-    """As of spring 2025-26: FT at 3.0 years is labelable; PT at 4.0 is not."""
+def test_exclude_training_cohort_keeps_in_window_part_time():
+    """As of spring 2025-26 a shared cohort drops labelable FT and keeps open PT."""
     df = pd.DataFrame(
         [
-            # FT started fall 2023-24: 6 terms = 3.0 years → training-eligible
-            _open_window_row(
+            # FT fall 2023-24: 6 terms = 3.0 years → labelable
+            _checkpoint_row(
                 student_id=1,
                 cohort_term="FALL",
                 cohort="2023-24",
                 intensity="FULL-TIME",
-                ckpt_term="FALL",
-                ckpt_year="2024-25",
-                years_to_degree=pd.NA,
             ),
-            # PT started fall 2022-23: 8 terms = 4.0 years → still open
-            _open_window_row(
+            # PT fall 2023-24: 3.0 years < 4.5 → still open, same training cohort
+            _checkpoint_row(
                 student_id=2,
                 cohort_term="FALL",
-                cohort="2022-23",
+                cohort="2023-24",
                 intensity="PART-TIME",
-                ckpt_term="FALL",
-                ckpt_year="2024-25",
-                years_to_degree=pd.NA,
             ),
-            # PT started spring 2021-22: 9 terms = 4.5 years → labelable
-            _open_window_row(
+            # PT spring 2021-22: 9 terms = 4.5 years → labelable
+            _checkpoint_row(
                 student_id=3,
                 cohort_term="SPRING",
                 cohort="2021-22",
                 intensity="PART-TIME",
-                ckpt_term="SPRING",
-                ckpt_year="2023-24",
-                years_to_degree=pd.NA,
+            ),
+            # Labelable, but this cohort was not used in training
+            _checkpoint_row(
+                student_id=4,
+                cohort_term="FALL",
+                cohort="2021-22",
+                intensity="FULL-TIME",
             ),
         ]
     )
-    result = filter_inference_open_window(
+    result = exclude_training_cohort_students(
         df,
+        training_cohorts=["fall 2023-24", "spring 2021-22"],
         as_of_term="spring 2025-26",
-        intensity_time_limits={
-            "FULL-TIME": (3.0, "year"),
-            "PART-TIME": (4.5, "year"),
-        },
+        intensity_time_limits=_INTENSITY_LIMITS,
         num_terms_in_year=2,
-        years_to_degree_col="first_year_to_associates_at_cohort_inst",
+    )
+    assert set(result["id"]) == {2, 4}
+
+
+def test_exclude_training_cohort_unknown_intensity_stays_excluded():
+    df = pd.DataFrame(
+        [
+            _checkpoint_row(
+                student_id=1,
+                cohort_term="FALL",
+                cohort="2024-25",
+                intensity="FULL-TIME",
+            ),
+            {
+                "id": 2,
+                "cohort_term": "FALL",
+                "cohort": "2024-25",
+                "student_term_enrollment_intensity": pd.NA,
+                "academic_term": "SPRING",
+                "academic_year": "2025-26",
+            },
+        ]
+    )
+    result = exclude_training_cohort_students(
+        df,
+        training_cohorts=["fall 2024-25"],
+        as_of_term="spring 2025-26",
+        intensity_time_limits=_INTENSITY_LIMITS,
+        num_terms_in_year=2,
+    )
+    assert set(result["id"]) == {1}
+
+
+class _GraduationPreprocessing:
+    target = type(
+        "Target",
+        (),
+        {
+            "intensity_time_limits": _INTENSITY_LIMITS,
+            "num_terms_in_year": 2,
+        },
+    )()
+
+
+def test_select_inference_students_keeps_in_window_part_time_in_training_cohort():
+    df = pd.DataFrame(
+        [
+            _checkpoint_row(
+                student_id=1,
+                cohort_term="FALL",
+                cohort="2023-24",
+                intensity="FULL-TIME",
+            ),
+            _checkpoint_row(
+                student_id=2,
+                cohort_term="FALL",
+                cohort="2023-24",
+                intensity="PART-TIME",
+            ),
+            # Checkpoint is not an inference term
+            _checkpoint_row(
+                student_id=3,
+                cohort_term="FALL",
+                cohort="2024-25",
+                intensity="PART-TIME",
+                ckpt_term="FALL",
+                ckpt_year="2024-25",
+            ),
+        ]
+    )
+    result = select_inference_students(
+        df,
+        inf_terms=["spring 2025-26"],
+        preprocessing=_GraduationPreprocessing(),
+        training_cohorts=["fall 2023-24"],
     )
     assert set(result["id"]) == {2}
 
 
-def test_open_window_drops_graduates_and_future_checkpoints():
+def test_select_inference_students_falls_back_without_intensity_limits():
     df = pd.DataFrame(
-        [
-            _open_window_row(
-                student_id=1,
-                cohort_term="FALL",
-                cohort="2024-25",
-                intensity="FULL-TIME",
-                ckpt_term="FALL",
-                ckpt_year="2024-25",
-                years_to_degree=2,
-            ),
-            _open_window_row(
-                student_id=2,
-                cohort_term="FALL",
-                cohort="2024-25",
-                intensity="FULL-TIME",
-                ckpt_term="FALL",
-                ckpt_year="2026-27",
-                years_to_degree=pd.NA,
-            ),
-            _open_window_row(
-                student_id=3,
-                cohort_term="FALL",
-                cohort="2024-25",
-                intensity="FULL-TIME",
-                ckpt_term="SPRING",
-                ckpt_year="2024-25",
-                years_to_degree=pd.NA,
-            ),
-        ]
+        {
+            "cohort_term": ["FALL", "FALL"],
+            "cohort": ["2023-24", "2024-25"],
+            "academic_term": ["FALL", "FALL"],
+            "academic_year": ["2024-25", "2024-25"],
+        }
     )
-    result = filter_inference_open_window(
+    result = select_inference_students(
         df,
-        as_of_term="spring 2025-26",
-        intensity_time_limits={
-            "FULL-TIME": (3.0, "year"),
-            "PART-TIME": (4.5, "year"),
-        },
-        num_terms_in_year=2,
-        years_to_degree_col="first_year_to_associates_at_cohort_inst",
+        inf_terms=["fall 2024-25"],
+        preprocessing=type(
+            "Preprocessing", (), {"target": object(), "selection": object()}
+        )(),
+        training_cohorts=["fall 2023-24"],
     )
-    assert set(result["id"]) == {3}
+    assert len(result) == 1
+    assert result.iloc[0]["cohort"] == "2024-25"
 
 
-def test_open_window_all_excluded_raises():
+def test_select_inference_students_without_intensity_column_excludes_full_cohort():
     df = pd.DataFrame(
-        [
-            _open_window_row(
-                student_id=1,
-                cohort_term="FALL",
-                cohort="2018-19",
-                intensity="FULL-TIME",
-                ckpt_term="FALL",
-                ckpt_year="2019-20",
-                years_to_degree=pd.NA,
-            )
-        ]
+        {
+            "cohort_term": ["FALL", "FALL", "SPRING"],
+            "cohort": ["2023-24", "2024-25", "2024-25"],
+            "academic_term": ["FALL", "FALL", "SPRING"],
+            "academic_year": ["2024-25", "2024-25", "2024-25"],
+        }
     )
-    with pytest.raises(ValueError, match="empty DataFrame"):
-        filter_inference_open_window(
-            df,
-            as_of_term="spring 2025-26",
-            intensity_time_limits={"FULL-TIME": (3.0, "year")},
-            num_terms_in_year=2,
-            years_to_degree_col="first_year_to_associates_at_cohort_inst",
-        )
+    result = select_inference_students(
+        df,
+        inf_terms=["fall 2024-25"],
+        preprocessing=_GraduationPreprocessing(),
+        training_cohorts=["fall 2023-24"],
+    )
+    assert len(result) == 1
+    assert result.iloc[0]["cohort"] == "2024-25"

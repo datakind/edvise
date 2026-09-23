@@ -1,6 +1,6 @@
 ## Unreleased
-- feat: optional intensity-window inference selection so students already
-  labelable for training cannot leak into scoring
+- feat: keep in-window part-time students at inference when their cohort is
+  on the training list only because full-time classmates were already labelable
 
 ## 1.14.5 (2026-09-16)
 - refactor: move schema_type.py from configs to shared (#318)

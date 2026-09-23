@@ -492,31 +492,8 @@ class InferenceConfig(pyd.BaseModel):
 
     term: t.Optional[list[str]] = pyd.Field(
         default=None,
-        description=(
-            "Inference terms. When restrict_to_open_target_window is false, "
-            "students are selected if they meet the checkpoint in one of these "
-            "terms. When true, the latest label is the as-of term for the "
-            "intensity-window filter. Typically the most recent complete term, "
-            "e.g. ['spring 2025-26']."
-        ),
-    )
-    restrict_to_open_target_window: bool = pyd.Field(
-        default=False,
-        description=(
-            "If true, score students who have already met the checkpoint, "
-            "have not been enrolled long enough to be labelable "
-            "(elapsed time strictly less than each intensity_time_limits "
-            "entry, e.g. 3.0 years full-time / 4.5 years part-time), and "
-            "optionally have not graduated. Training-cohort exclusion is "
-            "skipped; the duration rule is the leak guard."
-        ),
-    )
-    exclude_graduates: bool = pyd.Field(
-        default=True,
-        description=(
-            "When restrict_to_open_target_window is true, drop students "
-            "whose years_to_degree column is already populated."
-        ),
+        description="List of terms to use for inference. Students will be selected if they meet the checkpoint in one of these terms. "
+        "Typically most often the most recent term. e.g. ['fall 2024-25', 'spring 2024-25']",
     )
 
     cohort: t.Optional[list[str]] = pyd.Field(
