@@ -8,8 +8,8 @@ from edvise.student_selection.filter_inference import (
     exclude_training_cohort_students,
     filter_inference_cohort,
     filter_inference_term,
+    graduation_open_window,
     latest_as_of_term,
-    select_inference_students,
 )
 
 
@@ -404,126 +404,34 @@ def test_exclude_training_cohort_unknown_intensity_stays_excluded():
     assert set(result["id"]) == {1}
 
 
-class _GraduationPreprocessing:
-    target = type(
-        "Target",
+def test_graduation_open_window_only_for_graduation():
+    graduation = type(
+        "Preprocessing",
         (),
         {
-            "type_": "graduation",
-            "intensity_time_limits": _INTENSITY_LIMITS,
-            "num_terms_in_year": 2,
+            "target": type(
+                "Target",
+                (),
+                {
+                    "type_": "graduation",
+                    "intensity_time_limits": _INTENSITY_LIMITS,
+                    "num_terms_in_year": 2,
+                },
+            )()
         },
     )()
-
-
-class _CreditsEarnedPreprocessing:
-    target = type(
-        "Target",
+    credits = type(
+        "Preprocessing",
         (),
         {
-            "type_": "credits_earned",
-            "intensity_time_limits": _INTENSITY_LIMITS,
-            "num_terms_in_year": 2,
+            "target": type(
+                "Target",
+                (),
+                {"type_": "credits_earned", "intensity_time_limits": _INTENSITY_LIMITS},
+            )()
         },
     )()
-
-
-def test_select_inference_students_keeps_in_window_part_time_in_training_cohort():
-    df = pd.DataFrame(
-        [
-            _checkpoint_row(
-                student_id=1,
-                cohort_term="FALL",
-                cohort="2023-24",
-                intensity="FULL-TIME",
-            ),
-            _checkpoint_row(
-                student_id=2,
-                cohort_term="FALL",
-                cohort="2023-24",
-                intensity="PART-TIME",
-            ),
-            # Checkpoint is not an inference term
-            _checkpoint_row(
-                student_id=3,
-                cohort_term="FALL",
-                cohort="2024-25",
-                intensity="PART-TIME",
-                ckpt_term="FALL",
-                ckpt_year="2024-25",
-            ),
-        ]
+    assert graduation_open_window(graduation, ["spring 2025-26"])["as_of_term"] == (
+        "spring 2025-26"
     )
-    result = select_inference_students(
-        df,
-        inf_terms=["spring 2025-26"],
-        preprocessing=_GraduationPreprocessing(),
-        training_cohorts=["fall 2023-24"],
-    )
-    assert set(result["id"]) == {2}
-
-
-def test_select_inference_students_non_graduation_excludes_open_part_time():
-    df = pd.DataFrame(
-        [
-            _checkpoint_row(
-                student_id=1,
-                cohort_term="FALL",
-                cohort="2023-24",
-                intensity="PART-TIME",
-            ),
-            _checkpoint_row(
-                student_id=2,
-                cohort_term="FALL",
-                cohort="2024-25",
-                intensity="FULL-TIME",
-            ),
-        ]
-    )
-    result = select_inference_students(
-        df,
-        inf_terms=["spring 2025-26"],
-        preprocessing=_CreditsEarnedPreprocessing(),
-        training_cohorts=["fall 2023-24"],
-    )
-    assert set(result["id"]) == {2}
-
-
-def test_select_inference_students_falls_back_without_intensity_limits():
-    df = pd.DataFrame(
-        {
-            "cohort_term": ["FALL", "FALL"],
-            "cohort": ["2023-24", "2024-25"],
-            "academic_term": ["FALL", "FALL"],
-            "academic_year": ["2024-25", "2024-25"],
-        }
-    )
-    result = select_inference_students(
-        df,
-        inf_terms=["fall 2024-25"],
-        preprocessing=type(
-            "Preprocessing", (), {"target": object(), "selection": object()}
-        )(),
-        training_cohorts=["fall 2023-24"],
-    )
-    assert len(result) == 1
-    assert result.iloc[0]["cohort"] == "2024-25"
-
-
-def test_select_inference_students_without_intensity_column_excludes_full_cohort():
-    df = pd.DataFrame(
-        {
-            "cohort_term": ["FALL", "FALL", "SPRING"],
-            "cohort": ["2023-24", "2024-25", "2024-25"],
-            "academic_term": ["FALL", "FALL", "SPRING"],
-            "academic_year": ["2024-25", "2024-25", "2024-25"],
-        }
-    )
-    result = select_inference_students(
-        df,
-        inf_terms=["fall 2024-25"],
-        preprocessing=_GraduationPreprocessing(),
-        training_cohorts=["fall 2023-24"],
-    )
-    assert len(result) == 1
-    assert result.iloc[0]["cohort"] == "2024-25"
+    assert graduation_open_window(credits, ["spring 2025-26"]) == {}

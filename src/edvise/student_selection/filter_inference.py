@@ -4,7 +4,6 @@ import typing as t
 
 import pandas as pd
 
-from edvise.shared.utils import cohort_pair_columns
 from edvise.utils.data_cleaning import convert_intensity_time_limits
 from edvise.utils.types import IntensityTimeLimitsType
 
@@ -155,16 +154,13 @@ def exclude_training_cohort_students(
     *,
     as_of_term: str | None = None,
     intensity_time_limits: IntensityTimeLimitsType | None = None,
-    num_terms_in_year: int = 2,
+    num_terms_in_year: int = 4,
     enrollment_intensity_col: str | None = None,
 ) -> pd.DataFrame:
     """Exclude students whose entry cohort was used in model training.
 
-    A graduation cohort is recorded once any student in it is labelable,
-    which is usually the full-time limit. Full-time and part-time
-    classmates often are not labelable yet and were never in the training
-    set. When ``intensity_time_limits`` are provided, those students stay;
-    anyone already past their own limit is still excluded.
+    Graduation passes intensity limits so full-time and part-time students
+    still inside their own window are kept. Other callers are unchanged.
     """
     training_labels = _normalize_label_list(training_cohorts)
     if not training_labels:
@@ -318,133 +314,21 @@ def _still_inside_intensity_window(
     return still_open.fillna(False)
 
 
-def _graduation_open_window(
+def graduation_open_window(
     preprocessing: object | None,
     inf_terms: list[str],
-) -> tuple[str, IntensityTimeLimitsType, int] | None:
-    """As-of term and limits for graduation only.
-
-    Full-time and part-time students in one graduation cohort become
-    labelable at different times. Retention and credits-earned exclude the
-    whole training cohort.
-    """
+) -> dict[str, t.Any]:
+    """Kwargs for graduation only. Other targets get cohort-wide exclusion."""
     target = getattr(preprocessing, "target", None)
     limits = getattr(target, "intensity_time_limits", None)
     if getattr(target, "type_", None) != "graduation" or not limits:
-        return None
+        return {}
     num_terms_in_year = int(getattr(target, "num_terms_in_year", None) or 4)
-    return (
-        latest_as_of_term(inf_terms, num_terms_in_year),
-        limits,
-        num_terms_in_year,
-    )
-
-
-def resolve_inference_terms_from_param(
-    cfg: t.Any,
-    *,
-    schema_type: str,
-    term_filter: str | None,
-    job_type: str = "inference",
-) -> None:
-    """Set ``cfg.inference.term`` from ``--term_filter`` when the job param is provided."""
-    if job_type != "inference":
-        return
-
-    from edvise.configs.es import InferenceConfig as ESInferenceConfig
-    from edvise.configs.pdp import InferenceConfig as PDPInferenceConfig
-    from edvise.shared.schema_type import is_edvise_schema
-
-    param = parse_term_filter_param(term_filter)
-    if param is not None:
-        inference_config_cls = (
-            ESInferenceConfig if is_edvise_schema(schema_type) else PDPInferenceConfig
-        )
-        if cfg.inference is None:
-            cfg.inference = inference_config_cls(cohort=param)
-        else:
-            cfg.inference.term = param
-        logging.info("Inference cohort source: job param; term_filter=%s", param)
-    else:
-        logging.info(
-            "Inference cohort source: config; cohort=%s",
-            cfg.inference.term if cfg.inference else None,
-        )
-
-
-def select_inference_students(
-    df: pd.DataFrame,
-    *,
-    inf_terms: list[str],
-    preprocessing: object | None = None,
-    cohort_pair: tuple[str, str] | None = None,
-    training_cohorts: list[str] | None = None,
-) -> pd.DataFrame:
-    """Filter merged checkpoint rows to the inference scoring population.
-
-    Training-cohort exclusion always runs. For graduation models, full-time
-    and part-time students in a listed cohort whose own window is still open
-    are kept. Other targets exclude the whole cohort.
-    """
-    logging.info(
-        "Selecting students for inference who met the checkpoint in term(s) of interest"
-    )
-    df_filtered = filter_inference_term(df, term_list=inf_terms)
-    if not training_cohorts:
-        return df_filtered
-    cohort_pair = cohort_pair or cohort_pair_columns(df_filtered)
-    if cohort_pair is None:
-        logging.warning(
-            "Training cohorts configured but cohort columns not found; "
-            "skipping stop-out exclusion."
-        )
-        return df_filtered
-
-    cohort_year_column, cohort_term_column = cohort_pair
-    window = _graduation_open_window(preprocessing, inf_terms)
-    window_kwargs: dict[str, t.Any] = {}
-    if window is not None:
-        as_of_term, limits, num_terms_in_year = window
-        logging.info(
-            "Graduation training-cohort exclusion keeps full-time and "
-            "part-time students still inside their intensity window as of %s.",
-            as_of_term,
-        )
-        window_kwargs = {
-            "as_of_term": as_of_term,
-            "intensity_time_limits": limits,
-            "num_terms_in_year": num_terms_in_year,
-        }
-    return exclude_training_cohort_students(
-        df_filtered,
-        training_cohorts=training_cohorts,
-        cohort_term_column=cohort_term_column,
-        cohort_column=cohort_year_column,
-        **window_kwargs,
-    )
-
-
-def log_inference_selection_breakdown(
-    df: pd.DataFrame,
-    cohort_pair: tuple[str, str] | None,
-) -> None:
-    if cohort_pair is not None:
-        cohort_column, cohort_term_column = cohort_pair
-        logging.info(
-            "Cohort & Cohort Term breakdowns (counts):\n%s",
-            df[[cohort_column, cohort_term_column]]
-            .value_counts(dropna=False)
-            .sort_index()
-            .to_string(),
-        )
-    if {"academic_year", "academic_term"}.issubset(df.columns):
-        logging.info(
-            "Term breakdowns (counts):\n%s",
-            df[["academic_year", "academic_term"]]
-            .value_counts(dropna=False)
-            .sort_index()
-            .to_string(),
-        )
+    return {
+        "as_of_term": latest_as_of_term(inf_terms, num_terms_in_year),
+        "intensity_time_limits": limits,
+        "num_terms_in_year": num_terms_in_year,
+    }
 
 
 def filter_inference_term(

@@ -2,7 +2,7 @@
 
 import pytest
 
-from edvise.student_selection.filter_inference import parse_term_filter_param
+from edvise.scripts.inf_prep import parse_term_filter_param
 
 
 def testparse_term_filter_param_none_returns_none():
