@@ -8,7 +8,7 @@
 - [<span class="toc-label">Methodology</span>](#methodology)
 - [<span class="toc-label">Performance</span>](#performance)
 - [<span class="toc-label">Quantitative Bias Analysis</span>](#bias)
-- [<span class="toc-label">Important Features</span>](#features)
+- [<span class="toc-label">Important Indicators</span>](#indicators)
 - [<span class="toc-label">Appendix</span>](#appendix)
 - [<span class="toc-label">Glossary</span>](#glossary)
 
@@ -45,35 +45,35 @@ Before we train any model, we take several careful steps to make sure your data 
         - Confirming that each student–term (or student–course) record is unique
         - Checking for inconsistencies across files
     - After validation, we conduct exploratory data analysis (EDA) to better understand patterns in the data,  such as enrollment trends, grade distributions, and outcome rates.  
-    - If unusual patterns appear, we pause and review them with stakeholders before moving forward. This iterative process ensures alignment prior to [feature engineering](#glossary-feature-engineering) and model development.
+    - If unusual patterns appear, we pause and review them with stakeholders before moving forward. This iterative process ensures alignment prior to [indicator development](#glossary-indicator-development) and model development.
 
 
-- #### Feature Development
+- #### Indicator Development
 
     - _Goal: Transform raw data into meaningful student signals_
-    - Next, we apply [feature engineering](#glossary-feature-engineering) techniques to convert raw institutional data into variables that reflect real student behavior and progress.
+    - Next, we apply [indicator development](#glossary-indicator-development) techniques to convert raw institutional data into variables that reflect real student behavior and progress.
     - Examples include:
         - Aggregating academic performance by term, year, or course level  
         - Converting counts into interpretable rates (e.g., percent of courses passed)  
         - Calculating cumulative metrics (e.g., total credits earned)  
         - Measuring trends over time (e.g., GPA changes across terms)
-    - Throughout this process, we collaborate closely with institutional stakeholders to ensure features reflect domain knowledge, policy context, and intervention strategy needs.
+    - Throughout this process, we collaborate closely with institutional stakeholders to ensure indicators reflect domain knowledge, policy context, and intervention strategy needs.
 
-- #### Feature Selection
+- #### Indicator Screening
 
     - _Goal: Retain the most informative and stable predictors_
-    - Not all features contribute meaningful predictive value. To improve model stability and interpretability, we apply the following selection criteria:
+    - Not all indicators contribute meaningful predictive value. To improve model stability and interpretability, we apply the following screening criteria:
         - Collinearity Threshold
-            - Removed features with [Variance Inflation Factor (VIF)](#glossary-vif) greater than {collinearity_threshold}
-            - This reduces [multicollinearity](#glossary-collinearity), where features contain overlapping information.
+            - Removed indicators with [Variance Inflation Factor (VIF)](#glossary-vif) greater than {collinearity_threshold}
+            - This reduces [multicollinearity](#glossary-collinearity), where indicators contain overlapping information.
         - Low Variance Threshold
-            - Removed features with very low variance (below the [low variance threshold](#glossary-low-variance-threshold) of {low_variance_threshold})
-            - Features that vary very little across students provide limited predictive signal.
+            - Removed indicators with very low variance (below the [low variance threshold](#glossary-low-variance-threshold) of {low_variance_threshold})
+            - Indicators that vary very little across students provide limited predictive signal.
         - Missing Data Threshold
-            - Removed features with {incomplete_threshold}% or more missing values
-            - Features with excessive missingness may introduce noise into our modeling dataset.
+            - Removed indicators with {incomplete_threshold}% or more missing values
+            - Indicators with excessive missingness may introduce noise into our modeling dataset.
 
-    - After completing the [feature selection](#glossary-feature-selection) process, **{number_of_features} actionable features** were retained for modeling.
+    - After completing the [indicator screening](#glossary-indicator-screening) process, **{number_of_features} actionable indicators** were retained for modeling.
 
 - #### Target Population {{#target-population}}
     - _Goal: Define who the model is designed to support_
@@ -102,7 +102,7 @@ Before we train any model, we take several careful steps to make sure your data 
     - Candidate models were compared based on strong performance across [Recall](#glossary-recall), [AUC](#glossary-auc), [Log Loss](#glossary-log-loss), and [F1 Score](#glossary-f1).
     - Final selection also incorporated fairness considerations, prioritizing models with lower disparities in [False Negative Rate (FNR)](#glossary-fnr) across student subgroups.
     - This approach ensures the selected model is accurate, stable, and equitable in identifying students who may need support.
-    - Analyzed [SHAP](#glossary-shap) values for the selected model to assess the relative importance of key features.
+    - Analyzed [SHAP](#glossary-shap) values for the selected model to assess the relative importance of key indicators.
 
 {model_comparison_plot}
 
@@ -128,18 +128,18 @@ Before we train any model, we take several careful steps to make sure your data 
 
 {bias_summary_section}
 
-### Important Features {{#features}}
-- #### Analyzing Feature Importance
-    - This figure shows how individual features contribute to the model’s predictions for each student-term record using [SHAP](#glossary-shap) values.
+### Important Indicators {{#indicators}}
+- #### Analyzing Indicator Importance
+    - This figure shows how individual indicators contribute to the model’s predictions for each student-term record using [SHAP](#glossary-shap) values.
         - Guidelines to interpret the plot:
             - Each dot represents a single student-term record.
-            - Features are ordered by overall importance, with the most influential at the top.
-            - SHAP values (x-axis) indicate whether a feature increases (+) or decreases (–) the predicted likelihood of needing support.
-            - **Color** reflects the feature’s value for that student:
+            - Indicators are ordered by overall importance, with the most influential at the top.
+            - SHAP values (x-axis) show whether an indicator increases (+) or decreases (–) the predicted likelihood of needing support.
+            - **Color** reflects the indicator’s value for that student:
                 - <span class="dk-red">High</span> values in red
                 - <span class="dk-blue">Low</span> values in blue
-                - <span class="dk-gray">Categorical features</span> in gray
-        - Example: _Students with a lower percentage of grades above the section’s average tend to have SHAP values further to the right, indicating that this feature contributes to the model predicting a higher likelihood of needing support._
+                - <span class="dk-gray">Categorical indicators</span> in gray
+        - Example: _Students with a lower percentage of grades above the section’s average tend to have SHAP values further to the right, showing that this indicator contributes to the model predicting a higher likelihood of needing support._
 
 {feature_importances_by_shap_plot}
 
@@ -233,25 +233,16 @@ A defined subset of students used to evaluate model performance and fairness.
 
 ---
 
-#### Features & Modeling
+#### Indicators & Modeling
 
-***Actionable Feature*** <a id="glossary-actionable-feature"></a><br>
+***Actionable Indicator*** <a id="glossary-actionable-indicator"></a><br>
 A model input representing outcomes that can plausibly be influenced through intervention.
 
 ***AutoML (Automated Machine Learning)*** <a id="glossary-automl"></a><br>
 Software that automatically trains, tunes, and compares multiple machine learning models to identify high-performing configurations based on predefined metrics.
 
 ***Collinearity (Multicollinearity)*** <a id="glossary-collinearity"></a><br>
-A condition where two or more features contain highly overlapping information.
-
-***Feature Engineering*** <a id="glossary-feature-engineering"></a><br>
-The process of transforming raw data into meaningful variables.
-
-***Feature Importance*** <a id="glossary-feature-importance"></a><br>
-A measure of how much each feature contributes to the model's predictions. Feature importance plots visually display which features most strongly influence predictions overall.
-
-***Feature Selection*** <a id="glossary-feature-selection"></a><br>
-The process of retaining a subset of features that provide the strongest predictive signal.
+A condition where two or more indicators contain highly overlapping information.
 
 ***H2O AutoML*** <a id="glossary-h2o-automl"></a><br>
 An automated machine learning framework that trains, tunes, and evaluates multiple model types (such as generalized linear models, gradient boosting machines, random forests, and stacked ensembles) to identify high-performing models based on specified evaluation metrics.
@@ -259,8 +250,17 @@ An automated machine learning framework that trains, tunes, and evaluates multip
 ***Imputation*** <a id="glossary-imputation"></a><br>
 The process of filling in missing data values.
 
-***Low Variance Feature*** <a id="glossary-low-variance"></a><br>
-A feature that changes very little across students.
+***Indicator Development*** <a id="glossary-indicator-development"></a><br>
+The process of transforming raw data into meaningful variables.
+
+***Indicator Importance*** <a id="glossary-indicator-importance"></a><br>
+A measure of how much each indicator contributes to the model's predictions. Indicator importance plots visually display which indicators most strongly influence predictions overall.
+
+***Indicator Screening*** <a id="glossary-indicator-screening"></a><br>
+The process of retaining a subset of indicators that provide the strongest predictive signal.
+
+***Low Variance Indicator*** <a id="glossary-low-variance"></a><br>
+An indicator that changes very little across students.
 
 ***Model Interpretability*** <a id="glossary-model-interpretability"></a><br>
 The degree to which a person can understand how and why a model makes its predictions.
@@ -272,10 +272,10 @@ The structured process and supporting infrastructure used to prepare data, train
 A technique that assigns different importance to observations during model training.
 
 ***SHAP (Shapley Additive Explanations)*** <a id="glossary-shap"></a><br>
-A method used to explain model predictions by quantifying how much each feature contributes to a prediction. SHAP values indicate both the **direction** (whether a feature increases or decreases the predicted likelihood of needing support) and the **magnitude** of that contribution. When aggregated across students, SHAP values provide insight into which features are most influential overall.
+A method used to explain model predictions by quantifying how much each indicator contributes to a prediction. SHAP values show both the **direction** (whether an indicator increases or decreases the predicted likelihood of needing support) and the **magnitude** of that contribution. When aggregated across students, SHAP values provide insight into which indicators are most influential overall.
 
 ***Variance Inflation Factor (VIF)*** <a id="glossary-vif"></a><br>
-A statistic used to quantify multicollinearity between features.
+A statistic used to quantify multicollinearity between indicators.
 
 ---
 
@@ -288,10 +288,10 @@ A specific point in time at which a prediction is generated for a student.
 Repeated entries representing the same observation. Duplicate records can distort model training and evaluation if not identified and handled appropriately.
 
 ***Low Variance Threshold*** <a id="glossary-low-variance-threshold"></a><br>
-A rule used to remove features that vary very little across students and therefore contribute limited predictive value.
+A rule used to remove indicators that vary very little across students and therefore contribute limited predictive value.
 
 ***Missing Data Threshold*** <a id="glossary-missing-data-threshold"></a><br>
-A predefined cutoff used to determine when a feature contains too many missing values to be considered reliable for modeling.
+A predefined cutoff used to determine when an indicator contains too many missing values to be considered reliable for modeling.
 
 ***Null Values*** <a id="glossary-null-values"></a><br>
 Empty or missing data entries in a dataset. These may occur when information was not collected, not recorded, or not applicable.
@@ -303,4 +303,4 @@ The group of students for whom the model is designed and validated.
 The subset of data used to fit the model.
 
 ***Variance*** <a id="glossary-variance"></a><br>
-A statistical measure of how spread out values are from their average. Higher variance indicates greater variability in a feature.
+A statistical measure of how spread out values are from their average. Higher variance indicates greater variability in an indicator.
