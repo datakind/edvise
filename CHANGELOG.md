@@ -1,3 +1,9 @@
+## 1.15.0 (2026-09-23)
+- fix(genai): skip HITL for datetime parse and all-null SMA 2a sources (#334)
+- ci(release-automation): sync develop via throwaway branch and block overlapping releases (#339)
+- feat: add shared bronze or batch filename matcher (#347)
+- feat: es versioned inference launcher (#351)
+
 ## 1.14.5 (2026-09-16)
 - refactor: move schema_type.py from configs to shared (#318)
 - refactor(es): feature value regex fallbacks for free-text fields (#344)
