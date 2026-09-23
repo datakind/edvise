@@ -21,8 +21,8 @@ from edvise.runtime.versioned_inference.child_run_values import (  # noqa: E402
 )
 from edvise.runtime.versioned_inference.es_segments import (  # noqa: E402
     es_full_task_keys,
-    es_prefix_task_keys,
-    es_suffix_task_keys,
+    es_inference_task_keys,
+    es_ingestion_task_keys,
     replace_task_value_refs,
 )
 from edvise.runtime.versioned_inference.submit_es import (  # noqa: E402
@@ -96,11 +96,11 @@ def test_es_segment_keys_es_full_excludes_condition_and_run_job() -> None:
     assert "output_publish" in keys
     assert "check_is_genai_institution" not in keys
     assert "genai_mapping_execute" not in keys
-    assert es_prefix_task_keys() == {"data_ingestion"}
-    suffix = es_suffix_task_keys(job["tasks"])
-    assert "data_ingestion" not in suffix
-    assert "data_audit" in suffix
-    assert "output_publish" in suffix
+    assert es_ingestion_task_keys() == {"data_ingestion"}
+    inference = es_inference_task_keys(job["tasks"])
+    assert "data_ingestion" not in inference
+    assert "data_audit" in inference
+    assert "output_publish" in inference
 
 
 def test_es_child_run_ids_payload_names_by_path() -> None:
@@ -114,17 +114,17 @@ def test_es_child_run_ids_payload_names_by_path() -> None:
     }
     genai = EsChildRunIds(
         is_genai=True,
-        es_prefix=1,
+        es_ingestion=1,
         genai_execute=2,
-        es_suffix=3,
-        es_prefix_url="https://example/p",
+        es_inference=3,
+        es_ingestion_url="https://example/i",
         genai_execute_url="https://example/g",
-        es_suffix_url="https://example/s",
+        es_inference_url="https://example/e",
     )
     payload = genai.as_payload()
-    assert payload["child_run_es_prefix"] == "1"
+    assert payload["child_run_es_ingestion"] == "1"
     assert payload["child_run_genai_execute"] == "2"
-    assert payload["child_run_es_suffix"] == "3"
+    assert payload["child_run_es_inference"] == "3"
     assert payload["child_inference_run_id"] == "3"
     assert "child_run_es_prefix_or_classical" not in payload
     assert "child_run_es_full" not in payload
@@ -217,19 +217,19 @@ def test_plan_genai_dual_pin_three_bodies(tmp_path: Path) -> None:
         genai_pipeline_version=_GENAI_SHA,
         handoff=handoff,
     )
-    assert plan.prefix_body is not None
+    assert plan.ingestion_body is not None
     assert plan.genai_body is not None
-    assert plan.suffix_body is not None
-    prefix_keys = [t["task_key"] for t in plan.prefix_body["tasks"]]
-    assert prefix_keys == ["data_ingestion"]
+    assert plan.inference_body is not None
+    ingestion_keys = [t["task_key"] for t in plan.ingestion_body["tasks"]]
+    assert ingestion_keys == ["data_ingestion"]
     genai_keys = [t["task_key"] for t in plan.genai_body["tasks"]]
     assert genai_keys == ["ia_execute", "sma_execute"]
     assert plan.genai_body["git_source"]["git_commit"] == _GENAI_SHA
-    assert plan.prefix_body["git_source"]["git_commit"] == _ES_SHA
-    assert plan.suffix_body["git_source"]["git_commit"] == _ES_SHA
-    suffix_blob = str(plan.suffix_body)
-    assert "{{tasks.data_ingestion.values" not in suffix_blob
-    assert handoff["config_file_path"] in suffix_blob
+    assert plan.ingestion_body["git_source"]["git_commit"] == _ES_SHA
+    assert plan.inference_body["git_source"]["git_commit"] == _ES_SHA
+    inference_blob = str(plan.inference_body)
+    assert "{{tasks.data_ingestion.values" not in inference_blob
+    assert handoff["config_file_path"] in inference_blob
 
 
 @pytest.mark.skipif(
@@ -255,11 +255,11 @@ def test_submit_es_genai_dry_run_orchestrates_three_phases(tmp_path: Path) -> No
             db_workspace="dev_sst_02",
             databricks_institution_name="city_cols_of_chicago",
         )
-    assert ids.es_prefix == 0
+    assert ids.es_ingestion == 0
     assert ids.genai_execute == 0
-    assert ids.es_suffix == 0
+    assert ids.es_inference == 0
     assert ids.is_genai is True
-    assert "child_run_es_prefix" in ids.as_payload()
+    assert "child_run_es_ingestion" in ids.as_payload()
 
 
 @pytest.mark.skipif(not _ES_YML.is_file(), reason="ES inference YAML missing")
@@ -274,9 +274,9 @@ def test_submit_es_full_dry_run(tmp_path: Path) -> None:
         wait_for_completion=False,
     )
     assert ids.es_full == 0
-    assert ids.es_prefix is None
+    assert ids.es_ingestion is None
     assert ids.genai_execute is None
-    assert ids.es_suffix is None
+    assert ids.es_inference is None
     assert ids.as_payload()["child_run_es_full"] == "0"
 
 
@@ -317,7 +317,7 @@ def test_submit_es_genai_waits_prefix_then_handoff(tmp_path: Path) -> None:
             "edvise.runtime.versioned_inference.submit_es.wait_for_inference_run",
         ) as wait_mock,
         patch(
-            "edvise.runtime.versioned_inference.submit_es.resolve_handoff_after_prefix",
+            "edvise.runtime.versioned_inference.submit_es.resolve_handoff_after_ingestion",
             return_value=dict(DRY_RUN_INGESTION_HANDOFF),
         ),
         patch(
@@ -358,9 +358,9 @@ def test_submit_es_genai_waits_prefix_then_handoff(tmp_path: Path) -> None:
     ]
     assert "data_audit" in [t["task_key"] for t in submit_calls[2]["tasks"]]
     assert wait_mock.call_count == 3
-    assert ids.es_prefix == 101
+    assert ids.es_ingestion == 101
     assert ids.genai_execute == 102
-    assert ids.es_suffix == 103
+    assert ids.es_inference == 103
     assert ids.primary == 103
-    assert ids.as_payload()["child_run_es_prefix"] == "101"
-    assert ids.es_prefix_url is not None
+    assert ids.as_payload()["child_run_es_ingestion"] == "101"
+    assert ids.es_ingestion_url is not None

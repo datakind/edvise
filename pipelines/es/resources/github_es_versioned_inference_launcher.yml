@@ -6,7 +6,7 @@
 #   …/es/{version}/genai/
 # then validates contracts and submits child inference run(s):
 #   non-GenAI → one ES-full spark run @ ES pipeline_version
-#   GenAI → ES prefix @ ES → GenAI execute @ registry → ES suffix @ ES
+#   GenAI → ES ingestion @ ES → GenAI execute @ registry → ES inference @ ES
 #
 # Does not replace github_sourced_genai_es_inference_pipeline (fallback remains).
 resources:
@@ -110,7 +110,7 @@ resources:
           description: >
             Non-GenAI: submit ES-full inference at the model's pipeline_version.
             GenAI: submit ES data_ingestion @ ES pin, GenAI execute @ registry pin, then
-            ES suffix @ ES pin (shared db_run_id = launcher run id). Hard I/O checks
+            ES inference @ ES pin (shared db_run_id = launcher run id). Hard I/O checks
             link bronze → GenAI pipeline_input → silver inference. Waits for child
             completion and fails if any required child or I/O check fails.
           depends_on:

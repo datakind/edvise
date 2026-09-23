@@ -6,6 +6,7 @@ import argparse
 import logging
 import sys
 
+from edvise.dataio.batch_gcs_inference_ingest import parse_is_genai_institution
 from edvise.runtime.versioned_inference.bundle.from_dab import inference_yml_path
 from edvise.runtime.versioned_inference.bundle.materialize import (
     DEFAULT_GITHUB_REPO,
@@ -41,10 +42,6 @@ from edvise.runtime.versioned_inference.run_metadata import (
 LOGGER = logging.getLogger("materialize_es_runtime_bundle")
 TASK_NAME = "materialize_runtime_bundle"
 _ES_SCHEMA_TYPE = "edvise"
-
-
-def _parse_is_genai_institution(raw: str) -> bool:
-    return (raw or "").strip().lower() in {"1", "true", "yes", "y"}
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -89,7 +86,7 @@ def main(argv: list[str] | None = None) -> None:
             "Require --databricks_institution_name, --model_name, and --DB_workspace."
         )
 
-    is_genai = _parse_is_genai_institution(getattr(args, "is_genai_institution", ""))
+    is_genai = parse_is_genai_institution(getattr(args, "is_genai_institution", ""))
     launcher_run_id = resolve_launcher_run_id(getattr(args, "launcher_run_id", ""))
     record_versioned_inference_launcher_event(
         catalog=db_ws,

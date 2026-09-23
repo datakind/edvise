@@ -7,6 +7,7 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
+from edvise.dataio.batch_gcs_inference_ingest import parse_is_genai_institution
 from edvise.runtime.versioned_inference.dab_layout import resolve_dab_bundle_layout
 from edvise.runtime.versioned_inference.parameters import (
     build_stable_trigger_payload,
@@ -199,10 +200,6 @@ def add_es_inference_trigger_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--config_file_name", default="")
     parser.add_argument("--genai_inputs_toml_path", default="")
     parser.add_argument("--term_filter", default="")
-
-
-def parse_is_genai_institution(raw: str) -> bool:
-    return (raw or "").strip().lower() in {"1", "true", "yes", "y"}
 
 
 def build_es_launcher_parameter_overrides(args: argparse.Namespace) -> dict[str, str]:

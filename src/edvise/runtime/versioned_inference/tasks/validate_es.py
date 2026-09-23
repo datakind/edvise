@@ -6,6 +6,7 @@ import argparse
 import logging
 import sys
 
+from edvise.dataio.batch_gcs_inference_ingest import parse_is_genai_institution
 from edvise.runtime.versioned_inference.bundle.from_dab import (
     build_effective_release,
     inference_yml_path,
@@ -15,7 +16,6 @@ from edvise.runtime.versioned_inference.cli import (
     add_es_inference_trigger_args,
     build_es_launcher_trigger_inputs,
     optional_model_run_id,
-    parse_is_genai_institution,
 )
 from edvise.runtime.versioned_inference.dab_layout import (
     genai_execute_dab_bundle_layout,

@@ -13,11 +13,13 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+from edvise.dataio.batch_gcs_inference_ingest import (  # noqa: E402
+    parse_is_genai_institution,
+)
 from edvise.runtime.versioned_inference.cli import (  # noqa: E402
     add_es_inference_trigger_args,
     build_es_launcher_parameter_overrides,
     build_es_launcher_trigger_inputs,
-    parse_is_genai_institution,
 )
 from edvise.runtime.versioned_inference.dab_layout import (  # noqa: E402
     genai_execute_dab_bundle_layout,

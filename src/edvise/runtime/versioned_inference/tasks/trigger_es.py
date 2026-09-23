@@ -6,11 +6,11 @@ import argparse
 import logging
 import sys
 
+from edvise.dataio.batch_gcs_inference_ingest import parse_is_genai_institution
 from edvise.runtime.versioned_inference.cli import (
     add_es_inference_trigger_args,
     build_es_launcher_trigger_inputs,
     optional_model_run_id,
-    parse_is_genai_institution,
 )
 from edvise.runtime.versioned_inference.model_resolution import (
     get_spark_session,
@@ -39,7 +39,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
             "Submit versioned ES inference from archived bundle YAML. "
             "Non-GenAI schools: one ES-full spark child run at the model ES "
             "pipeline_version. GenAI schools: three dual-pin child runs "
-            "(ES prefix → GenAI @ registry → ES suffix)."
+            "(ES ingestion → GenAI execute @ registry → ES inference)."
         ),
     )
     add_es_inference_trigger_args(parser)
@@ -48,7 +48,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help=(
             "Do not wait for the final child run. GenAI path still waits for "
-            "prefix and GenAI execute so handoff can proceed."
+            "ES ingestion and GenAI execute so handoff can proceed."
         ),
     )
     parser.add_argument(

@@ -26,8 +26,8 @@ from edvise.runtime.versioned_inference.es_segments import (
     INGESTION_HANDOFF_KEYS,
     apply_ingestion_handoff_to_job,
     es_full_task_keys,
-    es_prefix_task_keys,
-    es_suffix_task_keys,
+    es_inference_task_keys,
+    es_ingestion_task_keys,
     job_with_selected_tasks,
 )
 from edvise.runtime.versioned_inference.genai_registry import (
@@ -64,19 +64,24 @@ class EsChildRunIds:
     # Non-GenAI: one full ES spark DAG.
     es_full: int | None = None
     # GenAI dual-pin segments.
-    es_prefix: int | None = None
+    es_ingestion: int | None = None
     genai_execute: int | None = None
-    es_suffix: int | None = None
+    es_inference: int | None = None
     # Optional monitor URLs (logged alone so Databricks keeps them clickable).
     es_full_url: str | None = None
-    es_prefix_url: str | None = None
+    es_ingestion_url: str | None = None
     genai_execute_url: str | None = None
-    es_suffix_url: str | None = None
+    es_inference_url: str | None = None
 
     @property
     def primary(self) -> int:
         """Id used for launcher ``child_inference_run_id`` (final ES segment when split)."""
-        for value in (self.es_suffix, self.es_full, self.es_prefix, self.genai_execute):
+        for value in (
+            self.es_inference,
+            self.es_full,
+            self.es_ingestion,
+            self.genai_execute,
+        ):
             if value is not None:
                 return int(value)
         return 0
@@ -86,19 +91,20 @@ class EsChildRunIds:
         Structured child-run ids for launcher events / logs.
 
         Non-GenAI: ``child_run_es_full``
-        GenAI: ``child_run_es_prefix``, ``child_run_genai_execute``, ``child_run_es_suffix``
+        GenAI: ``child_run_es_ingestion``, ``child_run_genai_execute``,
+        ``child_run_es_inference``
         Always: ``child_inference_run_id`` (final ES run).
         """
         out: dict[str, str] = {
             "is_genai_institution": "true" if self.is_genai else "false"
         }
         if self.is_genai:
-            if self.es_prefix is not None:
-                out["child_run_es_prefix"] = str(self.es_prefix)
+            if self.es_ingestion is not None:
+                out["child_run_es_ingestion"] = str(self.es_ingestion)
             if self.genai_execute is not None:
                 out["child_run_genai_execute"] = str(self.genai_execute)
-            if self.es_suffix is not None:
-                out["child_run_es_suffix"] = str(self.es_suffix)
+            if self.es_inference is not None:
+                out["child_run_es_inference"] = str(self.es_inference)
         else:
             if self.es_full is not None:
                 out["child_run_es_full"] = str(self.es_full)
@@ -111,9 +117,9 @@ class EsChildRunIds:
 
         pairs = (
             ("es_full", self.es_full, self.es_full_url),
-            ("es_prefix", self.es_prefix, self.es_prefix_url),
+            ("es_ingestion", self.es_ingestion, self.es_ingestion_url),
             ("genai_execute", self.genai_execute, self.genai_execute_url),
-            ("es_suffix", self.es_suffix, self.es_suffix_url),
+            ("es_inference", self.es_inference, self.es_inference_url),
         )
         for label, run_id, url in pairs:
             if run_id is None:
@@ -131,9 +137,9 @@ class EsSubmitPlan:
     genai_pipeline_version: str | None
     es_parameters: dict[str, str]
     es_full_body: dict[str, Any] | None = None
-    prefix_body: dict[str, Any] | None = None
+    ingestion_body: dict[str, Any] | None = None
     genai_body: dict[str, Any] | None = None
-    suffix_body: dict[str, Any] | None = None
+    inference_body: dict[str, Any] | None = None
     handoff: dict[str, str] = field(default_factory=dict)
 
 
@@ -238,8 +244,8 @@ def plan_es_versioned_submit(
     """
     Build ES-full or dual-pin submit bodies from archived snapshots.
 
-    For GenAI, ``handoff`` may be omitted when only planning the prefix body;
-    ``genai_body`` / ``suffix_body`` require handoff (or dry-run placeholders).
+    For GenAI, ``handoff`` may be omitted when only planning the ingestion body;
+    ``genai_body`` / ``inference_body`` require handoff (or dry-run placeholders).
     """
     es_layout = resolve_dab_bundle_layout(_ES_SCHEMA)
     es_yml = inference_yml_path(release_dir, es_layout.inference_yml_snapshot_rel)
@@ -282,12 +288,12 @@ def plan_es_versioned_submit(
             "genai_pipeline_version is required when is_genai_institution is true"
         )
 
-    plan.prefix_body = build_segment_submit_body(
+    plan.ingestion_body = build_segment_submit_body(
         es_job,
-        keep_keys=es_prefix_task_keys(),
+        keep_keys=es_ingestion_task_keys(),
         pipeline_version=es_pipeline_version,
         git_url=git_url,
-        run_name=_run_name(inst, model, "prefix", es_pipeline_version),
+        run_name=_run_name(inst, model, "ingestion", es_pipeline_version),
         parameter_overrides=es_params,
         access_control_overrides=acl,
         inference_job_key=es_layout.inference_job_key,
@@ -334,12 +340,12 @@ def plan_es_versioned_submit(
         inference_job_key=genai_layout.inference_job_key,
     )
 
-    plan.suffix_body = build_segment_submit_body(
+    plan.inference_body = build_segment_submit_body(
         es_job,
-        keep_keys=es_suffix_task_keys(es_job.get("tasks") or []),
+        keep_keys=es_inference_task_keys(es_job.get("tasks") or []),
         pipeline_version=es_pipeline_version,
         git_url=git_url,
-        run_name=_run_name(inst, model, "suffix", es_pipeline_version),
+        run_name=_run_name(inst, model, "inference", es_pipeline_version),
         parameter_overrides=es_params,
         access_control_overrides=acl,
         inference_job_key=es_layout.inference_job_key,
@@ -384,10 +390,10 @@ def _submit_and_maybe_wait(
     return run_id, url
 
 
-def resolve_handoff_after_prefix(
+def resolve_handoff_after_ingestion(
     *,
     dry_run: bool,
-    prefix_run_id: int,
+    ingestion_run_id: int,
     es_parameters: dict[str, str],
     workspace_client: Any | None,
     logger: logging.Logger = LOGGER,
@@ -406,13 +412,13 @@ def resolve_handoff_after_prefix(
         batch_id=es_parameters.get("batch_id", ""),
         logger=logger,
     )
-    if workspace_client is None or not prefix_run_id:
+    if workspace_client is None or not ingestion_run_id:
         return require_keys(reconstructed)
 
     try:
         from_api = fetch_ingestion_handoff_from_run(
             workspace_client,
-            prefix_run_id,
+            ingestion_run_id,
             task_key=DATA_INGESTION_TASK_KEY,
             required_keys=INGESTION_HANDOFF_KEYS,
             hard_required=("config_file_path",),
@@ -422,7 +428,7 @@ def resolve_handoff_after_prefix(
         logger.warning(
             "Could not read data_ingestion task values from run_id=%s (%s); "
             "using reconstructed handoff.",
-            prefix_run_id,
+            ingestion_run_id,
             exc,
         )
         return require_keys(reconstructed)
@@ -468,7 +474,7 @@ def submit_es_versioned_inference_from_bundle(
     """
     Non-GenAI: one spark-only ES-full child run @ ``es_pipeline_version``.
 
-    GenAI: prefix @ ES → GenAI execute @ registry → ES suffix @ ES (shared ``db_run_id``).
+    GenAI: ES ingestion → GenAI execute @ registry → ES inference (shared ``db_run_id``).
     Hard I/O checks link bronze → GenAI pipeline_input → silver inference.
     """
     db_ws = db_workspace or parameter_overrides.get("DB_workspace", "")
@@ -535,7 +541,7 @@ def submit_es_versioned_inference_from_bundle(
         return child
 
     # --- GenAI dual-pin ---
-    plan_prefix = plan_es_versioned_submit(
+    ingestion_plan = plan_es_versioned_submit(
         release_dir,
         es_pipeline_version=es_pipeline_version,
         is_genai=True,
@@ -547,14 +553,14 @@ def submit_es_versioned_inference_from_bundle(
         handoff=None,
         logger=logger,
     )
-    assert plan_prefix.prefix_body is not None
+    assert ingestion_plan.ingestion_body is not None
     logger.info(
-        "ES prefix (data_ingestion) at git %s %s",
+        "ES ingestion (data_ingestion) at git %s %s",
         git_ref_kind(es_pipeline_version),
         es_pipeline_version,
     )
-    prefix_id, prefix_url = _submit_and_maybe_wait(
-        plan_prefix.prefix_body,
+    ingestion_id, ingestion_url = _submit_and_maybe_wait(
+        ingestion_plan.ingestion_body,
         dry_run=dry_run,
         wait=True,
         poll_interval_seconds=poll_interval_seconds,
@@ -563,10 +569,10 @@ def submit_es_versioned_inference_from_bundle(
         logger=logger,
     )
 
-    handoff = resolve_handoff_after_prefix(
+    handoff = resolve_handoff_after_ingestion(
         dry_run=dry_run,
-        prefix_run_id=prefix_id,
-        es_parameters=plan_prefix.es_parameters,
+        ingestion_run_id=ingestion_id,
+        es_parameters=ingestion_plan.es_parameters,
         workspace_client=workspace_client,
         logger=logger,
     )
@@ -585,7 +591,7 @@ def submit_es_versioned_inference_from_bundle(
         handoff=handoff,
         logger=logger,
     )
-    assert plan.genai_body is not None and plan.suffix_body is not None
+    assert plan.genai_body is not None and plan.inference_body is not None
 
     logger.info(
         "GenAI execute at git %s %s (bronze_batch_dir=%r)",
@@ -611,12 +617,12 @@ def submit_es_versioned_inference_from_bundle(
         )
 
     logger.info(
-        "ES suffix (data_audit…) at git %s %s",
+        "ES inference (data_audit…output_publish) at git %s %s",
         git_ref_kind(es_pipeline_version),
         es_pipeline_version,
     )
-    suffix_id, suffix_url = _submit_and_maybe_wait(
-        plan.suffix_body,
+    inference_id, inference_url = _submit_and_maybe_wait(
+        plan.inference_body,
         dry_run=dry_run,
         wait=wait_for_completion,
         poll_interval_seconds=poll_interval_seconds,
@@ -635,12 +641,12 @@ def submit_es_versioned_inference_from_bundle(
 
     child = EsChildRunIds(
         is_genai=True,
-        es_prefix=prefix_id,
+        es_ingestion=ingestion_id,
         genai_execute=genai_id,
-        es_suffix=suffix_id,
-        es_prefix_url=prefix_url,
+        es_inference=inference_id,
+        es_ingestion_url=ingestion_url,
         genai_execute_url=genai_url,
-        es_suffix_url=suffix_url,
+        es_inference_url=inference_url,
     )
     child.log_monitor_urls(logger)
     return child

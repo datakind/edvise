@@ -7,7 +7,7 @@ from typing import Any
 
 LOGGER = logging.getLogger(__name__)
 
-# Used when --dry-run builds GenAI suffix / execute bodies without a real prefix run.
+# Used when --dry-run builds GenAI execute / ES inference bodies without ingestion.
 DRY_RUN_INGESTION_HANDOFF: dict[str, str] = {
     "bronze_batch_dir": "/Volumes/dry_run/placeholder/gcs_uploads/batch",
     "config_file_path": "/Volumes/dry_run/placeholder/config.toml",

@@ -19,7 +19,7 @@ from edvise.runtime.versioned_inference.genai_registry import (
 
 LOGGER = logging.getLogger(__name__)
 
-# Minimum silver inference artifacts we expect after a successful ES suffix / full run.
+# Minimum silver artifacts expected after a successful ES inference / full run.
 _INFERENCE_ARTIFACT_CANDIDATES = (
     "preprocessed.parquet",
     "df_cohort_standardized.parquet",
@@ -35,7 +35,8 @@ def assert_ingestion_outputs_ready(
     """
     After ES ``data_ingestion``: config path exists; bronze batch ready when set.
 
-    Raises ``FileNotFoundError`` / ``ValueError`` when the handoff cannot feed GenAI/suffix.
+    Raises ``FileNotFoundError`` / ``ValueError`` when the handoff cannot feed
+    GenAI execute / ES inference.
     """
     config = str(handoff.get("config_file_path", "") or "").strip()
     if not config:
@@ -130,7 +131,7 @@ def assert_es_inference_outputs_ready(
     logger: logging.Logger = LOGGER,
 ) -> Path:
     """
-    After ES full / suffix: at least one expected inference artifact under silver.
+    After ES full / inference: at least one expected inference artifact under silver.
 
     ``db_run_id`` is logged for lineage (shared launcher id); artifact layout is keyed
     by ``model_run_id``.
@@ -145,7 +146,7 @@ def assert_es_inference_outputs_ready(
     )
     if not path_exists(str(inference_dir)):
         raise FileNotFoundError(
-            f"I/O chain: ES inference output dir missing after suffix/full: {inference_dir}"
+            f"I/O chain: ES inference output dir missing after inference/full: {inference_dir}"
         )
 
     found: list[str] = []

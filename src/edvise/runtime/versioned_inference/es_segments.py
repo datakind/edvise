@@ -103,16 +103,13 @@ def es_full_task_keys(tasks: list[Any]) -> set[str]:
     return set(spark_task_keys_in_order(tasks))
 
 
-# Back-compat alias (prefer :func:`es_full_task_keys`).
-classical_es_task_keys = es_full_task_keys
-
-
-def es_prefix_task_keys() -> set[str]:
+def es_ingestion_task_keys() -> set[str]:
+    """The ES data-ingestion child run used before GenAI execute."""
     return {DATA_INGESTION_TASK_KEY}
 
 
-def es_suffix_task_keys(tasks: list[Any]) -> set[str]:
-    """Spark tasks from data_audit onward (inclusive), excluding ingestion."""
+def es_inference_task_keys(tasks: list[Any]) -> set[str]:
+    """The ES inference child run: data_audit through output_publish."""
     ordered = spark_task_keys_in_order(tasks)
     if DATA_AUDIT_TASK_KEY not in ordered:
         # Older YAMLs without the GenAI branch may be linear from data_ingestion.
