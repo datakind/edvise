@@ -1,8 +1,3 @@
-## Unreleased
-- feat: for graduation, keep full-time and part-time students at inference
-  while their own intensity window is still open, even if their cohort is
-  already on the training list
-
 ## 1.14.5 (2026-09-16)
 - refactor: move schema_type.py from configs to shared (#318)
 - refactor(es): feature value regex fallbacks for free-text fields (#344)
