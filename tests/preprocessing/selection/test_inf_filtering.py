@@ -409,6 +409,19 @@ class _GraduationPreprocessing:
         "Target",
         (),
         {
+            "type_": "graduation",
+            "intensity_time_limits": _INTENSITY_LIMITS,
+            "num_terms_in_year": 2,
+        },
+    )()
+
+
+class _CreditsEarnedPreprocessing:
+    target = type(
+        "Target",
+        (),
+        {
+            "type_": "credits_earned",
             "intensity_time_limits": _INTENSITY_LIMITS,
             "num_terms_in_year": 2,
         },
@@ -445,6 +458,32 @@ def test_select_inference_students_keeps_in_window_part_time_in_training_cohort(
         df,
         inf_terms=["spring 2025-26"],
         preprocessing=_GraduationPreprocessing(),
+        training_cohorts=["fall 2023-24"],
+    )
+    assert set(result["id"]) == {2}
+
+
+def test_select_inference_students_non_graduation_excludes_open_part_time():
+    df = pd.DataFrame(
+        [
+            _checkpoint_row(
+                student_id=1,
+                cohort_term="FALL",
+                cohort="2023-24",
+                intensity="PART-TIME",
+            ),
+            _checkpoint_row(
+                student_id=2,
+                cohort_term="FALL",
+                cohort="2024-25",
+                intensity="FULL-TIME",
+            ),
+        ]
+    )
+    result = select_inference_students(
+        df,
+        inf_terms=["spring 2025-26"],
+        preprocessing=_CreditsEarnedPreprocessing(),
         training_cohorts=["fall 2023-24"],
     )
     assert set(result["id"]) == {2}
