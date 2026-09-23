@@ -88,50 +88,77 @@ def get_latest_uc_model_run_id(
     return str(latest_version.run_id)
 
 
+def _config_search_bases(
+    root: pathlib.Path, extra_subdirs: tuple[str, ...]
+) -> list[pathlib.Path]:
+    """Training snapshot first, then the run root. Never ``inference/``."""
+    bases: list[pathlib.Path] = []
+    seen: set[pathlib.Path] = set()
+
+    def add(path: pathlib.Path) -> None:
+        if path in seen or path.name == "inference":
+            return
+        seen.add(path)
+        bases.append(path)
+
+    add(root / "training")
+    for sub in extra_subdirs:
+        add(root / sub)
+    add(root)
+    return bases
+
+
+def _first_toml(base: pathlib.Path, *, needle: str | None) -> pathlib.Path | None:
+    """First ``*.toml`` under ``base``, without descending into ``inference/``."""
+    if not base.is_dir():
+        return None
+    for dirpath, dirnames, filenames in os.walk(base):
+        dirnames[:] = sorted(name for name in dirnames if name != "inference")
+        for filename in sorted(filenames):
+            path = pathlib.Path(dirpath) / filename
+            if path.suffix.lower() != ".toml":
+                continue
+            if needle is not None and needle not in path.name.lower():
+                continue
+            return path
+    return None
+
+
 def find_file_in_run_folder(
     run_root: str,
     *,
     file_name: str | None = None,
     keyword: str | None = None,
-    extra_subdirs: tuple[str, ...] = ("training", "inference"),
+    extra_subdirs: tuple[str, ...] = ("training",),
 ) -> str:
     """
-    Find a file under a run root and commonly used artifact subdirectories.
+    Find a TOML artifact for a trained model.
+
+    Training writes ``config.toml`` (and legacy ``features_table.toml``) under
+    ``<run_id>/training/``. ``inference/`` is inference output and is archived
+    between runs, so it is not a config source and is never searched.
     """
-    candidates = [run_root, *(os.path.join(run_root, sub) for sub in extra_subdirs)]
+    root = pathlib.Path(local_fs_path(run_root))
+    bases = _config_search_bases(root, extra_subdirs)
 
     if file_name:
-        for cand in candidates:
-            base = pathlib.Path(local_fs_path(cand))
-            if not base.exists():
-                continue
+        for base in bases:
             exact = base / file_name
-            if exact.exists():
+            if exact.is_file():
                 return str(exact)
 
-    if keyword:
-        needle = keyword.lower()
-        for cand in candidates:
-            base = pathlib.Path(local_fs_path(cand))
-            if not base.exists():
-                continue
-            matches = [f for f in base.rglob("*.toml") if needle in f.name.lower()]
-            if matches:
-                return str(matches[0])
-    else:
-        for cand in candidates:
-            base = pathlib.Path(local_fs_path(cand))
-            if not base.exists():
-                continue
-            matches = list(base.rglob("*.toml"))
-            if matches:
-                return str(matches[0])
+    needle = keyword.lower() if keyword else None
+    for base in bases:
+        match = _first_toml(base, needle=needle)
+        if match is not None:
+            return str(match)
 
     msg = f"No matching file found under run root {run_root}."
     if file_name:
         msg += f" Tried exact name={file_name!r}."
     if keyword:
         msg += f" Tried keyword={keyword!r}."
+    msg += " Did not search inference/."
     raise FileNotFoundError(msg)
 
 
