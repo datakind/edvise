@@ -27,9 +27,11 @@ def silver_volume_root(db_workspace: str, databricks_institution_name: str) -> P
 
 def genai_active_root(db_workspace: str, databricks_institution_name: str) -> Path:
     """``…/silver_volume/genai_mapping/active``."""
-    return silver_volume_root(db_workspace, databricks_institution_name) / (
-        "genai_mapping"
-    ) / "active"
+    return (
+        silver_volume_root(db_workspace, databricks_institution_name)
+        / ("genai_mapping")
+        / "active"
+    )
 
 
 def resolve_genai_pipeline_version_from_registry(

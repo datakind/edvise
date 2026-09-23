@@ -60,9 +60,7 @@ def test_genai_execute_layout_points_at_genai_mapping_bundle() -> None:
     layout = genai_execute_dab_bundle_layout()
     assert layout.pipeline_dir == "genai_mapping"
     assert layout.inference_yml_filename == "github_genai_mapping_execute.yml"
-    assert (
-        layout.inference_job_key == "edvise_genai_mapping_execute_pipeline"
-    )
+    assert layout.inference_job_key == "edvise_genai_mapping_execute_pipeline"
 
 
 def test_edvise_layout_unchanged_for_es_inference_yml() -> None:

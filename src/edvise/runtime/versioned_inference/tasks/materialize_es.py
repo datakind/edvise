@@ -29,7 +29,9 @@ from edvise.runtime.versioned_inference.model_resolution import (
     resolve_release_dir,
 )
 from edvise.runtime.versioned_inference.pipeline_version_ref import git_ref_kind
-from edvise.runtime.versioned_inference.release_config import resolve_es_release_base_path
+from edvise.runtime.versioned_inference.release_config import (
+    resolve_es_release_base_path,
+)
 from edvise.runtime.versioned_inference.run_metadata import (
     record_launcher_failures,
     record_versioned_inference_launcher_event,
@@ -144,7 +146,9 @@ def main(argv: list[str] | None = None) -> None:
             logger=LOGGER,
         )
 
-        es_marker = inference_yml_path(release_dir, es_layout.inference_yml_snapshot_rel)
+        es_marker = inference_yml_path(
+            release_dir, es_layout.inference_yml_snapshot_rel
+        )
         if not es_marker.is_file():
             raise FileNotFoundError(
                 f"ES DAB snapshot missing after materialize: {es_marker}"
