@@ -9,7 +9,6 @@ from edvise.student_selection.filter_inference import (
     filter_inference_cohort,
     filter_inference_term,
     graduation_open_window,
-    latest_as_of_term,
 )
 
 
@@ -321,16 +320,6 @@ def _checkpoint_row(
     }
 
 
-def test_latest_as_of_term_picks_latest_on_two_term_calendar():
-    assert (
-        latest_as_of_term(
-            ["fall 2024-25", "spring 2025-26", "spring 2024-25"],
-            num_terms_in_year=2,
-        )
-        == "spring 2025-26"
-    )
-
-
 def test_exclude_training_cohort_keeps_in_window_part_time():
     """As of spring 2025-26 a shared cohort drops labelable FT and keeps open PT."""
     df = pd.DataFrame(
@@ -431,7 +420,9 @@ def test_graduation_open_window_only_for_graduation():
             )()
         },
     )()
-    assert graduation_open_window(graduation, ["spring 2025-26"])["as_of_term"] == (
-        "spring 2025-26"
+    window = graduation_open_window(
+        graduation, ["fall 2024-25", "spring 2025-26", "spring 2024-25"]
     )
+    assert window["as_of_term"] == "spring 2025-26"
+    assert window["num_terms_in_year"] == 2
     assert graduation_open_window(credits, ["spring 2025-26"]) == {}

@@ -155,7 +155,6 @@ def exclude_training_cohort_students(
     as_of_term: str | None = None,
     intensity_time_limits: IntensityTimeLimitsType | None = None,
     num_terms_in_year: int = 4,
-    enrollment_intensity_col: str | None = None,
 ) -> pd.DataFrame:
     """Exclude students whose entry cohort was used in model training.
 
@@ -185,7 +184,6 @@ def exclude_training_cohort_students(
             num_terms_in_year=num_terms_in_year,
             cohort_term_column=cohort_term_column,
             cohort_column=cohort_column,
-            enrollment_intensity_col=enrollment_intensity_col,
         )
         n_kept = int(still_open.sum())
         if n_kept:
@@ -219,24 +217,21 @@ def exclude_training_cohort_students(
 def _term_index(
     seasons: pd.Series, years: pd.Series, num_terms_in_year: int
 ) -> pd.Series:
-    """Calendar index from an academic year and season. Later terms are larger."""
+    """Later academic terms compare greater. Unknown seasons are null."""
     order = _SEASON_ORDER.get(num_terms_in_year, _SEASON_ORDER[4])
     season_key = seasons.astype("string").str.strip().str.lower()
-    if num_terms_in_year == 2:
-        season_key = season_key.replace({"winter": "fall", "summer": "spring"})
     year_start = pd.to_numeric(
         years.astype("string").str.strip().str.split("-").str[0], errors="coerce"
     )
     return year_start * num_terms_in_year + season_key.map(order)
 
 
-def latest_as_of_term(term_list: list[str], num_terms_in_year: int) -> str:
-    """Return the latest label in ``term_list`` on the school's term calendar."""
+def _latest_term(term_list: list[str], num_terms_in_year: int) -> str:
     labels = _normalize_label_list(term_list)
     parts = [label.split(maxsplit=1) for label in labels]
     if not parts or any(len(part) < 2 for part in parts):
         raise ValueError(
-            f"term_list had no labels like 'fall 2025-26'; got {term_list!r}."
+            f"Inference terms must look like 'fall 2025-26', got {term_list!r}."
         )
     indexes = _term_index(
         pd.Series([part[0] for part in parts]),
@@ -244,25 +239,8 @@ def latest_as_of_term(term_list: list[str], num_terms_in_year: int) -> str:
         num_terms_in_year,
     )
     if indexes.isna().any():
-        raise ValueError(
-            f"Could not order inference terms {term_list!r} for "
-            f"num_terms_in_year={num_terms_in_year}."
-        )
+        raise ValueError(f"Could not order inference terms {term_list!r}.")
     return labels[int(indexes.to_numpy().argmax())]
-
-
-def _enrollment_intensity_col(
-    df: pd.DataFrame, enrollment_intensity_col: str | None
-) -> str | None:
-    if enrollment_intensity_col and enrollment_intensity_col in df.columns:
-        return enrollment_intensity_col
-    for col in (
-        "student_term_enrollment_intensity",
-        "enrollment_intensity_first_term",
-    ):
-        if col in df.columns:
-            return col
-    return None
 
 
 def _still_inside_intensity_window(
@@ -273,19 +251,26 @@ def _still_inside_intensity_window(
     num_terms_in_year: int,
     cohort_term_column: str,
     cohort_column: str,
-    enrollment_intensity_col: str | None,
 ) -> pd.Series:
-    """True where elapsed time is strictly under that student's intensity limit.
+    """True where elapsed years are under the student's own limit.
 
-    Uses the same year conversion as graduation targets
-    (``convert_intensity_time_limits``). Unknown intensity or start stays False
-    so the training-cohort row is still excluded.
+    Year limits come from ``convert_intensity_time_limits``, the same helper
+    graduation targets use. Missing intensity or start term stays excluded.
     """
-    intensity_col = _enrollment_intensity_col(df, enrollment_intensity_col)
+    intensity_col = next(
+        (
+            col
+            for col in (
+                "student_term_enrollment_intensity",
+                "enrollment_intensity_first_term",
+            )
+            if col in df.columns
+        ),
+        None,
+    )
     if intensity_col is None:
         logging.warning(
-            "Graduation intensity limits are set but no enrollment intensity "
-            "column was found; excluding the full training cohort."
+            "No enrollment intensity column; excluding the full training cohort."
         )
         return pd.Series(False, index=df.index)
 
@@ -297,35 +282,32 @@ def _still_inside_intensity_window(
         df[cohort_term_column], df[cohort_column], num_terms_in_year
     )
     elapsed_years = (as_of_idx - start_idx + 1) / float(num_terms_in_year)
-    year_limits = convert_intensity_time_limits(
-        "year", intensity_time_limits, num_terms_in_year=num_terms_in_year
+    year_limits = {
+        str(k).strip().upper(): float(v)
+        for k, v in convert_intensity_time_limits(
+            "year", intensity_time_limits, num_terms_in_year=num_terms_in_year
+        ).items()
+    }
+    year_limit = (
+        df[intensity_col].astype("string").str.strip().str.upper().map(year_limits)
     )
-    if "*" in year_limits:
-        year_limit = pd.Series(float(year_limits["*"]), index=df.index)
-    else:
-        year_limit = (
-            df[intensity_col]
-            .astype("string")
-            .str.strip()
-            .str.upper()
-            .map({str(k).strip().upper(): float(v) for k, v in year_limits.items()})
-        )
-    still_open = elapsed_years.lt(year_limit) & start_idx.notna() & year_limit.notna()
-    return still_open.fillna(False)
+    return (
+        elapsed_years.lt(year_limit) & start_idx.notna() & year_limit.notna()
+    ).fillna(False)
 
 
 def graduation_open_window(
     preprocessing: object | None,
     inf_terms: list[str],
 ) -> dict[str, t.Any]:
-    """Kwargs for graduation only. Other targets get cohort-wide exclusion."""
+    """Exclusion kwargs for graduation. Empty for every other target."""
     target = getattr(preprocessing, "target", None)
     limits = getattr(target, "intensity_time_limits", None)
     if getattr(target, "type_", None) != "graduation" or not limits:
         return {}
     num_terms_in_year = int(getattr(target, "num_terms_in_year", None) or 4)
     return {
-        "as_of_term": latest_as_of_term(inf_terms, num_terms_in_year),
+        "as_of_term": _latest_term(inf_terms, num_terms_in_year),
         "intensity_time_limits": limits,
         "num_terms_in_year": num_terms_in_year,
     }
