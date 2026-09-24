@@ -18,7 +18,7 @@ print("Repo root:", repo_root)
 print("src_path:", src_path)
 print("sys.path:", sys.path)
 
-from edvise.configs.schema_type import is_edvise_schema, project_config_class
+from edvise.shared.schema_type import is_edvise_schema, project_config_class
 from edvise.configs.pdp import InferenceConfig as PDPInferenceConfig
 from edvise.configs.es import InferenceConfig as ESInferenceConfig
 from edvise.dataio.read import read_parquet, read_config

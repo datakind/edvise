@@ -12,6 +12,7 @@ import copy
 import json
 import logging
 import re
+import sys
 import time
 from datetime import timedelta
 from pathlib import Path
@@ -216,6 +217,8 @@ def propagate_union_libraries_for_submit(
     union: list[dict[str, Any]] = []
     seen: set[str] = set()
     for task in tasks:
+        if not _task_requires_compute(task):
+            continue
         for lib in task.get("libraries") or []:
             name = _pypi_package_name(lib)
             if name is None or name in seen:
@@ -227,6 +230,9 @@ def propagate_union_libraries_for_submit(
 
     enriched: list[dict[str, Any]] = []
     for task in tasks:
+        if not _task_requires_compute(task):
+            enriched.append(copy.deepcopy(task))
+            continue
         merged = copy.deepcopy(task)
         existing = {
             n
@@ -250,6 +256,13 @@ def propagate_union_libraries_for_submit(
     return enriched
 
 
+def _task_requires_compute(task: dict[str, Any]) -> bool:
+    """False for condition / run_job tasks (no job_cluster_key on archived ES YAML)."""
+    if "condition_task" in task or "run_job_task" in task:
+        return False
+    return True
+
+
 def inline_job_clusters_for_submit(
     tasks: list[Any],
     job_clusters: list[Any],
@@ -260,6 +273,7 @@ def inline_job_clusters_for_submit(
     ``runs/submit`` does not support shared ``job_clusters``; attach ``new_cluster`` per task.
 
     DAB-deployed jobs use ``job_cluster_key`` + ``job_clusters``; submit requires inline clusters.
+    Condition / run_job tasks are passed through without compute.
     """
     cluster_map = _job_cluster_map(job_clusters)
     if not cluster_map:
@@ -271,6 +285,11 @@ def inline_job_clusters_for_submit(
         if not isinstance(raw, dict):
             continue
         task = copy.deepcopy(raw)
+        if not _task_requires_compute(task):
+            task.pop("job_cluster_key", None)
+            task.pop("libraries", None)
+            submit_tasks.append(task)
+            continue
         key = task.pop("job_cluster_key", None)
         if isinstance(key, str) and key.strip():
             cluster_key = key.strip()
@@ -432,14 +451,14 @@ def _raise_unless_child_run_success(
 ) -> None:
     if life_cycle == "TERMINATED" and result_state == _SUCCESS_RESULT_STATE:
         monitor_url = getattr(run, "run_page_url", None)
-        if monitor_url:
-            logger.info(
-                "Child inference run_id=%s succeeded — %s",
-                run_id,
-                monitor_url,
-            )
-        else:
-            logger.info("Child inference run_id=%s succeeded", run_id)
+        if not monitor_url and isinstance(run, dict):
+            monitor_url = run.get("run_page_url")
+        log_child_run_monitor_url(
+            run_id,
+            monitor_url if isinstance(monitor_url, str) else None,
+            logger=logger,
+            status="succeeded",
+        )
         return
     msg = (
         f"Child inference run_id={run_id} finished with "
@@ -621,6 +640,55 @@ def build_submit_run_body(
     return body
 
 
+def log_child_run_monitor_url(
+    run_id: int,
+    monitor_url: str | None,
+    *,
+    logger: logging.Logger = LOGGER,
+    status: str = "submitted",
+) -> None:
+    """
+    Emit the child run URL so Databricks Jobs logs can linkify it.
+
+    Logger format prefixes every ``logger.info`` line (e.g.
+    ``INFO trigger_…: https://…``), which prevents auto-linkification. Print the
+    bare URL on its own stdout line instead; keep a short logger line for context.
+    """
+    logger.info("Child inference run_id=%s %s", run_id, status)
+    if monitor_url and str(monitor_url).strip():
+        url = str(monitor_url).strip()
+        # Bare URL only — no logger name / level prefix.
+        print(url, flush=True, file=sys.stdout)
+        logger.info("Child run_id=%s URL printed above (stdout)", run_id)
+    else:
+        logger.info(
+            "(no run_page_url; search Workflows for run_id=%s)",
+            run_id,
+        )
+
+
+def fetch_run_page_url(
+    workspace_client: Any,
+    run_id: int,
+    *,
+    logger: logging.Logger = LOGGER,
+) -> str | None:
+    """Best-effort ``run_page_url`` from ``jobs.get_run``."""
+    try:
+        run = workspace_client.jobs.get_run(run_id=run_id)
+    except Exception as exc:
+        logger.warning("Could not fetch run_page_url for run_id=%s: %s", run_id, exc)
+        return None
+    url = getattr(run, "run_page_url", None)
+    if isinstance(url, str) and url.strip():
+        return url.strip()
+    if isinstance(run, dict):
+        raw = run.get("run_page_url")
+        if isinstance(raw, str) and raw.strip():
+            return raw.strip()
+    return None
+
+
 def submit_inference_run(
     submit_body: dict[str, Any],
     *,
@@ -651,27 +719,8 @@ def submit_inference_run(
         msg = f"Unexpected submit response: {response!r}"
         raise RuntimeError(msg)
     run_id = int(response["run_id"])
-    monitor_url: str | None = None
-    try:
-        run = workspace_client.jobs.get_run(run_id=run_id)
-        monitor_url = getattr(run, "run_page_url", None)
-    except Exception as exc:
-        logger.warning("Could not fetch run_page_url for run_id=%s: %s", run_id, exc)
-
-    if monitor_url:
-        logger.info(
-            "Submitted versioned inference run_id=%s — monitor at %s",
-            run_id,
-            monitor_url,
-        )
-    else:
-        cfg = workspace_client.config
-        logger.info(
-            "Submitted versioned inference run_id=%s — find in Workflows → search run id. "
-            "(config host=%r is not always a clickable workspace URL)",
-            run_id,
-            getattr(cfg, "host", None),
-        )
+    monitor_url = fetch_run_page_url(workspace_client, run_id, logger=logger)
+    log_child_run_monitor_url(run_id, monitor_url, logger=logger, status="submitted")
     return run_id
 
 

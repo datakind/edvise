@@ -4,7 +4,7 @@ Module :mod:`edvise.scripts.targets` (file ``targets.py``) must not be confused 
 the :mod:`edvise.targets` package (compute/retention helpers).
 
 ``--schema_type`` selects the project config model (see
-:mod:`edvise.configs.schema_type`) and optional preprocessing:
+:mod:`edvise.shared.schema_type`) and optional preprocessing:
 
 - ``pdp``: :class:`edvise.configs.pdp.PDPProjectConfig` (default).
 - ``edvise`` or ``es``: :class:`edvise.configs.es.ESProjectConfig`, and when the
@@ -34,7 +34,7 @@ print("Repo root:", repo_root)
 print("src_path:", src_path)
 print("sys.path:", sys.path)
 
-from edvise.configs.schema_type import is_edvise_schema, project_config_class
+from edvise.shared.schema_type import is_edvise_schema, project_config_class
 from edvise.dataio.read import read_config
 from edvise.shared.logger import (
     init_file_logging,

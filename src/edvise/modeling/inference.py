@@ -307,6 +307,29 @@ def is_feature_defined_in_table(
     )
 
 
+def _capture_format_args(
+    entry: dict[str, str],
+    match: re.Match[str] | None,
+) -> tuple[str | None, ...] | None:
+    """Regex captures to interpolate into an entry's name and descriptions."""
+    if match is None:
+        return None
+
+    groups: tuple[str | None, ...] = match.groups()
+    if entry.get("capture_format") == "words":
+        groups = tuple(
+            group.replace("_", " ") if group is not None else None for group in groups
+        )
+    return groups
+
+
+def _format_entry_text(text: str, args: tuple[str | None, ...] | None) -> str:
+    """Interpolate regex captures into entry text; non-templated text is unchanged."""
+    if args is None or "{}" not in text:
+        return text
+    return text.format(*args)
+
+
 def _get_mapped_feature_name(
     feature_col: str,
     features_table: dict[str, dict[str, str]],
@@ -325,10 +348,19 @@ def _get_mapped_feature_name(
         feature_col, features_table, schema_type=schema_type
     ):
         entry, match = lookup
-        feature_name = entry["name"].format(*match.groups()) if match else entry["name"]
+        fmt_args = _capture_format_args(entry, match)
+        feature_name = _format_entry_text(entry["name"], fmt_args)
         if metadata:
             short_desc, long_desc = _descs(entry)
-            return feature_name, short_desc, long_desc
+            return (
+                feature_name,
+                _format_entry_text(short_desc, fmt_args)
+                if short_desc is not None
+                else None,
+                _format_entry_text(long_desc, fmt_args)
+                if long_desc is not None
+                else None,
+            )
         return feature_name
 
     try:

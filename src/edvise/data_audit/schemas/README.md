@@ -1,16 +1,14 @@
 ## Overview
 
-SST tools for validating and extending data schemas using Pandera. It consists of two main components:
+SST tools for validating data schemas using Pandera.
 
-1. **`validation.py`**: Validates incoming datasets against a base schema (and any institution-specific extensions).
-2. **`generate_schema.py`**: Infers and generates institution extension schemas for any dataset columns not covered by the base schema.
+* **`validation.py`**: Validates incoming datasets against a base schema (and any institution-specific extensions).
 
 ### Directory Structure
 
 ```
 ├── base_schema.json         # The core, organization-wide schema definition
 ├── validation.py            # Validation engine (hard- and soft-errors) using Pandera
-├── generate_schema.py       # Schema extension generator for custom institution fields
 └── README.md                # This file
 ```
 
@@ -66,34 +64,3 @@ The script returns a JSON-like dict:
 #### Exceptions
 
 * `HardValidationError`: Raised if there are missing required columns, unexpected columns, or Pandera schema errors.
-
-#### Schema Extension Generation (`generate_schema.py`)
-
-This tool helps extend the base schema by inferring specs for columns not covered.
-
-1. **Validate Dataset**: Calls `validate_dataset(...)` to identify `extra_columns` in the input.
-2. **Infer Specs**: For each extra column, inspects data types and values to build a minimal Pandera‐style spec, then write the extension to `/Volumes/databricks_schema/institution_id_bronze/<institution>_extension_schema.json``.
-4. **Update Extension**: Inserts inferred specs into the institution’s `data_models` & writes back.
-
-**Usage**:
-```bash
-from generate_extensions import generate_extension_schema
-generate_extension_schema(
-    df=base_data_from_institution.csv,
-    institution='institution_id',
-    models=[student or semester or course]
-)
-```
-
-**example**
-```bash
-from generate_extensions import generate_extension_schema
-generate_extension_schema(
-    df='institution.csv'
-    institution='institution',
-    models=[student]
-)
-```
-
-* If no extra columns are found, the tool exits without modifying files.
-* Generated extension schemas are saved in the institution specific catalog `/Volumes/databricks_schema/institution_id_bronze/<institution>_extension_schema.json`.

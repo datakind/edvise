@@ -70,6 +70,7 @@ from edvise.genai.mapping.shared.schema_contract.schemas import (
     EnrichedSchemaContractForSMA,
 )
 
+from .common_rules import STEP2A_SHARED_POLICY_RULES
 from ..schemas import (
     FieldMappingManifest,
     FieldMappingRecord,
@@ -328,6 +329,8 @@ FAILURE_MODE vs Pass 2 (improves option quality):
 OTHER:
   - Fields in the auto_approved_fields list must have field_statuses[target_field]="auto_approved"
     and NO refined_corrections entry and NO hitl_flags entry.
+  - Follow SHARED POLICY: no HITL solely to confirm datetime parsing; 100% null sources are
+    automatically unmapped (refined_by_llm / auto_approved, confidence 1.0) — not proposed_for_hitl.
   - {base_table_join_hint}
 """.format(
     threshold=HITL_CONFIDENCE_THRESHOLD,
@@ -550,6 +553,8 @@ generating options (that is Pass 2).
 
 {_AUTO_FIX_RULES}
 
+{STEP2A_SHARED_POLICY_RULES}
+
 {_COHORT_TARGET_SEMANTICS_FOR_REFINEMENT}
 
 {_COURSE_TARGET_SEMANTICS_FOR_REFINEMENT}
@@ -603,6 +608,8 @@ escape hatch on every item.
 {_COHORT_SEMANTICS_PASS2}
 
 {_COURSE_SEMANTICS_PASS2}
+
+{STEP2A_SHARED_POLICY_RULES}
 
 CRITICAL — current_field_mapping:
   current_field_mapping in each item must be copied unchanged from the corresponding Pass 1 hitl_flag.
