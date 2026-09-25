@@ -89,3 +89,29 @@ def test_filename_match_score_matches_multiword_keyword_tokens() -> None:
         "transfer advisement",
         "DEIDENTIFIED_ir_trn_transfer-advisement_Fall_26.csv",
     )
+
+
+def test_filename_match_score_allows_one_edit_on_long_tokens() -> None:
+    keyword = "Datakind - Learner Report_20260910_142024.csv"
+    exact = "Datakind - Learner Report_20260916_095850.csv"
+    typo = "Datakind - Learnr Report_20260916_095850.csv"
+    swapped = "Studnet File.csv"
+
+    exact_score = filename_match_score(keyword, exact)
+    typo_score = filename_match_score(keyword, typo)
+    assert exact_score == 202
+    assert typo_score == 152
+    assert exact_score > typo_score
+    assert filename_match_score("Student File.csv", swapped) == 151
+
+
+def test_filename_match_score_rejects_short_token_and_unrelated_edits() -> None:
+    assert filename_match_score("term file.csv", "team file.csv") is None
+    assert (
+        filename_match_score(
+            "Datakind - Learner Report.csv",
+            "Datakind - Course Report.csv",
+            dataset_key="student",
+        )
+        is None
+    )

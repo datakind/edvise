@@ -98,6 +98,19 @@ def test_resolve_dataset_file_in_batch_dir_prefers_closer_name_over_newer(
     ) == str(learner)
 
 
+def test_resolve_dataset_file_in_batch_dir_accepts_one_edit_typo(
+    tmp_path: Path,
+) -> None:
+    typo = tmp_path / "Datakind - Learnr Report_20260916_095850.csv"
+    typo.write_text("learner\n", encoding="utf-8")
+
+    assert m.resolve_dataset_file_in_batch_dir(
+        str(tmp_path),
+        "Datakind - Learner Report_20260910_142024.csv",
+        dataset_key="raw_student",
+    ) == str(typo)
+
+
 def test_resolve_es_raw_dataset_paths_substring_match(tmp_path: Path) -> None:
     student = tmp_path / "1782424164337_2025-09-19_CCC Student File.csv"
     course = tmp_path / "1782424164335_2025-09-19_CCC Course File.csv"
