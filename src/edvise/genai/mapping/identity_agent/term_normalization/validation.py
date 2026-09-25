@@ -277,6 +277,29 @@ def _split_columns_required_from_profile(
     )
 
 
+def _standard_combined_term_requires_four_digit_year(
+    table: str,
+    cfg: TermOrderConfig,
+    columns: list[RawColumnProfile],
+) -> str | None:
+    """Reject standard combined terms whose samples cannot satisfy its ``\\d{4}`` rule."""
+    if cfg.term_col is None or cfg.term_extraction != "standard":
+        return None
+    term_profile = next((c for c in columns if c.name == cfg.term_col), None)
+    if term_profile is None:
+        return None
+    samples = [str(v).strip() for v in _column_samples(term_profile) if str(v).strip()]
+    if not samples or any(re.search(r"\d{4}", value) for value in samples):
+        return None
+    return (
+        f"dataset {table!r}: term_col={cfg.term_col!r} uses term_extraction='standard', "
+        "but its profiled values contain no 4-digit year substring "
+        f"(samples: {samples[:8]!r}). Standard combined-term extraction requires a "
+        "first \\d{4} year. Two-digit-year formats such as 'FA19' / '19FA' require "
+        "term_extraction='hook_required' with explicit, reviewable century expansion."
+    )
+
+
 def collect_term_semantic_validation_errors(
     inst: InstitutionTermContract,
     run_by_dataset: Mapping[str, Mapping[str, object]] | None = None,
@@ -303,6 +326,11 @@ def collect_term_semantic_validation_errors(
             split_err = _split_columns_required_from_profile(table, cfg, columns)
             if split_err:
                 errors.append(split_err)
+            year_err = _standard_combined_term_requires_four_digit_year(
+                table, cfg, columns
+            )
+            if year_err:
+                errors.append(year_err)
     return errors
 
 

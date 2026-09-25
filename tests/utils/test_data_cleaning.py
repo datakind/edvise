@@ -58,6 +58,37 @@ class TestInferStudentIdCol:
         assert data_cleaning._infer_student_id_col(df) == expected
 
 
+class TestResolveMisjoinMergeKey:
+    def test_uses_preferred_when_shared(self):
+        cohort = pd.DataFrame({"study_id": [1], "cohort": ["2019"]})
+        course = pd.DataFrame({"study_id": [1], "grade": ["A"]})
+        assert (
+            data_cleaning.resolve_misjoin_merge_key(
+                cohort, course, preferred="study_id"
+            )
+            == "study_id"
+        )
+
+    def test_falls_back_to_student_id_when_preferred_missing(self):
+        # API-validated inference inputs: Pandera already renamed study_id → student_id
+        cohort = pd.DataFrame({"student_id": [1], "cohort": ["2019"]})
+        course = pd.DataFrame({"student_id": [1], "grade": ["A"]})
+        assert (
+            data_cleaning.resolve_misjoin_merge_key(
+                cohort, course, preferred="study_id"
+            )
+            == "student_id"
+        )
+
+    def test_raises_when_no_shared_id(self):
+        cohort = pd.DataFrame({"study_id": [1]})
+        course = pd.DataFrame({"student_id": [1]})
+        with pytest.raises(ValueError, match="No shared student id column"):
+            data_cleaning.resolve_misjoin_merge_key(
+                cohort, course, preferred="study_id"
+            )
+
+
 class TestOmitSectionFromDupKey:
     def test_keeps_section_when_null_fraction_at_or_below_threshold(self):
         df = pd.DataFrame({"section_id": [pd.NA, pd.NA, pd.NA, "001"]})

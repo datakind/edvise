@@ -45,7 +45,7 @@ from edvise.ingestion.nsc_sftp.helpers import (
     update_manifest,
 )
 from edvise.utils.institution_naming import databricksify_inst_name
-from edvise.utils.sftp import output_file_name_from_sftp
+from edvise.ingestion.nsc_sftp.sftp import output_file_name_from_sftp
 
 dbutils = runtime.get_dbutils()
 spark = runtime.get_spark()
