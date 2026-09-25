@@ -7,6 +7,7 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
+from edvise.dataio.batch_gcs_inference_ingest import parse_is_genai_institution
 from edvise.runtime.versioned_inference.dab_layout import resolve_dab_bundle_layout
 from edvise.runtime.versioned_inference.parameters import (
     build_stable_trigger_payload,
@@ -179,6 +180,73 @@ def build_launcher_trigger_inputs(
         git_url=git_url,
         schema_type=schema,
         param_overrides=build_launcher_parameter_overrides(args),
+        extra_param_overrides=parse_extra_parameter_overrides(
+            getattr(args, "inference_parameters_json", "")
+        ),
+        stable_trigger=build_stable_trigger(args),
+    )
+
+
+def add_es_inference_trigger_args(parser: argparse.ArgumentParser) -> None:
+    """ES launcher validate/trigger args (additive; PDP continues to use PDP-only args)."""
+    add_inference_trigger_args(parser)
+    parser.add_argument(
+        "--is_genai_institution",
+        default="false",
+        help='When "true", require GenAI snapshot under es/{version}/genai/.',
+    )
+    parser.add_argument("--batch_id", default="")
+    parser.add_argument("--validated_blob_paths_json", default="")
+    parser.add_argument("--config_file_name", default="")
+    parser.add_argument("--genai_inputs_toml_path", default="")
+    parser.add_argument("--term_filter", default="")
+
+
+def build_es_launcher_parameter_overrides(args: argparse.Namespace) -> dict[str, str]:
+    """Flat overrides for archived ES inference job parameters."""
+    overrides = build_launcher_parameter_overrides(args)
+    # Force ES schema for the archived contract even if a caller omits --schema_type.
+    overrides["schema_type"] = "edvise"
+    overrides["is_genai_institution"] = (
+        "true"
+        if parse_is_genai_institution(getattr(args, "is_genai_institution", ""))
+        else "false"
+    )
+    for key in (
+        "batch_id",
+        "validated_blob_paths_json",
+        "config_file_name",
+        "genai_inputs_toml_path",
+        "term_filter",
+    ):
+        val = _optional_arg(getattr(args, key, ""))
+        if val is not None:
+            overrides[key] = val
+    return overrides
+
+
+def build_es_launcher_trigger_inputs(
+    args: argparse.Namespace,
+    *,
+    default_git_url: str,
+) -> LauncherTriggerInputs:
+    """Like :func:`build_launcher_trigger_inputs` but uses the ES release volume base."""
+    from edvise.runtime.versioned_inference.release_config import (
+        resolve_es_release_base_path,
+    )
+
+    db_ws = args.DB_workspace.strip()
+    git_url = (_optional_arg(getattr(args, "git_url", "")) or default_git_url).strip()
+    return LauncherTriggerInputs(
+        databricks_institution_name=args.databricks_institution_name.strip(),
+        model_name=args.model_name.strip(),
+        db_workspace=db_ws,
+        release_base_path=resolve_es_release_base_path(
+            db_ws, getattr(args, "release_base_path", "")
+        ),
+        git_url=git_url,
+        schema_type="edvise",
+        param_overrides=build_es_launcher_parameter_overrides(args),
         extra_param_overrides=parse_extra_parameter_overrides(
             getattr(args, "inference_parameters_json", "")
         ),
