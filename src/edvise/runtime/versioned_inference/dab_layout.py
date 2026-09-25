@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 _BUNDLE_SNAPSHOT_ROOT = "databricks_bundle_snapshot"
 _DAB_YML_SNAPSHOT = f"{_BUNDLE_SNAPSHOT_ROOT}/databricks.yml"
@@ -11,9 +12,6 @@ _DAB_YML_SNAPSHOT = f"{_BUNDLE_SNAPSHOT_ROOT}/databricks.yml"
 def normalize_schema_type(raw: str) -> str:
     """Mirror :func:`edvise.shared.schema_type.normalize_schema_type` without heavy imports."""
     return raw.strip().lower()
-
-
-_DAB_YML_SNAPSHOT = f"{_BUNDLE_SNAPSHOT_ROOT}/databricks.yml"
 
 
 @dataclass(frozen=True)
@@ -69,6 +67,28 @@ _LAYOUTS: dict[str, DabBundleLayout] = {
         inference_schema_type="legacy",
     ),
 }
+
+# Nested GenAI execute job archived beside an ES release snapshot under ``genai/``.
+# Kept separate from _LAYOUTS so PDP materialize paths stay unchanged.
+_GENAI_EXECUTE_LAYOUT = DabBundleLayout(
+    schema_type="genai_execute",
+    pipeline_dir="genai_mapping",
+    inference_job_key="edvise_genai_mapping_execute_pipeline",
+    inference_yml_filename="github_genai_mapping_execute.yml",
+    inference_schema_type="edvise",
+)
+
+GENAI_SNAPSHOT_DIRNAME = "genai"
+
+
+def genai_execute_dab_bundle_layout() -> DabBundleLayout:
+    """Layout for ``pipelines/genai_mapping`` execute job YAML snapshots."""
+    return _GENAI_EXECUTE_LAYOUT
+
+
+def genai_snapshot_dir(es_release_dir: Path) -> Path:
+    """``…/edvise_releases/es/{version}/genai`` under an ES release directory."""
+    return Path(es_release_dir) / GENAI_SNAPSHOT_DIRNAME
 
 
 def resolve_dab_bundle_layout(schema_type: str) -> DabBundleLayout:

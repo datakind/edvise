@@ -16,7 +16,7 @@ from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import (
     FieldMappingRecord,
     ReviewStatus,
 )
-from edvise.genai.mapping.scripts.edvise_genai_sma import (
+from edvise.genai.mapping.schema_mapping_agent.orchestration.helpers import (
     _as_bool_flag,
     apply_gate_2_manifest_overrides,
     resolve_overrides_json_path,
