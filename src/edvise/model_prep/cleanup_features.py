@@ -256,11 +256,6 @@ class ESCleanup(BaseCleanup):
         "certificate_3_date",
         "conferred_credential_type",
         "major_at_completion",
-        # PDP-parity: not modeling features (dropped in PDPCohortStandardizer)
-        "incarcerated_status",
-        "military_status",
-        "employment_status",
-        "disability_status",
         # "outcome" variables / likely sources of data leakage
         "retention",
         "persistence",

@@ -63,6 +63,8 @@ _ES_FAKER.add_provider(es_raw_student.Provider)
 _ES_FAKER.add_provider(es_raw_course.Provider)
 
 # Mirrors ProjectConfig.non_feature_cols (id/target/split/weight + student_group_cols).
+# ES also keeps optional cohort status fields when present for bias assessment;
+# they are not modeling features and are not required in features_table.toml.
 _NON_FEATURE_COLS_BY_SCHEMA: dict[str, frozenset[str]] = {
     "pdp": frozenset(
         {
@@ -90,6 +92,10 @@ _NON_FEATURE_COLS_BY_SCHEMA: dict[str, frozenset[str]] = {
             "ethnicity",
             "gender",
             "first_generation_status",
+            "incarcerated_status",
+            "military_status",
+            "employment_status",
+            "disability_status",
         }
     ),
 }
