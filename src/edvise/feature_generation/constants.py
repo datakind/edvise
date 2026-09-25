@@ -22,6 +22,33 @@ DEFAULT_SEASON_ORDER_MAP = {
 NUM_COURSE_FEATURE_COL_PREFIX = "num_courses"
 FRAC_COURSE_FEATURE_COL_PREFIX = "frac_courses"
 DUMMY_COURSE_FEATURE_COL_PREFIX = "took"
+# Cumulative counterpart of ``num_courses_*`` dummy expansions (see cumulative.py).
+CUMFRAC_NUM_COURSE_FEATURE_COL_PREFIX = "cumfrac_num_courses"
+
+# CourseInputColumns attrs whose physical values are get_dummies'd into
+# num_courses_* / frac_courses_* / cumfrac_num_courses_* features.
+# Keep in sync with features_table.toml regex alternations.
+COURSE_DUMMY_AGG_INPUT_ATTRS: tuple[str, ...] = (
+    "course_type",
+    "delivery_method",
+    "math_or_english_gateway",
+    "co_requisite_course",
+    "course_instructor_employment_status",
+    "course_instructor_rank",
+)
+
+# Always-named derived columns also dummy-expanded (not CourseInputColumns attrs).
+COURSE_DUMMY_AGG_FIXED_COLUMNS: tuple[str, ...] = (
+    "course_level",
+    "course_grade",
+)
+
+# Prefixes produced for each dummy token × value (exact / regex lookup vocabulary).
+COURSE_DUMMY_EXPANSION_PREFIXES: tuple[str, ...] = (
+    NUM_COURSE_FEATURE_COL_PREFIX,
+    FRAC_COURSE_FEATURE_COL_PREFIX,
+    CUMFRAC_NUM_COURSE_FEATURE_COL_PREFIX,
+)
 
 # CONSTANTS FROM CUSTOM SCHOOL PROCESSING
 TERM_COURSE_SUM_PREFIX = "term_n_courses_"

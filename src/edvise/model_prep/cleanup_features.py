@@ -247,9 +247,13 @@ class ESCleanup(BaseCleanup):
         "matriculation_date",
         "bachelors_degree_conferral_date",
         "associates_degree_conferral_date",
+        # Schema field names and snake_case variants (digits get underscored).
         "certificate1_date",
         "certificate2_date",
         "certificate3_date",
+        "certificate_1_date",
+        "certificate_2_date",
+        "certificate_3_date",
         "conferred_credential_type",
         "major_at_completion",
         # "outcome" variables / likely sources of data leakage
