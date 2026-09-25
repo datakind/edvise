@@ -81,6 +81,37 @@ def test_apply_bronze_batch_dir_overrides_resolves_by_file_kind_suffix(
     ]
 
 
+def test_apply_bronze_batch_dir_overrides_resolves_timestamped_reports(
+    tmp_path: Path,
+) -> None:
+    batch = tmp_path / "batch"
+    batch.mkdir()
+    learner = batch / "Datakind - Learner Report_20260916_095850.csv"
+    course = batch / "Datakind - Course Report_20260916_110342.csv"
+    learner.write_text("student\n", encoding="utf-8")
+    course.write_text("course\n", encoding="utf-8")
+
+    cfg = SchoolMappingConfig(
+        institution_id="alcorn_state_uni",
+        bronze_volumes_path="/Volumes/staging/alcorn_state_uni_bronze/bronze_volume",
+        datasets={
+            "student": DatasetConfig(
+                files=["Datakind - Learner Report_20260910_142024.csv"],
+            ),
+            "course": DatasetConfig(
+                files=["Datakind - Course Report_20260910_143123.csv"],
+            ),
+        },
+    )
+    updated = apply_bronze_batch_dir_overrides(
+        cfg,
+        bronze_batch_dir=str(batch),
+    )
+
+    assert updated.datasets["student"].files == [str(learner)]
+    assert updated.datasets["course"].files == [str(course)]
+
+
 def test_apply_bronze_batch_dir_overrides_missing_file_raises(tmp_path: Path) -> None:
     batch = tmp_path / "batch"
     batch.mkdir()
