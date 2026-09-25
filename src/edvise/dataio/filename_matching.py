@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import pathlib
+import re
 
-from edvise.dataio.path_management import normalize_predict_file_match_text
-
+_MATCH_SEPARATOR_RE = re.compile(r"[^a-z0-9]+")
 _GENERIC_TOKENS = {
     "data",
     "dataset",
@@ -29,6 +29,17 @@ _DATASET_TOKEN_ALIASES = {
 }
 
 
+def normalize_filename_match_text(raw: str) -> str:
+    """
+    Casefold and collapse every non-alphanumeric run to ``_`` for keyword matching.
+
+    Institutions respell the same extract across drops (``DE-ID Transfer File`` vs
+    ``de_id_transfer_file``), so separators and case must not decide whether a
+    configured filename matches.
+    """
+    return _MATCH_SEPARATOR_RE.sub("_", str(raw).lower()).strip("_")
+
+
 def filename_match_tokens(raw: str) -> frozenset[str]:
     """
     Return stable semantic tokens from a filename or configured keyword.
@@ -39,7 +50,7 @@ def filename_match_tokens(raw: str) -> frozenset[str]:
     """
     stem = pathlib.Path(str(raw).strip()).stem
     tokens: set[str] = set()
-    for token in normalize_predict_file_match_text(stem).split("_"):
+    for token in normalize_filename_match_text(stem).split("_"):
         if not token or token.isdigit() or token in _GENERIC_TOKENS:
             continue
         tokens.add(_DATASET_TOKEN_ALIASES.get(token, token))
@@ -61,8 +72,8 @@ def filename_match_score(
     ``raw_student`` can still bind ``CCC Student File`` to ``Edvise Learner Report``
     without attaching an unrelated configured name such as ``financial aid.csv``.
     """
-    configured = normalize_predict_file_match_text(pathlib.Path(configured_name).name)
-    candidate = normalize_predict_file_match_text(pathlib.Path(candidate_name).name)
+    configured = normalize_filename_match_text(pathlib.Path(configured_name).name)
+    candidate = normalize_filename_match_text(pathlib.Path(candidate_name).name)
     if configured and configured in candidate:
         return 300
 
