@@ -141,8 +141,6 @@ jobs:
           SA_EXECUTER:          ${{ secrets.STAGING_SERVICE_ACCOUNT_EXECUTER }}
           DS_RUN_AS:            ${{ secrets.STAGING_DS_RUN_AS }}
           GROUP_TO_MANAGE:      ${{ secrets.GROUP_TO_MANAGE }}
-          NSC_SFTP_SECRET_SCOPE: ${{ secrets.NSC_SFTP_SECRET_SCOPE }}
-          SST_API_KEY_SECRET_KEY: ${{ secrets.STAGING_SST_API_KEY_SECRET_KEY }}
         run: |
           databricks bundle deploy \
             --target=prod \
@@ -150,8 +148,6 @@ jobs:
             --var="service_account_executer=$SA_EXECUTER" \
             --var="ds_run_as=$DS_RUN_AS" \
             --var="datakind_group_to_manage_workflow=$GROUP_TO_MANAGE" \
-            --var="nsc_sftp_secret_scope=$NSC_SFTP_SECRET_SCOPE" \
-            --var="sst_api_key_secret_key=$SST_API_KEY_SECRET_KEY" \
             --var="git_tag=${{ github.ref_name }}"
 
   # DEV (dev-sst-02)
