@@ -56,6 +56,9 @@ targets:
     variables:
       DB_workspace: "staging_sst_01"
       ingestion_slack_webhook_id: "c51b737e-988d-45dd-ad9b-6f9024a6b56b"  # edvise-support on staging_sst_01
+      # staging_sst_01 has no nsc-sftp-asset scope; NSC keys live here.
+      nsc_sftp_secret_scope: "dataplat-key-vault-sst-secret-scope"
+      sst_api_key_secret_key: "sst_staging_api_key"
       # Staging IAP client ID: GCP APIs & Services → Credentials (backend webapp)
       sst_iap_audience: ""  # TODO: set staging OAuth client ID before prod deploy
     workspace:
