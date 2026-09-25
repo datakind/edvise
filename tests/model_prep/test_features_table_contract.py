@@ -42,7 +42,9 @@ from edvise.feature_generation.column_names import (
     PDP_COHORT_INPUT_COLUMNS,
     PDP_COURSE_INPUT_COLUMNS,
 )
+from edvise.feature_generation.constants import COURSE_DUMMY_EXPANSION_PREFIXES
 from edvise.feature_generation.es_feature_specs import build_edvise_feature_specs
+from edvise.feature_generation.student_term import course_dummy_features_table_tokens
 from edvise.modeling.inference import is_feature_defined_in_table
 from edvise.shared.utils import feature_cleanup_for_schema
 from edvise.synth_generation.es import raw_course as es_raw_course
@@ -259,4 +261,36 @@ def test_post_cleanup_features_are_defined_in_features_table(
     ]
     assert undefined == [], (
         f"{schema_type} leftover columns not in features_table: {undefined}"
+    )
+
+
+_DUMMY_PROBE_VALUES = ("probe_a", "probe_b", "probe_c")
+
+
+@pytest.mark.parametrize("schema_type", ["pdp", "edvise"])
+def test_course_dummy_expansion_families_are_defined_in_features_table(
+    schema_type: str,
+) -> None:
+    """
+    Every get_dummies course-field token must match features_table regex families.
+
+    Uses shared tokens from feature gen (PDP vocabulary, or ES physical names with
+    mapping) and a few placeholder values — coverage of the family, not synth data.
+    """
+    cols = PDP_COURSE_INPUT_COLUMNS if schema_type == "pdp" else ES_COURSE_INPUT_COLUMNS
+    tokens = course_dummy_features_table_tokens(cols)
+    assert tokens, "expected at least one dummy-aggregation token"
+
+    undefined: list[str] = []
+    for token in tokens:
+        for prefix in COURSE_DUMMY_EXPANSION_PREFIXES:
+            for value in _DUMMY_PROBE_VALUES:
+                col = f"{prefix}_{token}_{value}"
+                if not is_feature_defined_in_table(
+                    col, _FEATURES_TABLE, schema_type=schema_type
+                ):
+                    undefined.append(col)
+
+    assert undefined == [], (
+        f"{schema_type} dummy-expansion probes not in features_table: {undefined}"
     )
