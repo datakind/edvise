@@ -42,7 +42,11 @@ from edvise.feature_generation.column_names import (
     PDP_COHORT_INPUT_COLUMNS,
     PDP_COURSE_INPUT_COLUMNS,
 )
-from edvise.feature_generation.constants import COURSE_DUMMY_EXPANSION_PREFIXES
+from edvise.feature_generation.constants import (
+    COURSE_DUMMY_AGG_FIXED_COLUMNS,
+    COURSE_DUMMY_AGG_INPUT_ATTRS,
+    COURSE_DUMMY_EXPANSION_PREFIXES,
+)
 from edvise.feature_generation.es_feature_specs import build_edvise_feature_specs
 from edvise.feature_generation.student_term import course_dummy_features_table_tokens
 from edvise.modeling.inference import is_feature_defined_in_table
@@ -267,6 +271,15 @@ def test_post_cleanup_features_are_defined_in_features_table(
 _DUMMY_PROBE_VALUES = ("probe_a", "probe_b", "probe_c")
 
 
+def _expected_course_dummy_tokens(cols) -> tuple[str, ...]:
+    """One token per course field that get_dummies expands (exact set, not a subset)."""
+    return tuple(
+        physical
+        for attr in COURSE_DUMMY_AGG_INPUT_ATTRS
+        if (physical := getattr(cols, attr)) is not None
+    ) + COURSE_DUMMY_AGG_FIXED_COLUMNS
+
+
 @pytest.mark.parametrize("schema_type", ["pdp", "edvise"])
 def test_course_dummy_expansion_families_are_defined_in_features_table(
     schema_type: str,
@@ -274,12 +287,14 @@ def test_course_dummy_expansion_families_are_defined_in_features_table(
     """
     Every get_dummies course-field token must match features_table regex families.
 
-    Uses shared tokens from feature gen (PDP vocabulary, or ES physical names with
-    mapping) and a few placeholder values — coverage of the family, not synth data.
+    Asserts the full token set (one per dummy-expanded column), then probes a few
+    placeholder values per token × num/frac/cumfrac prefix — family coverage, not
+    real categorical cardinality.
     """
     cols = PDP_COURSE_INPUT_COLUMNS if schema_type == "pdp" else ES_COURSE_INPUT_COLUMNS
+    expected_tokens = _expected_course_dummy_tokens(cols)
     tokens = course_dummy_features_table_tokens(cols)
-    assert tokens, "expected at least one dummy-aggregation token"
+    assert tokens == expected_tokens
 
     undefined: list[str] = []
     for token in tokens:
