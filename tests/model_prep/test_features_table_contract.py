@@ -273,11 +273,14 @@ _DUMMY_PROBE_VALUES = ("probe_a", "probe_b", "probe_c")
 
 def _expected_course_dummy_tokens(cols) -> tuple[str, ...]:
     """One token per course field that get_dummies expands (exact set, not a subset)."""
-    return tuple(
-        physical
-        for attr in COURSE_DUMMY_AGG_INPUT_ATTRS
-        if (physical := getattr(cols, attr)) is not None
-    ) + COURSE_DUMMY_AGG_FIXED_COLUMNS
+    return (
+        tuple(
+            physical
+            for attr in COURSE_DUMMY_AGG_INPUT_ATTRS
+            if (physical := getattr(cols, attr)) is not None
+        )
+        + COURSE_DUMMY_AGG_FIXED_COLUMNS
+    )
 
 
 @pytest.mark.parametrize("schema_type", ["pdp", "edvise"])
