@@ -243,7 +243,7 @@ def build_and_log_ranked_feature_table(
                 columns=["feature_name", "short_feature_desc", "long_feature_desc"]
             ).rename(
                 columns={
-                    "readable_feature_name": "Feature Name",
+                    "readable_feature_name": "Indicator Name",
                     "data_type": "Data Type",
                     "average_shap_magnitude": "Average SHAP Magnitude",
                 }
