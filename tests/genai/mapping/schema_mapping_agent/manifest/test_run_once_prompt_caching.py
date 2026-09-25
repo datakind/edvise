@@ -1,8 +1,9 @@
 """Tests for opt-in prompt-caching support in the SMA streaming `run_once` path.
 
 Covers the actual production call path for Step 2a / refinement / Step 2b
-(`edvise_genai_sma._sma_llm_complete_run_once` -> `eval.run_once`), as opposed to
-`make_databricks_gateway_llm_complete` (used by IA and SMA grain resolution only).
+(`schema_mapping_agent.orchestration.helpers._sma_llm_complete_run_once` ->
+`eval.run_once`), as opposed to `make_databricks_gateway_llm_complete` (used by IA
+and SMA grain resolution only).
 """
 
 from __future__ import annotations
@@ -10,7 +11,9 @@ from __future__ import annotations
 from typing import Any
 
 from edvise.genai.mapping.schema_mapping_agent.manifest.eval import run_once
-from edvise.genai.mapping.scripts.edvise_genai_sma import _sma_llm_complete_run_once
+from edvise.genai.mapping.schema_mapping_agent.orchestration.helpers import (
+    _sma_llm_complete_run_once,
+)
 from edvise.genai.mapping.shared.databricks_ai_gateway import _CACHE_CONTROL_MIN_CHARS
 
 _LONG_SYSTEM = "x" * (_CACHE_CONTROL_MIN_CHARS + 1)
