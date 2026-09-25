@@ -56,10 +56,13 @@ def filename_match_score(
     Score a candidate filename, returning ``None`` when it is not a safe match.
 
     Full normalized substring matches rank first, followed by complete stable-token
-    matches. When a dataset key is supplied, a final fallback of 100 applies only if
-    some token from that key appears in **both** names, so a bronze slot named
-    ``raw_student`` can still bind ``CCC Student File`` to ``Edvise Learner Report``
-    without attaching an unrelated configured name such as ``financial aid.csv``.
+    matches. Among token matches, closer names (fewer extra candidate tokens) score
+    higher so a newer file that only shares vendor/dataset words cannot beat a
+    tighter title match. When a dataset key is supplied, a final fallback of 100
+    applies only if some token from that key appears in **both** names, so a bronze
+    slot named ``raw_student`` can still bind ``CCC Student File`` to
+    ``Edvise Learner Report`` without attaching an unrelated configured name such as
+    ``financial aid.csv``.
     """
     configured = normalize_predict_file_match_text(pathlib.Path(configured_name).name)
     candidate = normalize_predict_file_match_text(pathlib.Path(candidate_name).name)
@@ -69,7 +72,8 @@ def filename_match_score(
     configured_tokens = filename_match_tokens(configured_name)
     candidate_tokens = filename_match_tokens(candidate_name)
     if configured_tokens and configured_tokens <= candidate_tokens:
-        return 200 + len(configured_tokens)
+        extra = len(candidate_tokens - configured_tokens)
+        return 200 + len(configured_tokens) - extra
 
     key_tokens = filename_match_tokens(dataset_key or "")
     if key_tokens & configured_tokens & candidate_tokens:

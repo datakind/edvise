@@ -28,8 +28,9 @@ def resolve_dataset_file_in_batch_dir(
     Resolve one dataset file under ``batch_dir``.
 
     Tries exact basename match first, then ranks candidates using normalized
-    substrings, stable filename tokens, and dataset semantics. When several files
-    have the best score, the newest one wins.
+    substrings, stable filename tokens, and dataset semantics. Closer token matches
+    outrank looser ones; when several files still share the best score, the newest
+    one wins.
     """
     dir_s = (batch_dir or "").strip()
     name = (dataset_name or "").strip()

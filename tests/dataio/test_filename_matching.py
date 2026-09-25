@@ -26,6 +26,20 @@ def test_filename_match_score_matches_timestamped_extracts_by_stable_tokens() ->
     )
 
 
+def test_filename_match_score_prefers_closer_name_over_shared_tokens() -> None:
+    """Dates/generics drop out, but extra content like Advising must not tie Learner."""
+    keyword = "Datakind - Learner Report_20260910_142024.csv"
+    learner = "Datakind - Learner Report_20260916_095850.csv"
+    advising = "Datakind - Student Advising_20260916_110000.csv"
+
+    learner_score = filename_match_score(keyword, learner, dataset_key="raw_student")
+    advising_score = filename_match_score(keyword, advising, dataset_key="raw_student")
+
+    assert learner_score is not None
+    assert advising_score is not None
+    assert learner_score > advising_score
+
+
 def test_filename_match_score_rejects_wrong_dataset_semantics() -> None:
     assert (
         filename_match_score(
