@@ -101,7 +101,8 @@ def run_onboard_gate_2(
         LOGGER.info(
             "[onboard/gate_2] Waiting for Unity Catalog HITL approval (sma_gate_1)"
         )
-        _pipeline_job_state.wait_for_sma_gate_1_hitl(
+        _pipeline_job_state.wait_for_gate(
+            _pipeline_job_state.GATE_SMA_1,
             catalog,
             onboard_run_id,
             institution_id=institution_id,
@@ -278,7 +279,8 @@ def run_onboard_gate_2(
         "[onboard/gate_2] Waiting for Unity Catalog HITL approval "
         "(sma_gate_2_transformation_review)"
     )
-    _pipeline_job_state.wait_for_sma_gate_2_transformation_review_hitl(
+    _pipeline_job_state.wait_for_gate(
+        _pipeline_job_state.GATE_SMA_2_TRANSFORMATION_REVIEW,
         catalog,
         onboard_run_id,
         institution_id=institution_id,
@@ -290,8 +292,11 @@ def run_onboard_gate_2(
         paths.course_transformation_review,
     ):
         check_transformation_review_hitl_gate(_tr_path)
-    _pipeline_job_state.after_sma_gate_2_transformation_review_approved(
-        catalog, institution_id, onboard_run_id
+    _pipeline_job_state.complete_gate(
+        _pipeline_job_state.GATE_SMA_2_TRANSFORMATION_REVIEW,
+        catalog,
+        institution_id,
+        onboard_run_id,
     )
     transformation_data = apply_transformation_review_resolutions(
         transformation_data,
@@ -380,15 +385,19 @@ def run_onboard_gate_2(
     LOGGER.info(
         "[onboard/gate_2] Waiting for Unity Catalog HITL approval (sma_gate_2_hook_preview)"
     )
-    _pipeline_job_state.wait_for_sma_gate_2_hook_preview_hitl(
+    _pipeline_job_state.wait_for_gate(
+        _pipeline_job_state.GATE_SMA_2_HOOK_PREVIEW,
         catalog,
         onboard_run_id,
         institution_id=institution_id,
         poll_interval_seconds=DEFAULT_HITL_POLL_INTERVAL_SECONDS,
         timeout_seconds=DEFAULT_HITL_POLL_TIMEOUT_SECONDS,
     )
-    _pipeline_job_state.after_sma_gate_2_hook_preview_approved(
-        catalog, institution_id, onboard_run_id
+    _pipeline_job_state.complete_gate(
+        _pipeline_job_state.GATE_SMA_2_HOOK_PREVIEW,
+        catalog,
+        institution_id,
+        onboard_run_id,
     )
     preview_hook_specs = load_hook_specs_from_sma_preview_path(
         paths.cohort_transformation_hook_preview
@@ -527,6 +536,11 @@ def run_onboard_gate_2(
         uc_catalog=catalog,
     )
     LOGGER.info("[onboard/gate_2] Complete. Exiting.")
-    _pipeline_job_state.after_sma_onboard_gate_2_success(
-        catalog, institution_id, onboard_run_id
+    # Last gate of the onboard run, so the run itself ends here rather than resuming.
+    _pipeline_job_state.complete_gate(
+        _pipeline_job_state.GATE_SMA_1,
+        catalog,
+        institution_id,
+        onboard_run_id,
+        run_status="complete",
     )
