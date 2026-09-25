@@ -23,10 +23,15 @@ import pyspark.sql
 from pyspark.sql import functions as F
 from pyspark.sql import types as T
 
-from edvise.ingestion.nsc_sftp import constants as nsc_constants
 from edvise.ingestion.nsc_sftp.constants import (
+    CATALOG,
     DEFAULT_SCHEMA,
+    MANIFEST_TABLE_PATH,
+    PLAN_TABLE_PATH,
+    SELECTED_TABLE_PATH,
     SFTP_DOWNLOAD_CHUNK_MB,
+    SFTP_TMP_DIR,
+    SFTP_TMP_VOLUME_FQN,
     SFTP_TMP_VOLUME_NAME,
     SFTP_VERIFY_DOWNLOAD,
 )
@@ -44,13 +49,11 @@ def _ensure_sftp_staging_volume_exists(spark: pyspark.sql.SparkSession) -> None:
     valid across workflow tasks/clusters.
     """
     try:
-        rows = spark.sql(
-            f"SHOW VOLUMES IN {nsc_constants.CATALOG}.{DEFAULT_SCHEMA}"
-        ).collect()
+        rows = spark.sql(f"SHOW VOLUMES IN {CATALOG}.{DEFAULT_SCHEMA}").collect()
     except Exception as e:
         raise RuntimeError(
-            f"Failed to verify staging volume exists. Expected UC volume: {nsc_constants.SFTP_TMP_VOLUME_FQN}. "
-            f"Could not list volumes in {nsc_constants.CATALOG}.{DEFAULT_SCHEMA}: {e}"
+            f"Failed to verify staging volume exists. Expected UC volume: {SFTP_TMP_VOLUME_FQN}. "
+            f"Could not list volumes in {CATALOG}.{DEFAULT_SCHEMA}: {e}"
         ) from e
 
     def _volume_name(row: pyspark.sql.Row) -> str:
@@ -63,12 +66,12 @@ def _ensure_sftp_staging_volume_exists(spark: pyspark.sql.SparkSession) -> None:
 
     volume_names = {_volume_name(r) for r in rows}
     if SFTP_TMP_VOLUME_NAME not in volume_names:
-        spark.sql(f"CREATE VOLUME IF NOT EXISTS {nsc_constants.SFTP_TMP_VOLUME_FQN}")
+        spark.sql(f"CREATE VOLUME IF NOT EXISTS {SFTP_TMP_VOLUME_FQN}")
 
-    if not os.path.isdir(nsc_constants.SFTP_TMP_DIR):
+    if not os.path.isdir(SFTP_TMP_DIR):
         raise RuntimeError(
-            f"UC volume exists but filesystem path is not accessible: {nsc_constants.SFTP_TMP_DIR}. "
-            f"Expected UC volume: {nsc_constants.SFTP_TMP_VOLUME_FQN}."
+            f"UC volume exists but filesystem path is not accessible: {SFTP_TMP_DIR}. "
+            f"Expected UC volume: {SFTP_TMP_VOLUME_FQN}."
         )
 
 
@@ -83,7 +86,7 @@ def ensure_manifest_and_selected_tables(spark: pyspark.sql.SparkSession) -> None
     """
     spark.sql(
         f"""
-        CREATE TABLE IF NOT EXISTS {nsc_constants.MANIFEST_TABLE_PATH} (
+        CREATE TABLE IF NOT EXISTS {MANIFEST_TABLE_PATH} (
           file_fingerprint STRING,
           source_system STRING,
           sftp_path STRING,
@@ -105,7 +108,7 @@ def ensure_manifest_and_selected_tables(spark: pyspark.sql.SparkSession) -> None
 
     spark.sql(
         f"""
-        CREATE TABLE IF NOT EXISTS {nsc_constants.SELECTED_TABLE_PATH} (
+        CREATE TABLE IF NOT EXISTS {SELECTED_TABLE_PATH} (
           file_fingerprint STRING,
           source_system STRING,
           sftp_path STRING,
@@ -192,22 +195,22 @@ def reset_files_for_reingest(
         schema=T.StructType([T.StructField("file_fingerprint", T.StringType(), False)]),
     ).createOrReplaceTempView("_nsc_reingest_fps")
 
-    if spark.catalog.tableExists(nsc_constants.SELECTED_TABLE_PATH):
+    if spark.catalog.tableExists(SELECTED_TABLE_PATH):
         spark.sql(
             f"""
-            DELETE FROM {nsc_constants.SELECTED_TABLE_PATH}
+            DELETE FROM {SELECTED_TABLE_PATH}
             WHERE file_fingerprint IN (SELECT file_fingerprint FROM _nsc_reingest_fps)
             """
         )
-    if spark.catalog.tableExists(nsc_constants.PLAN_TABLE_PATH):
+    if spark.catalog.tableExists(PLAN_TABLE_PATH):
         spark.sql(
             f"""
-            DELETE FROM {nsc_constants.PLAN_TABLE_PATH}
+            DELETE FROM {PLAN_TABLE_PATH}
             WHERE file_fingerprint IN (SELECT file_fingerprint FROM _nsc_reingest_fps)
             """
         )
-    if spark.catalog.tableExists(nsc_constants.MANIFEST_TABLE_PATH):
-        cols = set(spark.table(nsc_constants.MANIFEST_TABLE_PATH).columns)
+    if spark.catalog.tableExists(MANIFEST_TABLE_PATH):
+        cols = set(spark.table(MANIFEST_TABLE_PATH).columns)
         set_parts = ["status = 'NEW'"]
         for col, expr in (
             ("error_message", "NULL"),
@@ -219,7 +222,7 @@ def reset_files_for_reingest(
                 set_parts.append(f"{col} = {expr}")
         spark.sql(
             f"""
-            UPDATE {nsc_constants.MANIFEST_TABLE_PATH}
+            UPDATE {MANIFEST_TABLE_PATH}
             SET {", ".join(set_parts)}
             WHERE file_fingerprint IN (SELECT file_fingerprint FROM _nsc_reingest_fps)
             """
@@ -238,7 +241,7 @@ def upsert_new_to_manifest(
         spark: Spark session
         df_listing: DataFrame with file listing (must have file_fingerprint column)
     """
-    target_cols = set(spark.table(nsc_constants.MANIFEST_TABLE_PATH).columns)
+    target_cols = set(spark.table(MANIFEST_TABLE_PATH).columns)
 
     df_manifest_insert = df_listing.select(
         "file_fingerprint",
@@ -292,7 +295,7 @@ def upsert_new_to_manifest(
 
     spark.sql(
         f"""
-        MERGE INTO {nsc_constants.MANIFEST_TABLE_PATH} AS t
+        MERGE INTO {MANIFEST_TABLE_PATH} AS t
         USING incoming_manifest_rows AS s
         ON t.file_fingerprint = s.file_fingerprint
         WHEN NOT MATCHED THEN INSERT ({cols_sql}) VALUES ({vals_sql})
@@ -319,16 +322,14 @@ def get_files_to_select(
         DataFrame of files to select
     """
     manifest_new = (
-        spark.table(nsc_constants.MANIFEST_TABLE_PATH)
+        spark.table(MANIFEST_TABLE_PATH)
         .select("file_fingerprint", "status")
         .where(F.col("status") == F.lit("NEW"))
         .select("file_fingerprint")
     )
 
     already_selected = (
-        spark.table(nsc_constants.SELECTED_TABLE_PATH)
-        .select("file_fingerprint")
-        .distinct()
+        spark.table(SELECTED_TABLE_PATH).select("file_fingerprint").distinct()
     )
 
     # Only select files that are:
@@ -377,9 +378,7 @@ def download_new_files_and_select(
         file_name = r["file_name"]
 
         remote_path = f"{sftp_path.rstrip('/')}/{file_name}"
-        local_path = os.path.abspath(
-            os.path.join(nsc_constants.SFTP_TMP_DIR, f"{fp}__{file_name}")
-        )
+        local_path = os.path.abspath(os.path.join(SFTP_TMP_DIR, f"{fp}__{file_name}"))
 
         # If local already exists (e.g., rerun), skip re-download
         if not os.path.exists(local_path):
@@ -429,7 +428,7 @@ def download_new_files_and_select(
     # Upsert into selected_ingest_files (idempotent by fingerprint)
     spark.sql(
         f"""
-        MERGE INTO {nsc_constants.SELECTED_TABLE_PATH} AS t
+        MERGE INTO {SELECTED_TABLE_PATH} AS t
         USING incoming_selected_rows AS s
         ON t.file_fingerprint = s.file_fingerprint
         WHEN MATCHED THEN UPDATE SET
@@ -852,10 +851,10 @@ def resolve_bronze_volume_dir(
 
 def bronze_written_file_names(spark: pyspark.sql.SparkSession) -> set[str]:
     """file_name values already marked BRONZE_WRITTEN in ingestion_manifest."""
-    if not spark.catalog.tableExists(nsc_constants.MANIFEST_TABLE_PATH):
+    if not spark.catalog.tableExists(MANIFEST_TABLE_PATH):
         return set()
     rows = (
-        spark.table(nsc_constants.MANIFEST_TABLE_PATH)
+        spark.table(MANIFEST_TABLE_PATH)
         .where(F.col("status") == F.lit("BRONZE_WRITTEN"))
         .select("file_name")
         .collect()
