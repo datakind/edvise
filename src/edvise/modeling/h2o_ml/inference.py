@@ -1,8 +1,10 @@
 import logging
 import typing as t
 import mlflow
+import os
 import re
 import math
+import tempfile
 import time
 
 import numpy as np
@@ -216,32 +218,7 @@ def get_h2o_used_features(model: H2OEstimator) -> t.List[str]:
     """
     Extracts the actual feature names used by the H2O model (excluding dropped/constant columns).
     """
-    out = model._model_json["output"]
-    params = model.actual_params
-
-    names = list(out["names"])
-
-    # Figure out the response/target name
-    response = (
-        (out.get("response_column") or {}).get("name")
-        or params.get("response_column")
-        or params.get("y")
-    )
-
-    # Collect special (non-predictor) columns to drop
-    non_predictors = set()
-    if response:
-        non_predictors.add(response)
-
-    for k in ("weights_column", "offset_column", "fold_column"):
-        v = params.get(k)
-        if isinstance(v, dict):
-            v = v.get("column_name")
-        if v:
-            non_predictors.add(v)
-
-    # Keep only real predictors
-    return [c for c in names if c not in non_predictors]
+    return utils.predictor_names_from_h2o_model(model)
 
 
 def predict_h2o(
@@ -303,6 +280,231 @@ def predict_h2o(
     preds = (probs >= float(classification_threshold)).astype(int)
 
     return preds, probs
+
+
+def _as_feature_frame(
+    features: pd.DataFrame | np.ndarray,
+    feature_names: t.Optional[list[str]],
+) -> pd.DataFrame:
+    if isinstance(features, np.ndarray):
+        if feature_names is None:
+            raise ValueError("feature_names must be provided when using a numpy array.")
+        return pd.DataFrame(features, columns=feature_names)
+    return features
+
+
+def score_mojo_frame(
+    features: pd.DataFrame,
+    *,
+    mojo_zip_path: str,
+    genmodel_jar_path: str,
+    predict_contributions: bool = False,
+) -> pd.DataFrame:
+    """Score a frame with h2o-genmodel.jar. This does not start an H2O cluster."""
+    with tempfile.TemporaryDirectory(prefix="edvise_mojo_score_") as tmp_dir:
+        input_csv = os.path.join(tmp_dir, "input.csv")
+        output_csv = os.path.join(tmp_dir, "prediction.csv")
+        features.to_csv(input_csv, index=False)
+        h2o.mojo_predict_csv(
+            input_csv_path=input_csv,
+            mojo_zip_path=mojo_zip_path,
+            output_csv_path=output_csv,
+            genmodel_jar_path=genmodel_jar_path,
+            predict_contributions=predict_contributions,
+            setInvNumNA=True,
+        )
+        return pd.read_csv(output_csv)
+
+
+def predict_mojo(
+    features: pd.DataFrame | np.ndarray,
+    *,
+    mojo_zip_path: str,
+    genmodel_jar_path: str,
+    pos_label: utils.PosLabelType = True,
+    feature_names: t.Optional[list[str]] = None,
+    classification_threshold: float = 0.5,
+    calibrator: t.Optional[calibration.SklearnCalibratorWrapper] = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Predict labels and probabilities from a MOJO without an H2O cluster.
+
+    Calibration stays in Python, matching ``predict_h2o``.
+    """
+    features_df = _as_feature_frame(features, feature_names)
+    pred_df = score_mojo_frame(
+        features_df,
+        mojo_zip_path=mojo_zip_path,
+        genmodel_jar_path=genmodel_jar_path,
+        predict_contributions=False,
+    )
+    prob_col = utils._pick_pos_prob_column(pred_df, pos_label)
+    probs_raw = pred_df[prob_col].to_numpy(dtype=float)
+    if calibrator is not None:
+        try:
+            probs = calibrator.transform(probs_raw)
+        except Exception as e:
+            LOGGER.warning(
+                "Calibrator.transform failed, using raw probabilities. Error: %s", e
+            )
+            probs = probs_raw
+    else:
+        probs = probs_raw
+    labels = (probs >= float(classification_threshold)).astype(int)
+    return labels, probs
+
+
+def _scale_link_contributions(
+    contribs: pd.DataFrame, probs: np.ndarray
+) -> pd.DataFrame:
+    """Linearly rescale link-space contributions so each row sums to ``probs``.
+
+    This matches H2O ``output_space=True``: the sum of feature contributions
+    and the bias term becomes the predicted probability.
+    """
+    link_sum = contribs.sum(axis=1).to_numpy(dtype=float)
+    scale = np.ones(len(contribs), dtype=float)
+    mask = np.abs(link_sum) > 1e-12
+    scale[mask] = np.asarray(probs, dtype=float)[mask] / link_sum[mask]
+    return contribs.mul(scale, axis=0)
+
+
+def compute_mojo_contributions(
+    features: pd.DataFrame,
+    *,
+    mojo_zip_path: str,
+    genmodel_jar_path: str,
+    pos_label: utils.PosLabelType = True,
+    drop_bias: bool = True,
+    batch_rows: int = 1000,
+    output_space: bool = True,
+    return_features: bool = False,
+    top_n: t.Optional[int] = None,
+    bottom_n: int = 0,
+    output_format: t.Optional[str] = None,
+) -> pd.DataFrame | tuple[pd.DataFrame, pd.DataFrame]:
+    """TreeSHAP contributions from a MOJO, with the same shape as H2O contributions.
+
+    MOJO scoring does not accept a background frame, so these are TreeSHAP
+    values rather than the marginal SHAP values produced when H2O is given
+    ``background_frame``.
+    """
+    if top_n is not None or bottom_n or output_format is not None:
+        raise NotImplementedError(
+            "MOJO contribution scoring returns every feature; "
+            "top_n, bottom_n, and output_format are not supported."
+        )
+
+    frames: list[pd.DataFrame] = []
+    prob_parts: list[np.ndarray] = []
+    n = len(features)
+    step = max(1, int(batch_rows))
+    LOGGER.info("Scoring MOJO contributions for %d rows in batches of %d", n, step)
+    for start in range(0, max(n, 1), step):
+        chunk = features.iloc[start : start + step]
+        if chunk.empty:
+            break
+        contribs = score_mojo_frame(
+            chunk,
+            mojo_zip_path=mojo_zip_path,
+            genmodel_jar_path=genmodel_jar_path,
+            predict_contributions=True,
+        )
+        frames.append(contribs)
+        if output_space:
+            pred_df = score_mojo_frame(
+                chunk,
+                mojo_zip_path=mojo_zip_path,
+                genmodel_jar_path=genmodel_jar_path,
+                predict_contributions=False,
+            )
+            prob_col = utils._pick_pos_prob_column(pred_df, pos_label)
+            prob_parts.append(pred_df[prob_col].to_numpy(dtype=float))
+
+    contribs_df = (
+        pd.concat(frames, axis=0, ignore_index=True) if frames else pd.DataFrame()
+    )
+    if output_space and prob_parts and not contribs_df.empty:
+        contribs_df = _scale_link_contributions(contribs_df, np.concatenate(prob_parts))
+    if drop_bias and "BiasTerm" in contribs_df.columns:
+        contribs_df = contribs_df.drop(columns="BiasTerm")
+
+    if not return_features:
+        return contribs_df
+    return contribs_df, features.reset_index(drop=True)
+
+
+def predict_loaded_model(
+    features: pd.DataFrame | np.ndarray,
+    model: utils.LoadedInferenceModel | H2OEstimator,
+    *,
+    pos_label: utils.PosLabelType = True,
+    feature_names: t.Optional[list[str]] = None,
+    classification_threshold: float = 0.5,
+    calibrator: t.Optional[calibration.SklearnCalibratorWrapper] = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Score with MOJO or the loaded H2O model, whichever ``model`` selected."""
+    if isinstance(model, utils.LoadedInferenceModel) and model.uses_mojo:
+        if model.mojo_zip_path is None or model.genmodel_jar_path is None:
+            raise ValueError("MOJO backend is missing model.zip or h2o-genmodel.jar.")
+        return predict_mojo(
+            features,
+            mojo_zip_path=model.mojo_zip_path,
+            genmodel_jar_path=model.genmodel_jar_path,
+            pos_label=pos_label,
+            feature_names=feature_names,
+            classification_threshold=classification_threshold,
+            calibrator=calibrator,
+        )
+    h2o_model = (
+        model.h2o_model if isinstance(model, utils.LoadedInferenceModel) else model
+    )
+    return predict_h2o(
+        features=features,
+        model=h2o_model,
+        pos_label=pos_label,
+        feature_names=feature_names,
+        classification_threshold=classification_threshold,
+        calibrator=calibrator,
+    )
+
+
+def contributions_for_loaded_model(
+    model: utils.LoadedInferenceModel | H2OEstimator,
+    features_df: pd.DataFrame,
+    background_df: pd.DataFrame | None,
+    *,
+    pos_label: utils.PosLabelType = True,
+) -> pd.DataFrame:
+    """Contributions for a loaded backend.
+
+    Tree MOJOs ignore ``background_df`` and return TreeSHAP. GLM and other
+    cluster models keep background-frame contributions.
+    """
+    if isinstance(model, utils.LoadedInferenceModel) and model.uses_mojo:
+        if model.mojo_zip_path is None or model.genmodel_jar_path is None:
+            raise ValueError("MOJO backend is missing model.zip or h2o-genmodel.jar.")
+        LOGGER.info("MOJO TreeSHAP does not use the training background sample.")
+        contribs = compute_mojo_contributions(
+            features_df,
+            mojo_zip_path=model.mojo_zip_path,
+            genmodel_jar_path=model.genmodel_jar_path,
+            pos_label=pos_label,
+        )
+        if not isinstance(contribs, pd.DataFrame):
+            raise TypeError("Expected a contribution DataFrame from MOJO scoring.")
+        return contribs
+
+    h2o_model = (
+        model.h2o_model if isinstance(model, utils.LoadedInferenceModel) else model
+    )
+    contribs = compute_h2o_shap_contributions(
+        model=h2o_model,
+        df=features_df,
+        background_data=background_df,
+    )
+    if not isinstance(contribs, pd.DataFrame):
+        raise TypeError("Expected a contribution DataFrame from H2O scoring.")
+    return contribs
 
 
 def predict_contribs_batched(

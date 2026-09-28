@@ -1,12 +1,15 @@
 import yaml
+import json
 import logging
 import typing as t
+import zipfile
 
 import os
 import datetime
 import tempfile
 import contextlib
 import random
+from dataclasses import dataclass, field
 
 import mlflow
 from mlflow.models import Model, infer_signature
@@ -37,6 +40,24 @@ LOGGER = logging.getLogger(__name__)
 
 
 PosLabelType = t.Union[bool, str]
+
+# Tree MOJOs can score probabilities and TreeSHAP without an H2O cluster.
+# GLM contributions and Stacked Ensemble DeepSHAP stay on the cluster.
+MOJO_INFERENCE_ALGOS = frozenset({"gbm", "drf", "xgboost", "xrt"})
+CLUSTER_INFERENCE_ALGOS = frozenset({"glm", "stackedensemble"})
+
+MOJO_FILENAME = "model.zip"
+GENMODEL_JAR_FILENAME = "h2o-genmodel.jar"
+USED_FEATURES_FILENAME = "used_features.json"
+
+_MODEL_ID_ALGO_PREFIXES: tuple[tuple[str, str], ...] = (
+    ("StackedEnsemble_", "stackedensemble"),
+    ("XGBoost_", "xgboost"),
+    ("XRT_", "xrt"),
+    ("GBM_", "gbm"),
+    ("DRF_", "drf"),
+    ("GLM_", "glm"),
+)
 
 
 def safe_h2o_init(base_port: int = 54321, mem_per_cluster: str = "4G") -> None:
@@ -115,6 +136,262 @@ def load_h2o_model(
                 f"Expected model.h2o not found at {local_model_file}"
             )
         return h2o.load_model(local_model_file)
+
+
+def algo_from_model_id(model_id: str | None) -> str | None:
+    """Map an AutoML model id prefix to an H2O algorithm name."""
+    if not model_id:
+        return None
+    for prefix, algo in _MODEL_ID_ALGO_PREFIXES:
+        if model_id.startswith(prefix):
+            return algo
+    return None
+
+
+def uses_mojo_backend(
+    algo: str | None, *, has_mojo: bool, has_genmodel_jar: bool
+) -> bool:
+    """Return True when inference can score this model without an H2O cluster.
+
+    GLM and Stacked Ensemble stay on the cluster because MOJO has no
+    equivalent of their background-frame contributions. A tree model also
+    stays on the cluster when ``model.zip`` or ``h2o-genmodel.jar`` is missing,
+    which is the case for runs exported before those files were required.
+    """
+    if not algo or algo.lower() not in MOJO_INFERENCE_ALGOS:
+        return False
+    return bool(has_mojo and has_genmodel_jar)
+
+
+def resolve_logged_algo(
+    run_id: str, client: t.Optional[MlflowClient] = None
+) -> str | None:
+    """Read the logged algorithm, falling back to the AutoML model id prefix."""
+    if client is None:
+        client = MlflowClient()
+    params = client.get_run(run_id).data.params
+    algo = params.get("algo")
+    if isinstance(algo, str) and algo.strip():
+        return algo.strip().lower()
+    return algo_from_model_id(params.get("model_id"))
+
+
+def predictor_names_from_h2o_model(model: t.Any) -> list[str]:
+    """Predictor columns stored on a loaded H2O model, excluding non-predictors."""
+    model_json = getattr(model, "_model_json", None)
+    if not isinstance(model_json, dict):
+        raise TypeError("H2O model is missing _model_json output metadata")
+    out = model_json["output"]
+    params = getattr(model, "actual_params", None) or {}
+
+    names = list(out["names"])
+    response = (out.get("response_column") or {}).get("name") or params.get(
+        "response_column"
+    )
+    if response is None:
+        response = params.get("y")
+
+    non_predictors: set[str] = set()
+    if response:
+        non_predictors.add(response)
+    for key in ("weights_column", "offset_column", "fold_column"):
+        value = params.get(key)
+        if isinstance(value, dict):
+            value = value.get("column_name")
+        if value:
+            non_predictors.add(value)
+    return [col for col in names if col not in non_predictors]
+
+
+def parse_mojo_model_ini(text: str) -> tuple[str | None, list[str]]:
+    """Read algorithm and predictor names from a MOJO ``model.ini``."""
+    section: str | None = None
+    info: dict[str, str] = {}
+    columns: list[str] = []
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            section = line[1:-1].strip().lower()
+            continue
+        if section == "info" and "=" in line:
+            key, value = line.split("=", 1)
+            info[key.strip()] = value.strip()
+        elif section == "columns":
+            columns.append(line)
+
+    non_predictors = {
+        info[key]
+        for key in (
+            "response_column",
+            "weights_column",
+            "offset_column",
+            "fold_column",
+        )
+        if info.get(key)
+    }
+    features = [col for col in columns if col and col not in non_predictors]
+    # H2O writes predictors first. n_features excludes the response column,
+    # which is present in [columns] but not named in [info].
+    n_features = info.get("n_features")
+    if n_features and n_features.isdigit():
+        features = features[: int(n_features)]
+    algo = info.get("algo") or info.get("algorithm")
+    if algo and algo.lower() in {"gradient boosting machine"}:
+        algo = "gbm"
+    return (algo.lower() if algo else None), features
+
+
+def features_from_mojo_zip(mojo_zip_path: str) -> tuple[str | None, list[str]]:
+    """Read algorithm and predictor names from ``model.ini`` inside a MOJO zip."""
+    with zipfile.ZipFile(mojo_zip_path) as zf:
+        with zf.open("model.ini") as ini_file:
+            text = ini_file.read().decode("utf-8")
+    return parse_mojo_model_ini(text)
+
+
+def _is_file(path: object) -> bool:
+    return isinstance(path, (str, os.PathLike)) and os.path.isfile(path)
+
+
+def _artifact_names(run_id: str, parent: str) -> set[str]:
+    client = MlflowClient()
+    try:
+        infos = client.list_artifacts(run_id, path=parent)
+    except Exception as e:
+        LOGGER.warning("Could not list MLflow artifacts under %s: %s", parent, e)
+        return set()
+    return {os.path.basename(info.path) for info in infos}
+
+
+@dataclass
+class LoadedInferenceModel:
+    """Scoring backend selected for one MLflow run.
+
+    ``backend`` is ``mojo`` for tree models with a MOJO and genmodel jar.
+    GLM, Stacked Ensemble, and older runs keep ``backend`` ``h2o`` and a
+    loaded binary model. The temporary directory must stay referenced for
+    the life of MOJO scoring.
+    """
+
+    feature_names: list[str]
+    algo: str | None
+    backend: str
+    h2o_model: t.Any = None
+    mojo_zip_path: str | None = None
+    genmodel_jar_path: str | None = None
+    _artifact_dir: t.Any = field(default=None, repr=False)
+
+    @property
+    def uses_mojo(self) -> bool:
+        return self.backend == "mojo"
+
+
+def load_inference_model(
+    run_id: str, artifact_path: str = "model"
+) -> LoadedInferenceModel:
+    """Load a MOJO scorer, or start H2O when the model cannot use one.
+
+    The H2O cluster starts for GLM, Stacked Ensemble, an unrecognized
+    algorithm, a tree model whose MOJO artifacts are absent, or a MOJO
+    that fails to download or parse. Training still logs ``model.h2o``
+    when MOJO export fails.
+    """
+    algo = resolve_logged_algo(run_id)
+    names = _artifact_names(run_id, artifact_path)
+    has_mojo = MOJO_FILENAME in names
+    has_jar = GENMODEL_JAR_FILENAME in names
+    if not uses_mojo_backend(algo, has_mojo=has_mojo, has_genmodel_jar=has_jar):
+        if algo in MOJO_INFERENCE_ALGOS:
+            LOGGER.info(
+                "MOJO artifacts incomplete for algo=%s; scoring with the H2O cluster.",
+                algo,
+            )
+        else:
+            LOGGER.info(
+                "Scoring algo=%s with the H2O cluster.",
+                algo or "unknown",
+            )
+        return _load_h2o_inference_model(run_id, artifact_path, algo)
+
+    tmp_dir = tempfile.TemporaryDirectory(prefix="edvise_mojo_")
+    try:
+        mojo_path = download_artifact_file(
+            run_id, f"{artifact_path}/{MOJO_FILENAME}", tmp_dir.name
+        )
+        jar_path = download_artifact_file(
+            run_id, f"{artifact_path}/{GENMODEL_JAR_FILENAME}", tmp_dir.name
+        )
+        feature_names = _load_mojo_feature_names(
+            run_id, artifact_path, names, mojo_path, tmp_dir.name
+        )
+        if not feature_names:
+            raise ValueError(
+                "MOJO scoring requires predictor names in "
+                f"{artifact_path}/{USED_FEATURES_FILENAME} or model.ini."
+            )
+    except Exception as e:
+        tmp_dir.cleanup()
+        LOGGER.warning(
+            "MOJO import failed for algo=%s; scoring with the H2O cluster. %s",
+            algo,
+            e,
+        )
+        return _load_h2o_inference_model(run_id, artifact_path, algo)
+
+    LOGGER.info("Scoring algo=%s with MOJO (%d features).", algo, len(feature_names))
+    return LoadedInferenceModel(
+        feature_names=feature_names,
+        algo=algo,
+        backend="mojo",
+        mojo_zip_path=mojo_path,
+        genmodel_jar_path=jar_path,
+        _artifact_dir=tmp_dir,
+    )
+
+
+def _load_h2o_inference_model(
+    run_id: str, artifact_path: str, algo: str | None
+) -> LoadedInferenceModel:
+    model = load_h2o_model(run_id, artifact_path)
+    feature_names = predictor_names_from_h2o_model(model)
+    resolved = algo or getattr(model, "algo", None)
+    if isinstance(resolved, str):
+        resolved = resolved.lower()
+    else:
+        resolved = None
+    return LoadedInferenceModel(
+        feature_names=feature_names,
+        algo=resolved,
+        backend="h2o",
+        h2o_model=model,
+    )
+
+
+def _load_mojo_feature_names(
+    run_id: str,
+    artifact_path: str,
+    artifact_names: set[str],
+    mojo_path: str,
+    dst_dir: str,
+) -> list[str]:
+    if USED_FEATURES_FILENAME in artifact_names:
+        features_path = download_artifact_file(
+            run_id, f"{artifact_path}/{USED_FEATURES_FILENAME}", dst_dir
+        )
+        with open(features_path, "r") as features_file:
+            payload = json.load(features_file)
+        features = payload.get("features") if isinstance(payload, dict) else None
+        if isinstance(features, list) and all(
+            isinstance(name, str) for name in features
+        ):
+            return features
+        raise ValueError(
+            f"{artifact_path}/{USED_FEATURES_FILENAME} does not contain a feature list."
+        )
+    _algo, features = features_from_mojo_zip(mojo_path)
+    return features
 
 
 def _pick_pos_prob_column(preds, pos_label):
@@ -765,10 +1042,34 @@ def log_h2o_model_metadata_for_uc(
         if model_saved_path != final_model_path:
             os.rename(model_saved_path, final_model_path)
 
-        # 2) Try to export MOJO
-        final_mojo_path = _try_export_mojo(h2o_model, tmpdir)
+        # 2) Export MOJO when the model supports it. Inference scores tree
+        # models from these files and falls back to model.h2o if they are absent.
+        algo = getattr(h2o_model, "algo", None)
+        algo_name = algo if isinstance(algo, str) else None
+        final_mojo_path, genmodel_jar_path = _try_export_mojo(h2o_model, tmpdir)
+        if algo_name in MOJO_INFERENCE_ALGOS and (
+            not final_mojo_path or not genmodel_jar_path
+        ):
+            LOGGER.warning(
+                "MOJO export failed for algo=%s; inference will score "
+                "model.h2o with the H2O cluster.",
+                algo_name,
+            )
         if final_mojo_path:
             mlflow.log_artifact(final_mojo_path, artifact_path=artifact_path)
+        if genmodel_jar_path:
+            mlflow.log_artifact(genmodel_jar_path, artifact_path=artifact_path)
+
+        try:
+            feature_names = predictor_names_from_h2o_model(h2o_model)
+        except Exception as e:
+            feature_names = []
+            LOGGER.warning("Could not read predictor names for MOJO scoring: %s", e)
+        if feature_names and all(isinstance(name, str) for name in feature_names):
+            mlflow.log_text(
+                json.dumps({"features": feature_names}),
+                artifact_file=f"{artifact_path}/{USED_FEATURES_FILENAME}",
+            )
 
         # 3) Build MLmodel metadata
         mlmodel = Model(artifact_path=artifact_path, flavors={})
@@ -823,6 +1124,12 @@ def log_model_metadata_to_mlflow(
 
     # 1) model_id as a single param
     mlflow.log_param("model_id", model_id)
+    algo = getattr(model, "algo", None)
+    if isinstance(algo, str) and algo:
+        try:
+            mlflow.log_param("algo", algo)
+        except Exception as e:
+            LOGGER.warning("Failed to log algo for model %s: %s", model_id, e)
 
     # 2) Hyperparameters in one batch
     try:
@@ -1053,33 +1360,40 @@ def _to_pandas(hobj: t.Any) -> pd.DataFrame:
     raise TypeError(f"_to_pandas: unsupported object type {type(hobj)}")
 
 
-def _try_export_mojo(h2o_model: ModelBase, tmpdir: str) -> str | None:
+def _try_export_mojo(
+    h2o_model: ModelBase, tmpdir: str
+) -> tuple[str | None, str | None]:
     """
-    Attempt to export a MOJO for the given model. Returns (has_mojo, final_mojo_path).
+    Export a MOJO zip and h2o-genmodel.jar.
+
+    Returns ``(model_zip_path, genmodel_jar_path)``. Either path is None when
+    that file was not produced.
     """
-    final_mojo_path = os.path.join(tmpdir, "model.zip")
+    final_mojo_path = os.path.join(tmpdir, MOJO_FILENAME)
+    final_jar_path = os.path.join(tmpdir, GENMODEL_JAR_FILENAME)
+    algo = getattr(h2o_model, "algo", "?")
     try:
-        # Primary, version-agnostic path: model method
-        mojo_path = h2o_model.download_mojo(path=tmpdir)
-        if mojo_path and os.path.exists(mojo_path):
-            if mojo_path != final_mojo_path:
-                os.replace(mojo_path, final_mojo_path)
-            return final_mojo_path
-        else:
-            logging.warning(
-                "download_mojo returned no path for algo=%s",
-                getattr(h2o_model, "algo", "?"),
+        mojo_path = h2o_model.download_mojo(path=tmpdir, get_genmodel_jar=True)
+        if not _is_file(mojo_path):
+            LOGGER.warning("download_mojo returned no path for algo=%s", algo)
+            return None, None
+        if os.path.abspath(str(mojo_path)) != os.path.abspath(final_mojo_path):
+            os.replace(str(mojo_path), final_mojo_path)
+        jar_path = final_jar_path if os.path.isfile(final_jar_path) else None
+        if jar_path is None:
+            LOGGER.warning(
+                "MOJO exported but %s is missing for algo=%s",
+                GENMODEL_JAR_FILENAME,
+                algo,
             )
-            return None
+        return final_mojo_path, jar_path
     except AttributeError as e:
-        logging.warning("Model has no download_mojo(): %s", e)
-        return None
+        LOGGER.warning("Model has no download_mojo(): %s", e)
+        return None, None
     except Exception as e:
         # Some algos/params don't support MOJO
-        logging.warning(
-            "MOJO export failed for algo=%s: %s", getattr(h2o_model, "algo", "?"), e
-        )
-        return None
+        LOGGER.warning("MOJO export failed for algo=%s: %s", algo, e)
+        return None, None
 
 
 def _safe_mlflow_log_metric(key, value, step=None):
