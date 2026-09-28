@@ -39,7 +39,7 @@ def _canonical_token(token: str) -> str:
 def _filename_tokens(raw: str, *, canonicalize: bool) -> frozenset[str]:
     stem = pathlib.Path(str(raw).strip()).stem
     tokens: set[str] = set()
-    for token in normalize_predict_file_match_text(stem).split("_"):
+    for token in normalize_filename_match_text(stem).split("_"):
         if not token or token.isdigit() or token in _GENERIC_TOKENS:
             continue
         if canonicalize:
