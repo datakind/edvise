@@ -3,15 +3,13 @@
 # Secrets — dev (host same as PDP dev: DATABRICKS_DEV_HOST):
 #   DATABRICKS_DEV_HOST, DATABRICKS_GENAI_MAPPING_DEV_CLIENT_ID, DATABRICKS_GENAI_MAPPING_DEV_CLIENT_SECRET
 #   GENAI_MAPPING_DEV_SERVICE_ACCOUNT_EXECUTER
-#   pin_reference_* uses the same genai-mapping SP + GCP SA as the rest of the bundle
+#   pin_reference_ds_run_as uses DATABRICKS_GENAI_MAPPING_DEV_CLIENT_ID (same as ds_run_as)
 # Secrets — staging workspace (DATABRICKS_STAGING_HOST):
 #   DATABRICKS_STAGING_HOST, DATABRICKS_GENAI_MAPPING_STAGING_CLIENT_ID,
 #   DATABRICKS_GENAI_MAPPING_STAGING_CLIENT_SECRET
 #   STAGING_SERVICE_ACCOUNT_EXECUTER
-#   DATABRICKS_GENAI_REFERENCE_PROMOTION_CLIENT_ID — pin_reference job run_as (SP app ID)
-#   GENAI_REFERENCE_PROMOTION_SERVICE_ACCOUNT — pin_reference google_service_account
-#     (genai-reference-promotion-sa@staging-sst-01.iam.gserviceaccount.com)
-#     onboard/execute keep DATABRICKS_GENAI_MAPPING_STAGING_CLIENT_ID / STAGING_SERVICE_ACCOUNT_EXECUTER
+#   DATABRICKS_GENAI_REFERENCE_PROMOTION_CLIENT_ID — pin_reference job run_as only
+#     (onboard/execute keep DATABRICKS_GENAI_MAPPING_STAGING_CLIENT_ID)
 #   Staging deploy: bundle target prod + git_tag → staging_sst_01 (see pipelines/genai_mapping/databricks.yml).
 # Shared: GROUP_TO_MANAGE
 #
@@ -64,9 +62,8 @@ jobs:
           DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_GENAI_MAPPING_DEV_CLIENT_SECRET }}
           SA_EXECUTER: ${{ secrets.GENAI_MAPPING_DEV_SERVICE_ACCOUNT_EXECUTER }}
           DS_RUN_AS: ${{ secrets.DATABRICKS_GENAI_MAPPING_DEV_CLIENT_ID }}
-          # Publish/push: same SP + GCP SA as the rest of the genai mapping bundle.
+          # Publish/push: same SP as the rest of the genai mapping bundle.
           PIN_REFERENCE_DS_RUN_AS: ${{ secrets.DATABRICKS_GENAI_MAPPING_DEV_CLIENT_ID }}
-          PIN_REFERENCE_SERVICE_ACCOUNT: ${{ secrets.GENAI_MAPPING_DEV_SERVICE_ACCOUNT_EXECUTER }}
           GROUP_TO_MANAGE: ${{ secrets.GROUP_TO_MANAGE }}
         run: |
           databricks bundle deploy \
@@ -76,7 +73,6 @@ jobs:
             --var "service_account_executer=$SA_EXECUTER" \
             --var "ds_run_as=$DS_RUN_AS" \
             --var "pin_reference_ds_run_as=$PIN_REFERENCE_DS_RUN_AS" \
-            --var "pin_reference_service_account=$PIN_REFERENCE_SERVICE_ACCOUNT" \
             --var "datakind_group_to_manage_workflow=$GROUP_TO_MANAGE"
 
   deploy-staging:
@@ -112,9 +108,8 @@ jobs:
           DATABRICKS_CLIENT_SECRET: ${{ secrets.DATABRICKS_GENAI_MAPPING_STAGING_CLIENT_SECRET }}
           SA_EXECUTER: ${{ secrets.STAGING_SERVICE_ACCOUNT_EXECUTER }}
           DS_RUN_AS: ${{ secrets.DATABRICKS_GENAI_MAPPING_STAGING_CLIENT_ID }}
-          # Pull/replica: dedicated reference-promotion identities (pin_reference job only).
+          # Pull/replica: dedicated reference-promotion SP (pin_reference job only).
           PIN_REFERENCE_DS_RUN_AS: ${{ secrets.DATABRICKS_GENAI_REFERENCE_PROMOTION_CLIENT_ID }}
-          PIN_REFERENCE_SERVICE_ACCOUNT: ${{ secrets.GENAI_REFERENCE_PROMOTION_SERVICE_ACCOUNT }}
           GROUP_TO_MANAGE: ${{ secrets.GROUP_TO_MANAGE }}
         run: |
           echo "Deploying staging_sst_01 with bundle target prod (git tag: ${GITHUB_REF_NAME})"
@@ -125,5 +120,4 @@ jobs:
             --var "service_account_executer=$SA_EXECUTER" \
             --var "ds_run_as=$DS_RUN_AS" \
             --var "pin_reference_ds_run_as=$PIN_REFERENCE_DS_RUN_AS" \
-            --var "pin_reference_service_account=$PIN_REFERENCE_SERVICE_ACCOUNT" \
             --var "datakind_group_to_manage_workflow=$GROUP_TO_MANAGE"

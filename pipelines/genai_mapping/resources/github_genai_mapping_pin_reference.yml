@@ -4,9 +4,8 @@
 #   catalog=dev_sst_02      → publish from institution active/
 #   catalog=staging_sst_01  → pull references/ from fixed canonical catalog (dev_sst_02)
 #
-# Identities (override bundle defaults so onboard/execute stay on the usual genai SP/SA):
-#   run_as                  → pin_reference_ds_run_as (Databricks SP app ID)
-#   google_service_account  → pin_reference_service_account (GCP SA email)
+# run_as is pin_reference_ds_run_as (not bundle ds_run_as) so staging can use a
+# dedicated reference-promotion SP while onboard/execute keep the usual genai SP.
 resources:
   jobs:
     edvise_genai_mapping_pin_reference_pipeline:
@@ -49,7 +48,6 @@ resources:
               use_preemptible_executors: false
               availability: ON_DEMAND_GCP
               zone_id: HA
-              google_service_account: ${var.pin_reference_service_account}
             node_type_id: n2-standard-4
             custom_tags:
               ResourceClass: SingleNode
