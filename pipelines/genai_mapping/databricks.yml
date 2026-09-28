@@ -21,6 +21,14 @@ variables:
     description: "Databricks workspace (Unity Catalog name)"
   ds_run_as:
     description: "Account to run the pipeline (Databricks SP client/app ID)"
+  pin_reference_ds_run_as:
+    description: >
+      Databricks SP client/app ID for edvise_genai_mapping_pin_reference only.
+      On staging this is the reference-promotion SP; on dev it matches ds_run_as.
+  pin_reference_service_account:
+    description: >
+      GCP SA email for the pin_reference job cluster (google_service_account).
+      Staging uses genai-reference-promotion-sa; dev matches service_account_executer.
   service_account_executer:
     description: "Service account to execute the pipeline"
   datakind_group_to_manage_workflow:
