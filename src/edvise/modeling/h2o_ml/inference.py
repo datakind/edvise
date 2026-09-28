@@ -353,21 +353,6 @@ def predict_mojo(
     return labels, probs
 
 
-def _scale_link_contributions(
-    contribs: pd.DataFrame, probs: np.ndarray
-) -> pd.DataFrame:
-    """Linearly rescale link-space contributions so each row sums to ``probs``.
-
-    This matches H2O ``output_space=True``: the sum of feature contributions
-    and the bias term becomes the predicted probability.
-    """
-    link_sum = contribs.sum(axis=1).to_numpy(dtype=float)
-    scale = np.ones(len(contribs), dtype=float)
-    mask = np.abs(link_sum) > 1e-12
-    scale[mask] = np.asarray(probs, dtype=float)[mask] / link_sum[mask]
-    return contribs.mul(scale, axis=0)
-
-
 def compute_mojo_contributions(
     features: pd.DataFrame,
     *,
@@ -382,12 +367,13 @@ def compute_mojo_contributions(
     bottom_n: int = 0,
     output_format: t.Optional[str] = None,
 ) -> pd.DataFrame | tuple[pd.DataFrame, pd.DataFrame]:
-    """TreeSHAP contributions from a MOJO, with the same shape as H2O contributions.
+    """Link-space TreeSHAP contributions from a MOJO.
 
-    MOJO scoring does not accept a background frame, so these are TreeSHAP
-    values rather than the marginal SHAP values produced when H2O is given
-    ``background_frame``.
+    ``h2o-genmodel`` returns contributions that sum to the logit. They are
+    kept on that scale. Rescaling by ``probability / link_sum`` explodes when
+    a row's contributions nearly cancel, so ``output_space`` is not applied.
     """
+    del pos_label, output_space
     if top_n is not None or bottom_n or output_format is not None:
         raise NotImplementedError(
             "MOJO contribution scoring returns every feature; "
@@ -395,7 +381,6 @@ def compute_mojo_contributions(
         )
 
     frames: list[pd.DataFrame] = []
-    prob_parts: list[np.ndarray] = []
     n = len(features)
     step = max(1, int(batch_rows))
     LOGGER.info("Scoring MOJO contributions for %d rows in batches of %d", n, step)
@@ -403,28 +388,18 @@ def compute_mojo_contributions(
         chunk = features.iloc[start : start + step]
         if chunk.empty:
             break
-        contribs = score_mojo_frame(
-            chunk,
-            mojo_zip_path=mojo_zip_path,
-            genmodel_jar_path=genmodel_jar_path,
-            predict_contributions=True,
-        )
-        frames.append(contribs)
-        if output_space:
-            pred_df = score_mojo_frame(
+        frames.append(
+            score_mojo_frame(
                 chunk,
                 mojo_zip_path=mojo_zip_path,
                 genmodel_jar_path=genmodel_jar_path,
-                predict_contributions=False,
+                predict_contributions=True,
             )
-            prob_col = utils._pick_pos_prob_column(pred_df, pos_label)
-            prob_parts.append(pred_df[prob_col].to_numpy(dtype=float))
+        )
 
     contribs_df = (
         pd.concat(frames, axis=0, ignore_index=True) if frames else pd.DataFrame()
     )
-    if output_space and prob_parts and not contribs_df.empty:
-        contribs_df = _scale_link_contributions(contribs_df, np.concatenate(prob_parts))
     if drop_bias and "BiasTerm" in contribs_df.columns:
         contribs_df = contribs_df.drop(columns="BiasTerm")
 

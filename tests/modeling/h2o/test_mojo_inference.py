@@ -283,26 +283,23 @@ def test_predict_mojo_calibrates_before_threshold(monkeypatch):
     assert labels.tolist() == [0, 0]
 
 
-def test_mojo_contributions_match_output_space_shape(monkeypatch):
+def test_mojo_contributions_stay_in_link_space(monkeypatch):
     def fake_score(features, **kwargs):
-        if kwargs["predict_contributions"]:
-            return pd.DataFrame({"x": [2.0, -1.0], "BiasTerm": [2.0, 1.0]})
-        return pd.DataFrame({"p0": [0.1, 0.9], "p1": [0.8, 0.5]})
+        assert kwargs["predict_contributions"] is True
+        # Second row nearly cancels. probability/link_sum would explode it.
+        return pd.DataFrame({"x": [2.0, 120.0], "BiasTerm": [2.0, -119.998]})
 
     monkeypatch.setattr(inference, "score_mojo_frame", fake_score)
-    features = pd.DataFrame({"x": [1.0, 2.0]})
     contribs = inference.compute_mojo_contributions(
-        features,
+        pd.DataFrame({"x": [1.0, 2.0]}),
         mojo_zip_path="model.zip",
         genmodel_jar_path="h2o-genmodel.jar",
         batch_rows=10,
         output_space=True,
         drop_bias=True,
     )
-    # Row 0 link sum is 4 and p1 is 0.8, so x scales by 0.2.
-    # Row 1 link sum is 0, so the contribution stays in link space.
     assert list(contribs.columns) == ["x"]
-    np.testing.assert_allclose(contribs["x"].to_numpy(), [0.4, -1.0])
+    np.testing.assert_allclose(contribs["x"].to_numpy(), [2.0, 120.0])
 
 
 def test_loaded_model_dispatch(monkeypatch):
@@ -438,6 +435,7 @@ def test_gbm_mojo_probabilities_and_treeshap_match_native_h2o():
             )
         np.testing.assert_allclose(probs, native_probs, atol=1e-6)
         _assert_same_contributions(link_contribs, native_link)
+        _assert_same_contributions(output_contribs, native_link)
         _assert_same_contribution_ranking(output_contribs, native_output)
     finally:
         h2o.cluster().shutdown(prompt=False)
