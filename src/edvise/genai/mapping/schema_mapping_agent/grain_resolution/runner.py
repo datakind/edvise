@@ -389,7 +389,8 @@ def run_onboard_gate_2_entity_with_grain_uc(
             LOGGER.info(
                 "[onboard/gate_2] Waiting for Unity Catalog HITL approval (sma_gate_2_grain)"
             )
-            pipeline_job_state.wait_for_sma_gate_2_grain_hitl(
+            pipeline_job_state.wait_for_gate(
+                pipeline_job_state.GATE_SMA_2_GRAIN,
                 catalog,
                 onboard_run_id,
                 institution_id=institution_id,
@@ -403,8 +404,11 @@ def run_onboard_gate_2_entity_with_grain_uc(
                 run_log_path=paths.run_log,
                 db_run_id=db_run_id,
             )
-            pipeline_job_state.after_sma_gate_2_grain_approved(
-                catalog, institution_id, onboard_run_id
+            pipeline_job_state.complete_gate(
+                pipeline_job_state.GATE_SMA_2_GRAIN,
+                catalog,
+                institution_id,
+                onboard_run_id,
             )
             manifest_cur = reload_field_manifest_entity(manifest_map_path, entity)
             completed_hitl_rounds += 1

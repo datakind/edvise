@@ -35,7 +35,7 @@ from edvise.data_audit.standardizer import (
 )
 from edvise.utils.databricks import get_spark_session
 from edvise.dataio.genai_registry_paths import resolve_genai_pipeline_input_dir
-from edvise.data_audit.batch_dataset_paths import resolve_es_raw_dataset_paths
+from edvise.dataio.batch_dataset_paths import resolve_es_raw_dataset_paths
 from edvise.dataio.path_management import pick_existing_path
 from edvise.dataio.path_management import path_exists
 from edvise.dataio.read import (
