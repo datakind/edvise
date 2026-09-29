@@ -57,7 +57,7 @@ targets:
       DB_workspace: "staging_sst_01"
       ingestion_slack_webhook_id: "c51b737e-988d-45dd-ad9b-6f9024a6b56b"  # edvise-support on staging_sst_01
       # Staging IAP client ID: GCP APIs & Services → Credentials (backend webapp)
-      sst_iap_audience: ""  # TODO: set staging OAuth client ID before prod deploy
+      sst_iap_audience: "176687038987-mc6c5hh5q9tg2l98eb9ug2i1lo3kdfab.apps.googleusercontent.com"
     workspace:
       root_path: /Workspace/Shared/bundles/${bundle.name}/${bundle.target}
     resources:
