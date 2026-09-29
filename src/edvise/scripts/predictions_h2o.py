@@ -87,6 +87,14 @@ def load_model_and_features(
     model = h2o_utils.load_inference_model(run_id)
     if not model.feature_names:
         raise ValueError("Model reports zero used features.")
+    if model.uses_mojo:
+        logging.info(
+            "Inference read MOJO file %s with genmodel jar %s.",
+            model.mojo_zip_path,
+            model.genmodel_jar_path,
+        )
+    else:
+        logging.info("Inference is scoring with the H2O cluster (algo=%s).", model.algo)
     return model, model.feature_names
 
 

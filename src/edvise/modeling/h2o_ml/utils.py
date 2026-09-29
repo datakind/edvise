@@ -340,7 +340,14 @@ def load_inference_model(
         )
         return _load_h2o_inference_model(run_id, artifact_path, algo)
 
-    LOGGER.info("Scoring algo=%s with MOJO (%d features).", algo, len(feature_names))
+    LOGGER.info(
+        "Read MOJO file %s/%s for algo=%s (%d features) at %s.",
+        artifact_path,
+        MOJO_FILENAME,
+        algo,
+        len(feature_names),
+        mojo_path,
+    )
     return LoadedInferenceModel(
         feature_names=feature_names,
         algo=algo,

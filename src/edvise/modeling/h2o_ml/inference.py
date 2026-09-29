@@ -331,6 +331,11 @@ def predict_mojo(
     Calibration stays in Python, matching ``predict_h2o``.
     """
     features_df = _as_feature_frame(features, feature_names)
+    LOGGER.info(
+        "Reading MOJO file %s to score %d rows.",
+        mojo_zip_path,
+        len(features_df),
+    )
     pred_df = score_mojo_frame(
         features_df,
         mojo_zip_path=mojo_zip_path,
@@ -416,7 +421,12 @@ def compute_mojo_contributions(
     frames: list[pd.DataFrame] = []
     n = len(features)
     step = max(1, int(batch_rows))
-    LOGGER.info("Scoring MOJO contributions for %d rows in batches of %d", n, step)
+    LOGGER.info(
+        "Reading MOJO file %s for TreeSHAP contributions (%d rows, batches of %d).",
+        mojo_zip_path,
+        n,
+        step,
+    )
     for start in range(0, max(n, 1), step):
         chunk = features.iloc[start : start + step]
         if chunk.empty:
