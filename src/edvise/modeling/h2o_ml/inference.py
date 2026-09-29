@@ -353,6 +353,40 @@ def predict_mojo(
     return labels, probs
 
 
+def _sigmoid(values: np.ndarray) -> np.ndarray:
+    return np.asarray(1.0 / (1.0 + np.exp(-np.clip(values, -50.0, 50.0))))
+
+
+def _contributions_to_probability_units(contribs: pd.DataFrame) -> pd.DataFrame:
+    """Map link-space TreeSHAP onto probability points.
+
+    ``b`` is ``BiasTerm`` and ``s`` is the sum of the feature contributions.
+    Feature contributions are multiplied by ``(sigmoid(b + s) - sigmoid(b)) / s``,
+    which is ``sigmoid'(b)`` when ``s`` is near zero. ``BiasTerm`` becomes
+    ``sigmoid(b)``, so the row sums to the raw model probability.
+    """
+    if contribs.empty or "BiasTerm" not in contribs.columns:
+        return contribs
+    out = contribs.copy()
+    bias = out["BiasTerm"].to_numpy(dtype=float)
+    feature_cols = [col for col in out.columns if col != "BiasTerm"]
+    feature_sum = (
+        out[feature_cols].sum(axis=1).to_numpy(dtype=float)
+        if feature_cols
+        else np.zeros(len(out), dtype=float)
+    )
+    baseline_prob = _sigmoid(bias)
+    probability = _sigmoid(bias + feature_sum)
+    scale = np.empty(len(out), dtype=float)
+    small = np.abs(feature_sum) <= 1e-8
+    scale[small] = baseline_prob[small] * (1.0 - baseline_prob[small])
+    scale[~small] = (probability[~small] - baseline_prob[~small]) / feature_sum[~small]
+    if feature_cols:
+        out[feature_cols] = out[feature_cols].mul(scale, axis=0)
+    out["BiasTerm"] = baseline_prob
+    return out
+
+
 def compute_mojo_contributions(
     features: pd.DataFrame,
     *,
@@ -367,13 +401,12 @@ def compute_mojo_contributions(
     bottom_n: int = 0,
     output_format: t.Optional[str] = None,
 ) -> pd.DataFrame | tuple[pd.DataFrame, pd.DataFrame]:
-    """Link-space TreeSHAP contributions from a MOJO.
+    """TreeSHAP contributions from a MOJO.
 
-    ``h2o-genmodel`` returns contributions that sum to the logit. They are
-    kept on that scale. Rescaling by ``probability / link_sum`` explodes when
-    a row's contributions nearly cancel, so ``output_space`` is not applied.
+    The jar returns link-space values. ``output_space=True`` rescales the
+    feature contributions into probability points around ``sigmoid(BiasTerm)``.
     """
-    del pos_label, output_space
+    del pos_label
     if top_n is not None or bottom_n or output_format is not None:
         raise NotImplementedError(
             "MOJO contribution scoring returns every feature; "
@@ -400,6 +433,8 @@ def compute_mojo_contributions(
     contribs_df = (
         pd.concat(frames, axis=0, ignore_index=True) if frames else pd.DataFrame()
     )
+    if output_space:
+        contribs_df = _contributions_to_probability_units(contribs_df)
     if drop_bias and "BiasTerm" in contribs_df.columns:
         contribs_df = contribs_df.drop(columns="BiasTerm")
 

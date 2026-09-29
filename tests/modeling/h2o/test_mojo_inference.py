@@ -283,11 +283,12 @@ def test_predict_mojo_calibrates_before_threshold(monkeypatch):
     assert labels.tolist() == [0, 0]
 
 
-def test_mojo_contributions_stay_in_link_space(monkeypatch):
+def test_mojo_contributions_scale_to_probability_without_exploding(monkeypatch):
     def fake_score(features, **kwargs):
         assert kwargs["predict_contributions"] is True
-        # Second row nearly cancels. probability/link_sum would explode it.
-        return pd.DataFrame({"x": [2.0, 120.0], "BiasTerm": [2.0, -119.998]})
+        # Second row's logit is 0.002. Dividing the probability by that logit
+        # would turn the feature contribution of 120 into about 30,000.
+        return pd.DataFrame({"x": [2.0, 120.0], "BiasTerm": [0.0, -119.998]})
 
     monkeypatch.setattr(inference, "score_mojo_frame", fake_score)
     contribs = inference.compute_mojo_contributions(
@@ -296,10 +297,23 @@ def test_mojo_contributions_stay_in_link_space(monkeypatch):
         genmodel_jar_path="h2o-genmodel.jar",
         batch_rows=10,
         output_space=True,
+        drop_bias=False,
+    )
+    bias = contribs["BiasTerm"].to_numpy()
+    scaled = contribs["x"].to_numpy()
+    np.testing.assert_allclose(bias[0], 0.5)
+    expected_prob = inference._sigmoid(np.array([2.0, 0.002]))
+    np.testing.assert_allclose(bias + scaled, expected_prob)
+    assert abs(scaled[1]) < 1.0
+
+    link_space = inference.compute_mojo_contributions(
+        pd.DataFrame({"x": [1.0, 2.0]}),
+        mojo_zip_path="model.zip",
+        genmodel_jar_path="h2o-genmodel.jar",
+        output_space=False,
         drop_bias=True,
     )
-    assert list(contribs.columns) == ["x"]
-    np.testing.assert_allclose(contribs["x"].to_numpy(), [2.0, 120.0])
+    np.testing.assert_allclose(link_space["x"].to_numpy(), [2.0, 120.0])
 
 
 def test_loaded_model_dispatch(monkeypatch):
@@ -400,9 +414,6 @@ def test_gbm_mojo_probabilities_and_treeshap_match_native_h2o():
         native_link = model.predict_contributions(
             hf, output_space=False
         ).as_data_frame()
-        native_output = model.predict_contributions(
-            hf, output_space=True
-        ).as_data_frame()
 
         import tempfile
 
@@ -435,8 +446,13 @@ def test_gbm_mojo_probabilities_and_treeshap_match_native_h2o():
             )
         np.testing.assert_allclose(probs, native_probs, atol=1e-6)
         _assert_same_contributions(link_contribs, native_link)
-        _assert_same_contributions(output_contribs, native_link)
-        _assert_same_contribution_ranking(output_contribs, native_output)
+        link_sum = link_contribs.sum(axis=1).to_numpy(dtype=float)
+        np.testing.assert_allclose(
+            output_contribs.sum(axis=1).to_numpy(dtype=float),
+            inference._sigmoid(link_sum),
+            atol=1e-5,
+        )
+        assert output_contribs.drop(columns="BiasTerm").abs().to_numpy().max() < 1.0
     finally:
         h2o.cluster().shutdown(prompt=False)
 
@@ -449,19 +465,3 @@ def _assert_same_contributions(actual: pd.DataFrame, expected: pd.DataFrame) -> 
         expected[columns].to_numpy(dtype=float),
         atol=1e-5,
     )
-
-
-def _assert_same_contribution_ranking(
-    actual: pd.DataFrame, expected: pd.DataFrame
-) -> None:
-    shared = [
-        col for col in expected.columns if col != "BiasTerm" and col in actual.columns
-    ]
-    assert shared
-    actual_rank = (
-        actual[shared].abs().mean().sort_values(ascending=False).index.tolist()
-    )
-    expected_rank = (
-        expected[shared].abs().mean().sort_values(ascending=False).index.tolist()
-    )
-    assert actual_rank == expected_rank
