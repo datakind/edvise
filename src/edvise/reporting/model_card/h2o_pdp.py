@@ -65,10 +65,10 @@ class H2OPDPModelCard(H2OModelCard[PDPProjectConfig]):
                 "Test Support Score Histogram",
             ),
             "feature_importances_by_shap_plot": (
-                "Feature Importances",
+                "Indicator Importance",
                 "h2o_feature_importances_by_shap_plot.png",
                 "150mm",
-                "Feature Importances by SHAP on Test Data",
+                "Indicator Importance by SHAP on Test Data",
             ),
         }
 
