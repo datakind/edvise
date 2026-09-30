@@ -426,3 +426,16 @@ def test_graduation_open_window_only_for_graduation():
     assert window["as_of_term"] == "spring 2025-26"
     assert window["num_terms_in_year"] == 2
     assert graduation_open_window(credits, ["spring 2025-26"]) == {}
+    # Fall 2024, then Spring 2025, then Fall 2025.
+    assert (
+        graduation_open_window(graduation, ["spring 2024-25", "fall 2024-25"])[
+            "as_of_term"
+        ]
+        == "spring 2024-25"
+    )
+    assert (
+        graduation_open_window(graduation, ["spring 2024-25", "fall 2025-26"])[
+            "as_of_term"
+        ]
+        == "fall 2025-26"
+    )

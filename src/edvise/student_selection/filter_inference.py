@@ -4,13 +4,16 @@ import typing as t
 
 import pandas as pd
 
+from edvise.feature_generation.constants import DEFAULT_SEASON_ORDER_MAP
 from edvise.utils.data_cleaning import convert_intensity_time_limits
 from edvise.utils.types import IntensityTimeLimitsType
 
-_SEASON_ORDER = {
-    2: {"fall": 0, "spring": 1},
-    3: {"fall": 0, "winter": 1, "spring": 2},
-    4: {"fall": 0, "winter": 1, "spring": 2, "summer": 3},
+# Seasons that count in one academic year. Sequence comes from calendar year
+# plus DEFAULT_SEASON_ORDER_MAP: spring 2024-25 is Spring 2025, before Fall 2025.
+_SEASONS_FOR_TERMS = {
+    2: ("fall", "spring"),
+    3: ("fall", "winter", "spring"),
+    4: ("fall", "winter", "spring", "summer"),
 }
 
 
@@ -214,16 +217,35 @@ def exclude_training_cohort_students(
     return df_filtered
 
 
+def _calendar_year(season: str, academic_year_start: int) -> int:
+    """Fall and winter of year N open that academic year. Spring and summer close it."""
+    if season in ("fall", "winter"):
+        return academic_year_start
+    return academic_year_start + 1
+
+
+def _season_position(num_terms_in_year: int) -> dict[str, int]:
+    seasons = _SEASONS_FOR_TERMS.get(num_terms_in_year, _SEASONS_FOR_TERMS[4])
+    ordered = sorted(
+        seasons,
+        key=lambda season: (
+            _calendar_year(season, 0),
+            DEFAULT_SEASON_ORDER_MAP[season],
+        ),
+    )
+    return {season: index for index, season in enumerate(ordered)}
+
+
 def _term_index(
     seasons: pd.Series, years: pd.Series, num_terms_in_year: int
 ) -> pd.Series:
-    """Later academic terms compare greater. Unknown seasons are null."""
-    order = _SEASON_ORDER.get(num_terms_in_year, _SEASON_ORDER[4])
+    """Later terms compare greater. Unknown seasons are null."""
+    position = _season_position(num_terms_in_year)
     season_key = seasons.astype("string").str.strip().str.lower()
     year_start = pd.to_numeric(
         years.astype("string").str.strip().str.split("-").str[0], errors="coerce"
     )
-    return year_start * num_terms_in_year + season_key.map(order)
+    return year_start * num_terms_in_year + season_key.map(position)
 
 
 def _latest_term(term_list: list[str], num_terms_in_year: int) -> str:
