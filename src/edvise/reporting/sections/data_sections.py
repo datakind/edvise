@@ -59,6 +59,7 @@ def register_data_sections(card, registry):
                 artifact_path=feature_artifact_path,
             )
             df = pd.read_csv(local_path)
+            df = df.rename(columns={"Feature Name": "Indicator Name"})
 
             # Build markdown table
             headers = "| " + " | ".join(df.columns) + " |"
@@ -68,8 +69,8 @@ def register_data_sections(card, registry):
                 for row in df.values
             ]
 
-            title = f"{card.format.header_level(4)}Selected Features\n"
-            subtitle = "Full List of Selected Features Ranked by Importance"
+            title = f"{card.format.header_level(4)}Selected Indicators\n"
+            subtitle = "Full List of Selected Indicators Ranked by Importance"
 
             table_markdown = "\n".join([headers, separator] + rows)
 
@@ -79,4 +80,4 @@ def register_data_sections(card, registry):
 
         except Exception as e:
             LOGGER.warning(f"Could not load feature importance table: {str(e)}")
-            return f"{card.format.bold('Selected Features Ranked by Importance')}\n\nCould not load data."
+            return f"{card.format.bold('Selected Indicators Ranked by Importance')}\n\nCould not load data."

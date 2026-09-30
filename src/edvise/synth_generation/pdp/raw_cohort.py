@@ -1,12 +1,9 @@
 import typing as t
-from datetime import date
 
-from faker.providers import BaseProvider
-
-from ... import utils
+from edvise.synth_generation.shared import SynthFieldMixin, maybe_snake_case_keys
 
 
-class Provider(BaseProvider):
+class Provider(SynthFieldMixin):
     def raw_cohort_record(
         self,
         min_cohort_yr: int = 2010,
@@ -148,36 +145,22 @@ class Provider(BaseProvider):
                 _has_enrollment_other_inst
             ),
         }
-        if normalize_col_names:
-            record = {
-                utils.data_cleaning.convert_to_snake_case(key): val
-                for key, val in record.items()
-            }
-        return record
+        return maybe_snake_case_keys(record, normalize_col_names=normalize_col_names)
 
     def student_guid(self) -> str:
-        return self.numerify("#####!")
+        return self.synth_student_id()
 
     def institution_id(self) -> str:
-        return self.numerify("#####!")
+        return self.synth_institution_id()
 
-    # Returns a string in the format "YYYY-YY" (e.g. "2010-11"), representing a cohort year,
-    # where the first year is the start year (a random date between min_yr and max_yr,
-    # or min_yr and now if the current date if not provided). The second year is the first year + 1.
     def cohort(self, min_yr: int = 2010, max_yr: t.Optional[int] = None) -> str:
-        _end_date = date(max_yr, 1, 1) if max_yr is not None else "today"
-        start_dt: date = self.generator.date_between(
-            start_date=date(min_yr, 1, 1), end_date=_end_date
-        )
-        start_yr = start_dt.year
-        end_yr = f"{start_yr + 1}"[2:]
-        return f"{start_yr}-{end_yr}"
+        return self.synth_academic_year(min_yr=min_yr, max_yr=max_yr)
 
     def cohort_term(self) -> str:
-        return self.random_element(["FALL", "WINTER", "SPRING", "SUMMER"])
+        return self.synth_term()
 
     def student_age(self) -> str:
-        return self.random_element(["20 AND YOUNGER", ">20 - 24", "OLDER THAN 24"])
+        return self.synth_student_age()
 
     def enrollment_type(self) -> str:
         return self.random_element(["FIRST-TIME", "RE-ADMIT", "TRANSFER-IN"])
@@ -195,31 +178,19 @@ class Provider(BaseProvider):
         return self.random_element(["DE", "SE", "DS"])
 
     def race(self) -> str:
-        return self.random_element(
-            [
-                "NONRESIDENT ALIEN",
-                "AMERICAN INDIAN OR ALASKA NATIVE",
-                "ASIAN",
-                "BLACK OR AFRICAN AMERICAN",
-                "NATIVE HAWAIIAN OR OTHER PACIFIC ISLANDER",
-                "WHITE",
-                "HISPANIC",
-                "TWO OR MORE RACES",
-                "UNKNOWN",
-            ]
-        )
+        return self.synth_race()
 
     def ethnicity(self) -> str:
-        return self.random_element(["H", "N", "UK"])
+        return self.synth_ethnicity()
 
     def gender(self) -> str:
-        return self.random_element(["M", "F", "P", "X", "UK"])
+        return self.synth_gender()
 
     def first_gen(self) -> str:
         return self.random_element(["P", "C", "A", "B"])
 
     def pell_status_first_year(self) -> str:
-        return self.random_element(["Y", "N"])
+        return self.synth_pell_yn()
 
     def attendance_status_term_1(
         self,
@@ -257,11 +228,11 @@ class Provider(BaseProvider):
 
     def program_of_study_term_1(self) -> str:
         # TODO: make this six-digit CIP code more realistic
-        return self.numerify("##.####")
+        return self.synth_cip()
 
     def program_of_study_year_1(self) -> str:
         # TODO: make this six-digit CIP code more realistic
-        return self.numerify("##.####")
+        return self.synth_cip()
 
     def _gpa(self) -> float:
         return self.generator.pyfloat(  # type: ignore
@@ -277,11 +248,7 @@ class Provider(BaseProvider):
     def _number_of_credits(
         self, min_value: float = 1.0, max_value: float = 20.0
     ) -> float:
-        return self.generator.pyfloat(  # type: ignore
-            min_value=min_value,
-            max_value=max(max_value, min_value + 1e-3),
-            right_digits=1,
-        )
+        return self.synth_credits(min_value=min_value, max_value=max_value)
 
     def number_of_credits_attempted_year_1(self) -> float:
         return self._number_of_credits(min_value=1.0)
