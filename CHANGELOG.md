@@ -1,3 +1,6 @@
+## 1.16.1 (2026-09-30)
+- fix: follow DB_workspace for NSC SFTP ingestion (#358)
+
 ## 1.16.0 (2026-09-29)
 - refactor(genai): split SMA and IA pipeline entry points into orchestration modules for readability (#321)
 - refactor(genai): consolidate job_state HITL gates behind a declarative gate table (#322)
