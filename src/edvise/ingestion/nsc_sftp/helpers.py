@@ -66,10 +66,7 @@ def _ensure_sftp_staging_volume_exists(spark: pyspark.sql.SparkSession) -> None:
 
     volume_names = {_volume_name(r) for r in rows}
     if SFTP_TMP_VOLUME_NAME not in volume_names:
-        raise RuntimeError(
-            f"Required staging UC volume not found: {SFTP_TMP_VOLUME_FQN}. "
-            "Create it before running NSC ingestion."
-        )
+        spark.sql(f"CREATE VOLUME IF NOT EXISTS {SFTP_TMP_VOLUME_FQN}")
 
     if not os.path.isdir(SFTP_TMP_DIR):
         raise RuntimeError(
