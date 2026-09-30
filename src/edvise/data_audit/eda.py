@@ -343,19 +343,51 @@ def _drop_incomplete_pairs(s1: pd.Series, s2: pd.Series) -> tuple[pd.Series, pd.
     return (df["s1"], df["s2"])
 
 
+def _is_missing_token(value: object) -> bool:
+    """True when ``value`` is the literal string ``MISSING`` (any case, trimmed)."""
+    return isinstance(value, str) and value.strip().upper() == "MISSING"
+
+
+def _column_missing_ratio(series: pd.Series) -> float:
+    """Fraction of values that are pandas-null or the string ``MISSING``."""
+    if series.empty:
+        return float(series.isna().mean())
+    missing = series.isna()
+    if (
+        pd.api.types.is_object_dtype(series)
+        or pd.api.types.is_string_dtype(series)
+        or isinstance(series.dtype, pd.CategoricalDtype)
+    ):
+        token_missing = (
+            series.astype("string").str.strip().str.upper().eq("MISSING").fillna(False)
+        )
+        missing = missing | token_missing
+    return float(missing.mean())
+
+
 def log_high_null_columns(df: pd.DataFrame, threshold: float = 0.2) -> None:
-    null_ratios = df.isna().mean(axis="index").sort_values(ascending=False)
+    """Log columns whose missing rate exceeds ``threshold``.
+
+    Pandas nulls and the string ``MISSING`` both count as missing.
+    """
+    null_ratios = df.apply(_column_missing_ratio, axis="index").sort_values(
+        ascending=False
+    )
     high_nulls = null_ratios[null_ratios > threshold]
 
     if high_nulls.empty:
-        LOGGER.info(" No columns with more than %.0f%% null values.", threshold * 100)
+        LOGGER.info(
+            ' No columns with more than %.0f%% null or "MISSING" values.',
+            threshold * 100,
+        )
     else:
         LOGGER.info(
-            " Printing columns with >20% missing values to later be dropped during feature selection:"
+            ' Printing columns with >20% missing values (null or "MISSING") '
+            "to later be dropped during feature selection:"
         )
         for col, ratio in high_nulls.items():
             LOGGER.warning(
-                ' Column "%s" has %.1f%% null values. ',
+                ' Column "%s" has %.1f%% null or "MISSING" values. ',
                 col,
                 ratio * 100,
             )
@@ -1742,9 +1774,10 @@ def check_variable_missingness(
 
     For each variable in `var_list`, this function:
     - Verifies the column exists in the DataFrame.
-    - Logs the percentage distribution of all values, including NaNs.
-    - Flags variables whose percentage of missing values meets or exceeds
-      the specified null threshold.
+    - Logs the percentage distribution of all values, including NaNs and the
+      string ``MISSING``.
+    - Flags variables whose percentage of missing values (pandas null or the
+      string ``MISSING``) meets or exceeds the specified null threshold.
 
     This function is intended for exploratory data validation and bias auditing.
     It does not modify the input DataFrame and does not return any values.
@@ -1783,7 +1816,10 @@ def check_variable_missingness(
         for value, pct in pct_counts.items():
             if pd.isna(value):
                 label = "NaN"
-                null_pct = pct
+                null_pct += pct
+            elif _is_missing_token(value):
+                label = value
+                null_pct += pct
             else:
                 label = value
             LOGGER.info(f"{label}: {pct}%")
@@ -1791,7 +1827,7 @@ def check_variable_missingness(
         if null_pct >= null_threshold_pct:
             LOGGER.warning(
                 f"⚠️  NOTE: >={null_threshold_pct}% missingness in '{var}' "
-                f"({null_pct}% nulls; threshold = {null_threshold_pct}%)"
+                f'({null_pct}% null or "MISSING"; threshold = {null_threshold_pct}%)'
             )
 
 
