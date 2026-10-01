@@ -853,6 +853,80 @@ def test_print_column_pct_breakdowns_skips_missing_columns(caplog):
 
 
 # -------------------------------------------------------------------
+# log_high_null_columns / check_variable_missingness
+# -------------------------------------------------------------------
+def test_log_high_null_columns_counts_missing_strings(caplog):
+    """Null rate logs treat the string MISSING as missing, including mixed case."""
+    caplog.set_level(logging.WARNING, logger="edvise.data_audit.eda")
+
+    df = pd.DataFrame(
+        {
+            "race": ["A", "MISSING", "missing", " Missing ", "Asian"],
+            "gender": ["F", "M", "F", "M", "NA"],
+            "age": [1, None, None, None, None],
+        }
+    )
+
+    eda.log_high_null_columns(df, threshold=0.2)
+
+    messages = [r.getMessage() for r in caplog.records]
+    assert any('Column "race" has 60.0%' in msg for msg in messages)
+    assert any('Column "age" has 80.0%' in msg for msg in messages)
+    assert not any("gender" in msg for msg in messages)
+
+
+def test_log_high_null_columns_combines_nulls_and_missing_strings(caplog):
+    """Pandas nulls and MISSING strings are added into one column missing rate."""
+    caplog.set_level(logging.WARNING, logger="edvise.data_audit.eda")
+
+    df = pd.DataFrame(
+        {
+            "ethnicity": [
+                None,
+                "MISSING",
+                "MISSING",
+                "Asian",
+                "Asian",
+                "Asian",
+                "Asian",
+                "Asian",
+                "Asian",
+                "Asian",
+            ]
+        }
+    )
+
+    eda.log_high_null_columns(df, threshold=0.2)
+
+    assert any('Column "ethnicity" has 30.0%' in r.getMessage() for r in caplog.records)
+
+
+def test_check_variable_missingness_counts_missing_strings(caplog):
+    """MISSING strings count toward the missingness warning, not only pandas nulls."""
+    caplog.set_level(logging.WARNING, logger="edvise.data_audit.eda")
+
+    df = pd.DataFrame({"race": ["MISSING"] * 3 + [None] * 3 + ["Asian"] * 4})
+
+    eda.check_variable_missingness(df, ["race"], null_threshold_pct=50.0)
+
+    assert any(
+        "missingness in 'race'" in r.getMessage() and "60.0%" in r.getMessage()
+        for r in caplog.records
+    )
+
+
+def test_check_variable_missingness_does_not_count_other_sentinels(caplog):
+    """Other placeholders such as NA stay out of the missingness total."""
+    caplog.set_level(logging.WARNING, logger="edvise.data_audit.eda")
+
+    df = pd.DataFrame({"race": ["NA"] * 6 + ["Asian"] * 4})
+
+    eda.check_variable_missingness(df, ["race"], null_threshold_pct=50.0)
+
+    assert not any("missingness in 'race'" in r.getMessage() for r in caplog.records)
+
+
+# -------------------------------------------------------------------
 # warn_null_graduation_target_columns
 # -------------------------------------------------------------------
 def test_warn_null_graduation_target_columns_noop_for_non_graduation(caplog):
