@@ -246,40 +246,16 @@ def predict_h2o(
             - labels: predicted class labels
             - probs: predicted probabilities for the positive class
     """
-    # Ensure DataFrame if ndarray is given
-    if isinstance(features, np.ndarray):
-        if feature_names is None:
-            raise ValueError("feature_names must be provided when using a numpy array.")
-        features = pd.DataFrame(features, columns=feature_names)
-
-    # Preserve *_missing_flag as enums
-    missing_flags = [c for c in features.columns if c.endswith("_missing_flag")]
-    h2o_features = utils._to_h2o(features, force_enum_cols=missing_flags)
-
-    # Predict probabilities
-    preds_hf = model.predict(h2o_features)
-    pred_df = utils._to_pandas(preds_hf)
-
-    # Get probability column for the positive class
-    prob_col = utils._pick_pos_prob_column(pred_df, pos_label)
-    probs_raw = pred_df[prob_col].to_numpy(dtype=float)
-
-    # Optionally calibrate
-    if calibrator is not None:
-        try:
-            probs = calibrator.transform(probs_raw)
-        except Exception as e:
-            LOGGER.warning(
-                f"Calibrator.transform failed, using raw probabilities. Error: {e}"
-            )
-            probs = probs_raw
-    else:
-        probs = probs_raw
-
-    # Apply threshold to get binary predictions
-    preds = (probs >= float(classification_threshold)).astype(int)
-
-    return preds, probs
+    features_df = _as_feature_frame(features, feature_names)
+    missing_flags = [c for c in features_df.columns if c.endswith("_missing_flag")]
+    h2o_features = utils._to_h2o(features_df, force_enum_cols=missing_flags)
+    pred_df = utils._to_pandas(model.predict(h2o_features))
+    return _finalize_predictions(
+        pred_df,
+        pos_label=pos_label,
+        classification_threshold=classification_threshold,
+        calibrator=calibrator,
+    )
 
 
 def _as_feature_frame(
@@ -291,6 +267,43 @@ def _as_feature_frame(
             raise ValueError("feature_names must be provided when using a numpy array.")
         return pd.DataFrame(features, columns=feature_names)
     return features
+
+
+def _finalize_predictions(
+    pred_df: pd.DataFrame,
+    *,
+    pos_label: utils.PosLabelType,
+    classification_threshold: float,
+    calibrator: t.Optional[calibration.SklearnCalibratorWrapper],
+) -> tuple[np.ndarray, np.ndarray]:
+    """Select the positive-class probability, calibrate it, and apply the threshold."""
+    prob_col = utils._pick_pos_prob_column(pred_df, pos_label)
+    probs_raw = pred_df[prob_col].to_numpy(dtype=float)
+    if calibrator is not None:
+        try:
+            probs = calibrator.transform(probs_raw)
+        except Exception as e:
+            LOGGER.warning(
+                "Calibrator.transform failed, using raw probabilities. Error: %s",
+                e,
+            )
+            probs = probs_raw
+    else:
+        probs = probs_raw
+    labels = (probs >= float(classification_threshold)).astype(int)
+    return labels, probs
+
+
+def _scoring_backend(
+    model: utils.LoadedInferenceModel | H2OEstimator,
+) -> tuple[str, str] | H2OEstimator:
+    """Return MOJO artifact paths, or the H2O estimator selected for scoring."""
+    if isinstance(model, utils.LoadedInferenceModel):
+        mojo_paths = model.mojo_artifact_paths()
+        if mojo_paths is not None:
+            return mojo_paths
+        return model.h2o_model
+    return model
 
 
 def score_mojo_frame(
@@ -342,20 +355,12 @@ def predict_mojo(
         genmodel_jar_path=genmodel_jar_path,
         predict_contributions=False,
     )
-    prob_col = utils._pick_pos_prob_column(pred_df, pos_label)
-    probs_raw = pred_df[prob_col].to_numpy(dtype=float)
-    if calibrator is not None:
-        try:
-            probs = calibrator.transform(probs_raw)
-        except Exception as e:
-            LOGGER.warning(
-                "Calibrator.transform failed, using raw probabilities. Error: %s", e
-            )
-            probs = probs_raw
-    else:
-        probs = probs_raw
-    labels = (probs >= float(classification_threshold)).astype(int)
-    return labels, probs
+    return _finalize_predictions(
+        pred_df,
+        pos_label=pos_label,
+        classification_threshold=classification_threshold,
+        calibrator=calibrator,
+    )
 
 
 def _sigmoid(values: np.ndarray) -> np.ndarray:
@@ -463,24 +468,21 @@ def predict_loaded_model(
     calibrator: t.Optional[calibration.SklearnCalibratorWrapper] = None,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Score with MOJO or the loaded H2O model, whichever ``model`` selected."""
-    if isinstance(model, utils.LoadedInferenceModel) and model.uses_mojo:
-        if model.mojo_zip_path is None or model.genmodel_jar_path is None:
-            raise ValueError("MOJO backend is missing model.zip or h2o-genmodel.jar.")
+    backend = _scoring_backend(model)
+    if isinstance(backend, tuple):
+        mojo_zip_path, genmodel_jar_path = backend
         return predict_mojo(
             features,
-            mojo_zip_path=model.mojo_zip_path,
-            genmodel_jar_path=model.genmodel_jar_path,
+            mojo_zip_path=mojo_zip_path,
+            genmodel_jar_path=genmodel_jar_path,
             pos_label=pos_label,
             feature_names=feature_names,
             classification_threshold=classification_threshold,
             calibrator=calibrator,
         )
-    h2o_model = (
-        model.h2o_model if isinstance(model, utils.LoadedInferenceModel) else model
-    )
     return predict_h2o(
         features=features,
-        model=h2o_model,
+        model=backend,
         pos_label=pos_label,
         feature_names=feature_names,
         classification_threshold=classification_threshold,
@@ -500,25 +502,22 @@ def contributions_for_loaded_model(
     Tree MOJOs ignore ``background_df`` and return TreeSHAP. GLM and other
     cluster models keep background-frame contributions.
     """
-    if isinstance(model, utils.LoadedInferenceModel) and model.uses_mojo:
-        if model.mojo_zip_path is None or model.genmodel_jar_path is None:
-            raise ValueError("MOJO backend is missing model.zip or h2o-genmodel.jar.")
+    backend = _scoring_backend(model)
+    if isinstance(backend, tuple):
+        mojo_zip_path, genmodel_jar_path = backend
         LOGGER.info("MOJO TreeSHAP does not use the training background sample.")
         contribs = compute_mojo_contributions(
             features_df,
-            mojo_zip_path=model.mojo_zip_path,
-            genmodel_jar_path=model.genmodel_jar_path,
+            mojo_zip_path=mojo_zip_path,
+            genmodel_jar_path=genmodel_jar_path,
             pos_label=pos_label,
         )
         if not isinstance(contribs, pd.DataFrame):
             raise TypeError("Expected a contribution DataFrame from MOJO scoring.")
         return contribs
 
-    h2o_model = (
-        model.h2o_model if isinstance(model, utils.LoadedInferenceModel) else model
-    )
     contribs = compute_h2o_shap_contributions(
-        model=h2o_model,
+        model=backend,
         df=features_df,
         background_data=background_df,
     )

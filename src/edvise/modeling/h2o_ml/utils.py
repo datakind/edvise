@@ -44,7 +44,6 @@ PosLabelType = t.Union[bool, str]
 # Tree MOJOs can score probabilities and TreeSHAP without an H2O cluster.
 # GLM contributions and Stacked Ensemble DeepSHAP stay on the cluster.
 MOJO_INFERENCE_ALGOS = frozenset({"gbm", "drf", "xgboost", "xrt"})
-CLUSTER_INFERENCE_ALGOS = frozenset({"glm", "stackedensemble"})
 
 MOJO_FILENAME = "model.zip"
 GENMODEL_JAR_FILENAME = "h2o-genmodel.jar"
@@ -286,6 +285,14 @@ class LoadedInferenceModel:
     @property
     def uses_mojo(self) -> bool:
         return self.backend == "mojo"
+
+    def mojo_artifact_paths(self) -> tuple[str, str] | None:
+        """Return ``(model.zip, h2o-genmodel.jar)``, or None for cluster scoring."""
+        if not self.uses_mojo:
+            return None
+        if self.mojo_zip_path is None or self.genmodel_jar_path is None:
+            raise ValueError("MOJO backend is missing model.zip or h2o-genmodel.jar.")
+        return self.mojo_zip_path, self.genmodel_jar_path
 
 
 def load_inference_model(
