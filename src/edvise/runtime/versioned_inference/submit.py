@@ -210,9 +210,9 @@ def propagate_union_libraries_for_submit(
     """
     Attach the union of all task ``libraries`` to every task.
 
-    Deployed multi-task jobs reuse ``job_cluster_key`` clusters, so later tasks inherit
-    PyPI installs from earlier ones. ``runs/submit`` with per-task ``new_cluster`` does not;
-    propagating the union avoids ``ModuleNotFoundError`` on tasks like ``output_publish``.
+    A shared job cluster installs libraries as tasks run. Putting the union on every
+    task installs the full set with the first task, so a later task such as
+    ``output_publish`` does not hit ``ModuleNotFoundError``.
     """
     union: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -263,24 +263,34 @@ def _task_requires_compute(task: dict[str, Any]) -> bool:
     return True
 
 
-def inline_job_clusters_for_submit(
+def attach_shared_job_clusters_for_submit(
     tasks: list[Any],
     job_clusters: list[Any],
     *,
     logger: logging.Logger = LOGGER,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """
-    ``runs/submit`` does not support shared ``job_clusters``; attach ``new_cluster`` per task.
+    Keep one ``job_clusters`` entry per child run and point tasks at it.
 
-    DAB-deployed jobs use ``job_cluster_key`` + ``job_clusters``; submit requires inline clusters.
-    Condition / run_job tasks are passed through without compute.
+    ``runs/submit`` accepts top-level ``job_clusters`` with ``job_cluster_key`` on
+    tasks, so the tasks share one cluster and one library install. Condition and
+    ``run_job`` tasks are passed through without compute.
     """
     cluster_map = _job_cluster_map(job_clusters)
     if not cluster_map:
         msg = "No job_clusters definitions found for runs/submit"
         raise ValueError(msg)
 
+    by_key: dict[str, dict[str, Any]] = {}
+    for raw in job_clusters:
+        if not isinstance(raw, dict):
+            continue
+        key = raw.get("job_cluster_key")
+        if isinstance(key, str) and key.strip() and key.strip() not in by_key:
+            by_key[key.strip()] = copy.deepcopy(raw)
+
     submit_tasks: list[dict[str, Any]] = []
+    referenced: list[str] = []
     for raw in tasks:
         if not isinstance(raw, dict):
             continue
@@ -290,27 +300,35 @@ def inline_job_clusters_for_submit(
             task.pop("libraries", None)
             submit_tasks.append(task)
             continue
-        key = task.pop("job_cluster_key", None)
+        key = task.get("job_cluster_key")
         if isinstance(key, str) and key.strip():
             cluster_key = key.strip()
             if cluster_key not in cluster_map:
-                msg = f"Task {task.get('task_key')!r} references unknown job_cluster_key={cluster_key!r}"
+                msg = (
+                    f"Task {task.get('task_key')!r} references unknown "
+                    f"job_cluster_key={cluster_key!r}"
+                )
                 raise ValueError(msg)
-            task["new_cluster"] = copy.deepcopy(cluster_map[cluster_key])
+            task["job_cluster_key"] = cluster_key
+            task.pop("new_cluster", None)
+            if cluster_key not in referenced:
+                referenced.append(cluster_key)
         elif "new_cluster" not in task:
             msg = f"Task {task.get('task_key')!r} has no job_cluster_key or new_cluster"
             raise ValueError(msg)
         submit_tasks.append(task)
 
     if not submit_tasks:
-        msg = "No tasks after inlining job clusters for runs/submit"
+        msg = "No tasks after attaching shared job clusters for runs/submit"
         raise ValueError(msg)
+
+    shared = [by_key[key] for key in referenced if key in by_key]
     logger.info(
-        "Inlined %s job cluster(s) onto %s submit task(s) (runs/submit API)",
-        len(cluster_map),
+        "Sharing %s job cluster(s) across %s submit task(s)",
+        len(shared),
         len(submit_tasks),
     )
-    return submit_tasks
+    return submit_tasks, shared
 
 
 def build_submit_access_control_list(
@@ -605,13 +623,17 @@ def build_submit_run_body(
     submit_tasks = propagate_union_libraries_for_submit(
         [t for t in cleaned_tasks if isinstance(t, dict)]
     )
-    submit_tasks = inline_job_clusters_for_submit(submit_tasks, cleaned_clusters)
+    submit_tasks, shared_clusters = attach_shared_job_clusters_for_submit(
+        submit_tasks, cleaned_clusters
+    )
 
     body: dict[str, Any] = {
         "run_name": run_name,
         "git_source": build_git_source(git_url, pipeline_version),
         "tasks": submit_tasks,
     }
+    if shared_clusters:
+        body["job_clusters"] = shared_clusters
     if parameters:
         body["parameters"] = parameters
 
