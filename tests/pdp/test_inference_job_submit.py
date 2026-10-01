@@ -23,6 +23,7 @@ from edvise.runtime.versioned_inference.submit import (
     propagate_union_libraries_for_submit,
     render_job_parameter_refs,
     resolve_job_parameter_specs,
+    submit_inference_run,
     submit_versioned_inference_from_bundle,
     wait_for_inference_run,
 )
@@ -237,6 +238,85 @@ def test_build_submit_run_body_full_inference_job() -> None:
     }
     assert "pandera" in publish_pkgs
     assert "pydantic" in publish_pkgs
+
+
+def test_single_task_submit_inlines_new_cluster() -> None:
+    from unittest.mock import MagicMock
+
+    client = MagicMock()
+    calls: list[tuple[str, object]] = []
+
+    def do(method: str, path: str, body: dict | None = None, **kwargs: object) -> dict:
+        calls.append((path, body))
+        return {"run_id": 9}
+
+    client.api_client.do.side_effect = do
+    body = {
+        "run_name": "one",
+        "tasks": [{"task_key": "data_ingestion", "job_cluster_key": "c"}],
+        "job_clusters": [
+            {"job_cluster_key": "c", "new_cluster": {"spark_version": "15.4.x"}}
+        ],
+        "git_source": {
+            "git_url": "https://github.com/datakind/edvise",
+            "git_commit": "abc",
+        },
+    }
+    assert submit_inference_run(body, workspace_client=client) == 9
+    path, sent = calls[0]
+    assert path == "/api/2.1/jobs/runs/submit"
+    assert isinstance(sent, dict)
+    assert "job_clusters" not in sent
+    assert sent["tasks"][0]["new_cluster"]["spark_version"] == "15.4.x"
+    assert "job_cluster_key" not in sent["tasks"][0]
+
+
+def test_multi_task_submit_creates_ephemeral_shared_cluster_job() -> None:
+    from unittest.mock import MagicMock
+
+    client = MagicMock()
+    calls: list[tuple[str, object]] = []
+
+    def do(method: str, path: str, body: dict | None = None, **kwargs: object) -> dict:
+        calls.append((path, body))
+        if path == "/api/2.1/jobs/create":
+            return {"job_id": 44}
+        if path == "/api/2.1/jobs/run-now":
+            return {"run_id": 55}
+        if path.startswith("/api/2.0/permissions/jobs/"):
+            return {}
+        msg = path
+        raise AssertionError(msg)
+
+    client.api_client.do.side_effect = do
+    body = {
+        "run_name": "shared",
+        "tasks": [
+            {"task_key": "data_audit", "job_cluster_key": "c"},
+            {"task_key": "feature_generation", "job_cluster_key": "c"},
+        ],
+        "job_clusters": [
+            {"job_cluster_key": "c", "new_cluster": {"spark_version": "15.4.x"}}
+        ],
+        "git_source": {
+            "git_url": "https://github.com/datakind/edvise",
+            "git_commit": "abc",
+        },
+        "access_control_list": [
+            {"group_name": "edvise-admins", "permission_level": "CAN_MANAGE_RUN"}
+        ],
+    }
+    assert submit_inference_run(body, workspace_client=client) == 55
+    paths = [path for path, _payload in calls]
+    assert paths[0] == "/api/2.1/jobs/create"
+    assert "/api/2.1/jobs/runs/submit" not in paths
+    created = calls[0][1]
+    assert isinstance(created, dict)
+    assert created["name"] == "shared"
+    assert created["job_clusters"][0]["job_cluster_key"] == "c"
+    assert "access_control_list" not in created
+    assert calls[1][0] == "/api/2.0/permissions/jobs/44"
+    assert calls[2] == ("/api/2.1/jobs/run-now", {"job_id": 44})
 
 
 def test_propagate_union_libraries_for_submit() -> None:
