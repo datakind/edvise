@@ -216,7 +216,32 @@ def get_h2o_used_features(model: H2OEstimator) -> t.List[str]:
     """
     Extracts the actual feature names used by the H2O model (excluding dropped/constant columns).
     """
-    return utils.predictor_names_from_h2o_model(model)
+    out = model._model_json["output"]
+    params = model.actual_params
+
+    names = list(out["names"])
+
+    # Figure out the response/target name
+    response = (
+        (out.get("response_column") or {}).get("name")
+        or params.get("response_column")
+        or params.get("y")
+    )
+
+    # Collect special (non-predictor) columns to drop
+    non_predictors = set()
+    if response:
+        non_predictors.add(response)
+
+    for k in ("weights_column", "offset_column", "fold_column"):
+        v = params.get(k)
+        if isinstance(v, dict):
+            v = v.get("column_name")
+        if v:
+            non_predictors.add(v)
+
+    # Keep only real predictors
+    return [c for c in names if c not in non_predictors]
 
 
 def predict_h2o(
@@ -244,52 +269,40 @@ def predict_h2o(
             - labels: predicted class labels
             - probs: predicted probabilities for the positive class
     """
-    features_df = _as_feature_frame(features, feature_names)
-    missing_flags = [c for c in features_df.columns if c.endswith("_missing_flag")]
-    h2o_features = utils._to_h2o(features_df, force_enum_cols=missing_flags)
-    pred_df = utils._to_pandas(model.predict(h2o_features))
-    return _finalize_predictions(
-        pred_df,
-        pos_label=pos_label,
-        classification_threshold=classification_threshold,
-        calibrator=calibrator,
-    )
-
-
-def _as_feature_frame(
-    features: pd.DataFrame | np.ndarray,
-    feature_names: t.Optional[list[str]],
-) -> pd.DataFrame:
+    # Ensure DataFrame if ndarray is given
     if isinstance(features, np.ndarray):
         if feature_names is None:
             raise ValueError("feature_names must be provided when using a numpy array.")
-        return pd.DataFrame(features, columns=feature_names)
-    return features
+        features = pd.DataFrame(features, columns=feature_names)
 
+    # Preserve *_missing_flag as enums
+    missing_flags = [c for c in features.columns if c.endswith("_missing_flag")]
+    h2o_features = utils._to_h2o(features, force_enum_cols=missing_flags)
 
-def _finalize_predictions(
-    pred_df: pd.DataFrame,
-    *,
-    pos_label: utils.PosLabelType,
-    classification_threshold: float,
-    calibrator: t.Optional[calibration.SklearnCalibratorWrapper],
-) -> tuple[np.ndarray, np.ndarray]:
-    """Select the positive-class probability, calibrate it, and apply the threshold."""
+    # Predict probabilities
+    preds_hf = model.predict(h2o_features)
+    pred_df = utils._to_pandas(preds_hf)
+
+    # Get probability column for the positive class
     prob_col = utils._pick_pos_prob_column(pred_df, pos_label)
     probs_raw = pred_df[prob_col].to_numpy(dtype=float)
+
+    # Optionally calibrate
     if calibrator is not None:
         try:
             probs = calibrator.transform(probs_raw)
         except Exception as e:
             LOGGER.warning(
-                "Calibrator.transform failed, using raw probabilities. Error: %s",
-                e,
+                f"Calibrator.transform failed, using raw probabilities. Error: {e}"
             )
             probs = probs_raw
     else:
         probs = probs_raw
-    labels = (probs >= float(classification_threshold)).astype(int)
-    return labels, probs
+
+    # Apply threshold to get binary predictions
+    preds = (probs >= float(classification_threshold)).astype(int)
+
+    return preds, probs
 
 
 def predict_contribs_batched(

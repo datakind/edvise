@@ -1,5 +1,4 @@
 import yaml
-import json
 import logging
 import typing as t
 
@@ -46,7 +45,6 @@ MOJO_EXPORT_ALGOS = frozenset({"gbm", "drf", "xgboost", "xrt"})
 
 MOJO_FILENAME = "model.zip"
 GENMODEL_JAR_FILENAME = "h2o-genmodel.jar"
-USED_FEATURES_FILENAME = "used_features.json"
 
 
 def safe_h2o_init(base_port: int = 54321, mem_per_cluster: str = "4G") -> None:
@@ -125,37 +123,6 @@ def load_h2o_model(
                 f"Expected model.h2o not found at {local_model_file}"
             )
         return h2o.load_model(local_model_file)
-
-
-def predictor_names_from_h2o_model(model: t.Any) -> list[str]:
-    """Predictor columns stored on a loaded H2O model, excluding non-predictors."""
-    model_json = getattr(model, "_model_json", None)
-    if not isinstance(model_json, dict):
-        raise TypeError("H2O model is missing _model_json output metadata")
-    out = model_json["output"]
-    params = getattr(model, "actual_params", None) or {}
-
-    names = list(out["names"])
-    response = (out.get("response_column") or {}).get("name") or params.get(
-        "response_column"
-    )
-    if response is None:
-        response = params.get("y")
-
-    non_predictors: set[str] = set()
-    if response:
-        non_predictors.add(response)
-    for key in ("weights_column", "offset_column", "fold_column"):
-        value = params.get(key)
-        if isinstance(value, dict):
-            value = value.get("column_name")
-        if value:
-            non_predictors.add(value)
-    return [col for col in names if col not in non_predictors]
-
-
-def _is_file(path: object) -> bool:
-    return isinstance(path, (str, os.PathLike)) and os.path.isfile(path)
 
 
 def _pick_pos_prob_column(preds, pos_label):
@@ -825,17 +792,6 @@ def log_h2o_model_metadata_for_uc(
         if genmodel_jar_path:
             mlflow.log_artifact(genmodel_jar_path, artifact_path=artifact_path)
 
-        try:
-            feature_names = predictor_names_from_h2o_model(h2o_model)
-        except Exception as e:
-            feature_names = []
-            LOGGER.warning("Could not read predictor names for the MOJO: %s", e)
-        if feature_names and all(isinstance(name, str) for name in feature_names):
-            mlflow.log_text(
-                json.dumps({"features": feature_names}),
-                artifact_file=f"{artifact_path}/{USED_FEATURES_FILENAME}",
-            )
-
         # 3) Build MLmodel metadata
         mlmodel = Model(artifact_path=artifact_path, flavors={})
         mlmodel.add_flavor(
@@ -889,12 +845,6 @@ def log_model_metadata_to_mlflow(
 
     # 1) model_id as a single param
     mlflow.log_param("model_id", model_id)
-    algo = getattr(model, "algo", None)
-    if isinstance(algo, str) and algo:
-        try:
-            mlflow.log_param("algo", algo)
-        except Exception as e:
-            LOGGER.warning("Failed to log algo for model %s: %s", model_id, e)
 
     # 2) Hyperparameters in one batch
     try:
@@ -1139,7 +1089,7 @@ def _try_export_mojo(
     algo = getattr(h2o_model, "algo", "?")
     try:
         mojo_path = h2o_model.download_mojo(path=tmpdir, get_genmodel_jar=True)
-        if not _is_file(mojo_path):
+        if not mojo_path or not os.path.isfile(str(mojo_path)):
             LOGGER.warning("download_mojo returned no path for algo=%s", algo)
             return None, None
         if os.path.abspath(str(mojo_path)) != os.path.abspath(final_mojo_path):
