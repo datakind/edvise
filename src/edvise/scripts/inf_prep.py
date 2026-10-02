@@ -25,6 +25,7 @@ from edvise.dataio.read import read_parquet, read_config
 from edvise.student_selection.filter_inference import (
     exclude_training_cohort_students,
     filter_inference_term,
+    graduation_open_window,
     parse_term_filter_param,
 )
 from edvise.dataio.write import write_parquet
@@ -194,6 +195,7 @@ class InferencePrepTask:
                     training_cohorts=training_cohorts,
                     cohort_term_column=ct,
                     cohort_column=cy,
+                    **graduation_open_window(self.cfg.preprocessing, inf_terms),
                 )
             else:
                 LOGGER.warning(
