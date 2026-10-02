@@ -199,7 +199,9 @@ def test_plan_es_full_submit_strips_clusterless_tasks(tmp_path: Path) -> None:
     assert "genai_mapping_execute" not in keys
     assert plan.es_full_body["git_source"]["git_commit"] == _ES_SHA
     # ES-full keeps task-value refs inside one run (Databricks resolves them).
-    assert all("new_cluster" in t for t in plan.es_full_body["tasks"])
+    assert len(plan.es_full_body["job_clusters"]) == 1
+    cluster_key = plan.es_full_body["job_clusters"][0]["job_cluster_key"]
+    assert all(t["job_cluster_key"] == cluster_key for t in plan.es_full_body["tasks"])
 
 
 @pytest.mark.skipif(

@@ -1,3 +1,16 @@
+## 1.16.1 (2026-09-30)
+- fix: follow DB_workspace for NSC SFTP ingestion (#358)
+
+## 1.16.0 (2026-09-29)
+- refactor(genai): split SMA and IA pipeline entry points into orchestration modules for readability (#321)
+- refactor(genai): consolidate job_state HITL gates behind a declarative gate table (#322)
+- fix: resolve ES and GenAI batch files by tokens & consolidate batch dataset paths module  (#348)
+- refactor: use shared matcher for legacy filenames (#349)
+- fix: rename feature to indicator terminology in model cards (#355)
+- ci(es): add Edvise schema Faker providers with shared synth helpers (#356)
+- feat: prefer closest filename match & account for fuzzy matches (#359)
+- feat(genai): set up new staging SA for genai pin_reference job (#360)
+
 ## 1.15.0 (2026-09-23)
 - fix(genai): skip HITL for datetime parse and all-null SMA 2a sources (#334)
 - ci(release-automation): sync develop via throwaway branch and block overlapping releases (#339)
