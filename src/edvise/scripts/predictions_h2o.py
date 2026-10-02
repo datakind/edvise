@@ -23,6 +23,7 @@ print("Repo root:", repo_root)
 print("src_path:", src_path)
 print("sys.path:", sys.path)
 
+import h2o
 from h2o.estimators.estimator_base import H2OEstimator
 
 from edvise import modeling, dataio
@@ -82,20 +83,12 @@ def load_features_table(path: str | None) -> pd.DataFrame | None:
 
 def load_model_and_features(
     run_id: str,
-) -> t.Tuple[h2o_utils.LoadedInferenceModel, t.List[str]]:
-    """Load a MOJO for tree models, or start H2O for GLM and older runs."""
-    model = h2o_utils.load_inference_model(run_id)
-    if not model.feature_names:
+) -> t.Tuple[h2o.model.model_base.ModelBase, t.List[str]]:
+    model = h2o_utils.load_h2o_model(run_id)
+    feat_names = modeling.h2o_ml.inference.get_h2o_used_features(model)
+    if not feat_names:
         raise ValueError("Model reports zero used features.")
-    if model.uses_mojo:
-        logging.info(
-            "Inference read MOJO file %s with genmodel jar %s.",
-            model.mojo_zip_path,
-            model.genmodel_jar_path,
-        )
-    else:
-        logging.info("Inference is scoring with the H2O cluster (algo=%s).", model.algo)
-    return model, model.feature_names
+    return model, feat_names
 
 
 def _split_modeling_df(
@@ -162,15 +155,15 @@ def align_features(
 
 def predict_probs(
     features_df: pd.DataFrame,
-    model: h2o_utils.LoadedInferenceModel | H2OEstimator,
+    model: H2OEstimator,
     feature_names: list[str],
     pos_label: str,
     calibrator: t.Optional[modeling.h2o_ml.calibration.SklearnCalibratorWrapper] = None,
     classification_threshold: float = 0.5,
 ) -> t.Tuple[np.ndarray, np.ndarray]:
-    labels, probs = modeling.h2o_ml.inference.predict_loaded_model(
-        features_df,
-        model,
+    labels, probs = modeling.h2o_ml.inference.predict_h2o(
+        features=features_df,
+        model=model,
         feature_names=feature_names,
         pos_label=pos_label,
         calibrator=calibrator,
@@ -180,16 +173,10 @@ def predict_probs(
 
 
 def compute_shap(
-    model: h2o_utils.LoadedInferenceModel | H2OEstimator,
-    features_df: pd.DataFrame,
-    background_df: pd.DataFrame,
-    pos_label: str | bool = True,
-) -> pd.DataFrame:
-    return modeling.h2o_ml.inference.contributions_for_loaded_model(
-        model,
-        features_df,
-        background_df,
-        pos_label=pos_label,
+    model: H2OEstimator, features_df: pd.DataFrame, background_df: pd.DataFrame
+) -> t.Tuple[pd.DataFrame, t.Optional[pd.DataFrame]]:
+    return modeling.h2o_ml.inference.compute_h2o_shap_contributions(
+        model=model, df=features_df, background_data=background_df
     )
 
 
@@ -352,7 +339,7 @@ def run_predictions(
     )
     df_bd = imp.transform(df_bd_raw).loc[:, model_feature_names].copy()
 
-    contribs_df = compute_shap(model, features_df, df_bd, pos_label=pred_cfg.pos_label)
+    contribs_df = compute_shap(model, features_df, df_bd)
     grouped_contribs_df, grouped_features = group_shap_and_features(
         contribs_df, features_df
     )
