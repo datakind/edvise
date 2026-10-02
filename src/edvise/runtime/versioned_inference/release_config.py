@@ -24,3 +24,21 @@ def resolve_release_base_path(db_workspace: str, explicit: str | None = None) ->
     if explicit is not None and str(explicit).strip():
         return str(explicit).strip()
     return default_release_base_path(db_workspace)
+
+
+def default_es_release_base_path(db_workspace: str) -> str:
+    """
+    UC volume base for ES versioned inference snapshots.
+
+    Layout: ``<edvise_releases>/es/{pipeline_version}/`` with optional
+    ``genai/`` under that version directory. PDP continues to use
+    :func:`default_release_base_path` (no ``/es`` segment).
+    """
+    return f"{default_release_base_path(db_workspace).rstrip('/')}/es"
+
+
+def resolve_es_release_base_path(db_workspace: str, explicit: str | None = None) -> str:
+    """Prefer an explicit job parameter; otherwise ``…/edvise_releases/es``."""
+    if explicit is not None and str(explicit).strip():
+        return str(explicit).strip()
+    return default_es_release_base_path(db_workspace)

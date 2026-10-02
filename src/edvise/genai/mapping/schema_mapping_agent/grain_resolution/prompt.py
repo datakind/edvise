@@ -263,6 +263,7 @@ def propose_dedup_policy(
     ia_source_keys: list[str] | None,
     variance: WithinGroupVarianceResult,
     mapped_source_columns: list[str],
+    catalog: str,
 ) -> list[DedupProposalLLM]:
     """Gateway LLM (default model + max_tokens from ``databricks_ai_gateway``) returning two proposals.
 
@@ -346,7 +347,7 @@ def propose_dedup_policy(
 
     client = create_openai_client_for_databricks_gateway()
     complete = make_databricks_gateway_llm_complete(
-        client, model=resolve_grain_resolution_gateway_model_id()
+        client, model=resolve_grain_resolution_gateway_model_id(catalog)
     )
     validated = llm_complete_with_parse_retry(
         complete,

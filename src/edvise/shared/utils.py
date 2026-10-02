@@ -25,7 +25,7 @@ def cohort_pair_columns(df: pd.DataFrame) -> tuple[str, str] | None:
 
 def feature_cleanup_for_schema(schema_type: str) -> "BaseCleanup":
     """Return PDP or Edvise ES feature cleanup for the given ``--schema_type``."""
-    from edvise.configs.schema_type import is_edvise_schema
+    from edvise.shared.schema_type import is_edvise_schema
     from edvise.model_prep import cleanup_features as cleanup
 
     return (

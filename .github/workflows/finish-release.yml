@@ -61,13 +61,13 @@ jobs:
             --base main \
             --head "$BR" \
             --title "chore: release $VER" \
-            --body $'## Release '"$VER"$'\n\nThis PR merges `'"$BR"$'` into `main`.\n\n- [x] Release branch CI passed\n- [ ] Merge to create tag `v'"$VER"$'` and open back-merge PR `main -> develop`')
+            --body $'## Release '"$VER"$'\n\nThis PR merges `'"$BR"$'` into `main`.\n\n- [x] Release branch CI passed\n- [ ] Merge to create tag `v'"$VER"$'` and open back-merge PR `sync/'"$VER"$' -> develop`')
 
           echo "## Opened release PR" >> $GITHUB_STEP_SUMMARY
           echo "$url" >> $GITHUB_STEP_SUMMARY
 
   tag-and-open-backmerge-pr:
-    name: Tag release + open PR main -> develop
+    name: Tag release + open PR sync -> develop
     if: >
       github.event_name == 'pull_request' &&
       github.event.pull_request.merged == true &&
@@ -129,24 +129,34 @@ jobs:
           echo "## Deploy" >> $GITHUB_STEP_SUMMARY
           echo "- Dispatched release-deploy.yml @ ${TAG}" >> $GITHUB_STEP_SUMMARY
 
-      - name: Open PR main -> develop (if missing)
+      - name: Open PR sync/* -> develop (if missing)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           VER="${{ steps.meta.outputs.version }}"
+          SYNC="sync/${VER}"
 
-          existing=$(gh pr list --head main --base develop --state open --json number --jq '.[0].number')
+          existing=$(gh pr list --base develop --state open --json number,title,headRefName \
+            | jq -r --arg ver "$VER" --arg sync "$SYNC" \
+            '[.[] | select(
+              (.title == ("chore: sync develop with release " + $ver))
+              or (.headRefName == $sync)
+              or (.headRefName == "main")
+            ) | .number] | first // empty')
           if [ -n "${existing:-}" ]; then
             echo "Back-merge PR already exists: #$existing"
             exit 0
           fi
 
+          # Throwaway head so "Update branch" cannot write develop onto main.
+          git push origin "HEAD:refs/heads/${SYNC}"
+
           url=$(gh pr create \
             --base develop \
-            --head main \
+            --head "$SYNC" \
             --title "chore: sync develop with release $VER" \
-            --body $'## Sync develop after release '"$VER"$'\n\nThis PR merges `main` back into `develop` after tagging `v'"$VER"$'`.\n\n- [x] Release merged to main\n- [x] Tag pushed (deploy should be running)\n- [ ] Merge to keep develop in sync')
+            --body $'## Sync develop after release '"$VER"$'\n\nThis PR merges `'"$SYNC"$'` (current `main`) into `develop` after tagging `v'"$VER"$'`.\n\n`develop` may keep moving. GitHub Update branch on this PR updates `'"$SYNC"$'` only, not `main`.\n\n- [x] Release merged to main\n- [x] Tag pushed (deploy should be running)\n- [ ] Merge to keep develop in sync\n- [ ] Start Release is blocked until this PR is merged or closed')
 
           echo "## Back-merge PR" >> $GITHUB_STEP_SUMMARY
           echo "$url" >> $GITHUB_STEP_SUMMARY
@@ -157,8 +167,8 @@ jobs:
       github.event_name == 'pull_request' &&
       github.event.pull_request.merged == true &&
       github.event.pull_request.base.ref == 'develop' &&
-      github.event.pull_request.head.ref == 'main' &&
-      startsWith(github.event.pull_request.title, 'chore: sync develop with release ')
+      startsWith(github.event.pull_request.title, 'chore: sync develop with release ') &&
+      (startsWith(github.event.pull_request.head.ref, 'sync/') || github.event.pull_request.head.ref == 'main')
     runs-on: ubuntu-latest
     steps:
       - name: Extract version from PR title
@@ -173,18 +183,18 @@ jobs:
           fi
           echo "version=$VER" >> $GITHUB_OUTPUT
 
-      - name: Delete release branch (ignore failures)
+      - name: Delete release and sync branches (ignore failures)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          BR="release/${{ steps.meta.outputs.version }}"
-          echo "Attempting to delete $BR"
-
-          # Best-effort: may fail due to permissions / protections.
-          gh api -X DELETE "repos/${{ github.repository }}/git/refs/heads/${BR}" && \
-            echo "✓ Deleted ${BR}" || \
-            echo "Could not delete ${BR} (permissions/protection)."
+          VER="${{ steps.meta.outputs.version }}"
+          for BR in "release/${VER}" "sync/${VER}"; do
+            echo "Attempting to delete $BR"
+            gh api -X DELETE "repos/${{ github.repository }}/git/refs/heads/${BR}" && \
+              echo "✓ Deleted ${BR}" || \
+              echo "Could not delete ${BR} (permissions/protection)."
+          done
 
           echo "## Cleanup" >> $GITHUB_STEP_SUMMARY
-          echo "- Attempted delete: ${BR}" >> $GITHUB_STEP_SUMMARY
+          echo "- Attempted delete: release/${VER}, sync/${VER}" >> $GITHUB_STEP_SUMMARY

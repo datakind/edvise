@@ -245,6 +245,13 @@ def test_clean_dataset_dedupe_fn_and_pk_dedupe():
     assert out.sort_values("id")["x"].tolist() == [11, 20]
 
 
+def test_clean_dataset_raises_when_output_is_empty():
+    df = pd.DataFrame({"id": [1, 2], "a": [pd.NA, pd.NA]})
+    spec = CleanSpec(non_null_columns=["a"], unique_keys=["id"])
+    with pytest.raises(ValueError, match="produced 0 rows"):
+        clean_dataset(df, spec, dataset_name="student")
+
+
 def test_clean_dataset_raises_when_primary_key_not_unique_after_cleaning():
     df = pd.DataFrame({"id": [1, 1], "x": [10, 11]})
     spec = CleanSpec(unique_keys=["id"])
@@ -452,6 +459,18 @@ def test_generate_column_training_dtype_calendar_year_strings_stay_int64():
     assert str(out.dtype) == "Int64"
     assert int(out.iloc[0]) == 2021
     assert int(out.iloc[-1]) == 2025
+
+
+def test_generate_column_training_dtype_term_codes_above_year_range_stay_int64():
+    """Banner term codes (2187, 2257) must not be datetime-parsed into '2187-01-01'."""
+    opts = DtypeGenerationOptions()
+    s = pd.Series(
+        ["2187", "2191", "2211", "2254", "2257"] * 500,
+        name="entry_term",
+    )
+    out = generate_column_training_dtype(s, opts)
+    assert str(out.dtype) == "Int64"
+    assert sorted(out.unique().tolist()) == [2187, 2191, 2211, 2254, 2257]
 
 
 def test_generate_training_dtypes_calendar_year_column():

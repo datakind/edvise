@@ -606,7 +606,8 @@ def validate_term_year_semantics_resolved(
         raise HITLValidationError(
             "term_config for dataset(s) "
             f"{{{miss}}} uses a coded year prefix (YYYY+suffix, YYYY-NN / YYYYPP period "
-            "codes, or split year + period-code columns) but year_semantics is unset. "
+            "codes, two-digit season+year tokens such as FA19, opaque numeric terms, "
+            "or split year + period-code columns) but year_semantics is unset. "
             "Emit a separate terminal HITL item (reentry='terminal') with "
             "calendar_literal vs academic_year_prefix — independent of hook generation."
         )

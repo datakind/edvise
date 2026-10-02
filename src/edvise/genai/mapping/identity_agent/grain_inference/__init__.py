@@ -11,7 +11,6 @@ from . import deduplication
 from edvise.genai.mapping.shared.databricks_ai_gateway import (
     DEFAULT_GATEWAY_CLAUDE_HAIKU_MODEL_ID,
     DEFAULT_GATEWAY_CLAUDE_SONNET_MODEL_ID,
-    build_mlflow_ai_gateway_base_url,
     create_openai_client_for_databricks_gateway,
     make_databricks_gateway_llm_complete,
     require_databricks_token,
@@ -70,7 +69,6 @@ from .schemas import (
 __all__ = [
     "DEFAULT_GATEWAY_CLAUDE_HAIKU_MODEL_ID",
     "DEFAULT_GATEWAY_CLAUDE_SONNET_MODEL_ID",
-    "build_mlflow_ai_gateway_base_url",
     "PIPELINE_HITL_CONFIDENCE_THRESHOLD",
     "IdentityProfilingDatasetResult",
     "identity_profiling_run_to_jsonable",

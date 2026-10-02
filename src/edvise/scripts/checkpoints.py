@@ -4,7 +4,7 @@ Checkpoint dispatch uses ``isinstance`` against checkpoint classes from both
 :class:`~edvise.configs.pdp` and :class:`~edvise.configs.es` so whichever schema loaded the
 config resolves correctly (duplicate class definitions per module).
 
-See :mod:`edvise.configs.schema_type` for ``--schema_type`` semantics.
+See :mod:`edvise.shared.schema_type` for ``--schema_type`` semantics.
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ print("sys.path:", sys.path)
 from edvise import checkpoints
 from edvise.configs import es as es_cfg
 from edvise.configs import pdp as pdp_cfg
-from edvise.configs.schema_type import project_config_class
+from edvise.shared.schema_type import project_config_class
 from edvise.dataio.read import read_config
 from edvise.shared.logger import init_file_logging, local_fs_path, resolve_run_path
 from edvise.shared.validation import require
@@ -71,6 +71,15 @@ class CheckpointsTask:
 
         cp = preprocessing_cfg.checkpoint
         student_id_col: str = self.cfg.student_id_col
+
+        # Narrow away legacy CheckpointConfig (no sort_cols/include_cols/type_).
+        if not isinstance(
+            cp, (pdp_cfg.CheckpointBaseConfig, es_cfg.CheckpointBaseConfig)
+        ):
+            raise ValueError(
+                f"Unsupported checkpoint config type: {type(cp).__name__!r}. "
+                "checkpoints.py supports PDP/ES checkpoint configs only."
+            )
 
         sort_cols = cp.sort_cols
         include_cols = cp.include_cols

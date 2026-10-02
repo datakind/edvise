@@ -29,6 +29,32 @@ jobs:
           git checkout develop
           git pull origin develop
 
+      - name: Block if a develop sync PR is still open
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          blocked=$(gh pr list --base develop --state open --json number,title,headRefName,url \
+            | jq -r '
+              [.[] | select(
+                (.title | startswith("chore: sync develop with release "))
+                or (.headRefName == "main")
+                or (.headRefName | startswith("sync/"))
+              )]
+              | if length == 0 then empty
+                else
+                  "Refusing to start a release while a develop sync PR is still open:",
+                  (.[] | "#\(.number)\t\(.headRefName)\t\(.title)\t\(.url)"),
+                  "",
+                  "Merge or close it first so CHANGELOG.md / pyproject.toml on develop include the previous release."
+                end
+            ')
+          if [ -n "${blocked:-}" ]; then
+            echo "$blocked"
+            exit 1
+          fi
+          echo "No open develop sync PRs."
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:

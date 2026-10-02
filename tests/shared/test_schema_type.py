@@ -3,7 +3,7 @@ import pytest
 from edvise.configs.es import ESProjectConfig
 from edvise.configs.legacy import LegacyProjectConfig
 from edvise.configs.pdp import PDPProjectConfig
-from edvise.configs.schema_type import (
+from edvise.shared.schema_type import (
     is_legacy_schema,
     project_config_class,
     resolve_features_table_path,

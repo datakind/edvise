@@ -11,6 +11,7 @@ from edvise.data_audit.default_grade_map import (
     LETTER_GPA_GRADE_CODES,
     NON_GPA_STATUS_GRADE_CODES,
 )
+from edvise.data_audit.schemas._edvise_shared import grade_series_normalized
 
 LOGGER = logging.getLogger(__name__)
 
@@ -72,9 +73,7 @@ def unmapped_gpa_grade_counts(
     """
     if grade_col not in df.columns:
         return pd.Series(dtype="int64")
-    s = df[grade_col].astype("string").str.strip().str.upper()
-    s = s.dropna()
-    s = s[s != ""]
+    s = grade_series_normalized(df[grade_col]).dropna()
     if s.empty:
         return pd.Series(dtype="int64")
     unmapped = s[~s.map(_is_numeric_gpa_grade) & ~s.isin(NON_GPA_STATUS_GRADE_CODES)]
@@ -129,6 +128,5 @@ def apply_raw_course_grade_map(
     if not norm or grade_col not in df.columns:
         return df
     out = df.copy()
-    s = out[grade_col].astype("string").str.strip().str.upper()
-    out[grade_col] = s.replace(norm)
+    out[grade_col] = grade_series_normalized(out[grade_col]).replace(norm)
     return out

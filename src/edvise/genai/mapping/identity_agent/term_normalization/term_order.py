@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import importlib.util
 import logging
+import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -80,6 +82,12 @@ def _normalize_term_config_column_names(tc: dict) -> dict:
 # FALL and WINTER of year N belong to academic year N → N+1.
 # SPRING and SUMMER of year N belong to academic year N-1 → N.
 _ACADEMIC_YEAR_START_SEASONS = {"FALL", "WINTER"}
+# Extracted term years outside this window indicate a broken year extractor, not real data.
+_MIN_PLAUSIBLE_TERM_YEAR = 1900
+_PLAUSIBLE_TERM_YEAR_LOOKAHEAD = 10
+_ACADEMIC_YEAR_RANGE_RE = re.compile(
+    r"^\s*(\d{4})\s*[-/\N{EN DASH}\N{EM DASH}]\s*(\d{2}|\d{4})\s*$"
+)
 
 
 def _norm_token(t: str | None) -> str | None:
@@ -96,11 +104,28 @@ def _norm_token(t: str | None) -> str | None:
     return " ".join(s.lower().split())
 
 
-def _calendar_year_from_column(series: pd.Series) -> pd.Series:
-    """Extract calendar year from a split ``year_col`` (Int64, string year, or datetime)."""
+def _year_from_split_column(series: pd.Series) -> tuple[pd.Series, pd.Series]:
+    """
+    Extract the year from a split ``year_col`` and identify academic-year ranges.
+
+    A valid range must be consecutive (for example ``2025-26`` or ``2025-2026``).
+    This avoids treating period codes such as ``2025-20`` as academic-year ranges.
+    """
     if ptypes.is_datetime64_any_dtype(series):
-        return series.dt.year.astype("Int64")
-    return pd.to_numeric(series, errors="coerce").astype("Int64")
+        year = series.dt.year.astype("Int64")
+        return year, pd.Series(False, index=series.index, dtype="boolean")
+
+    as_string = series.astype("string")
+    parts = as_string.str.extract(_ACADEMIC_YEAR_RANGE_RE)
+    start = pd.to_numeric(parts[0], errors="coerce").astype("Int64")
+    end = pd.to_numeric(parts[1], errors="coerce").astype("Int64")
+    end_is_four_digits = parts[1].str.len().eq(4).fillna(False)
+    expected_end = (start + 1).where(end_is_four_digits, (start + 1) % 100)
+    is_academic_year_range = start.notna() & end.eq(expected_end)
+
+    numeric_year = pd.to_numeric(series, errors="coerce").astype("Int64")
+    year = numeric_year.where(~is_academic_year_range, start)
+    return year, is_academic_year_range.astype("boolean")
 
 
 def _resolve_season_token(t_norm: str | None, norm_keys: list[str]) -> str | None:
@@ -163,6 +188,8 @@ def _calendar_year_from_semantics(
     season_norm: pd.Series,
     raw_to_canonical: dict[str, str],
     year_semantics: str | None,
+    *,
+    academic_year_range: pd.Series | None = None,
 ) -> pd.Series:
     """
     Adjust an extracted term year to a calendar year based on ``year_semantics``.
@@ -176,11 +203,80 @@ def _calendar_year_from_semantics(
     Downstream (``add_edvise_term_labels``) always treats ``_year`` as the calendar year, so
     this conversion keeps academic-year labels and term ordering consistent across encodings.
     """
-    if year_semantics in (None, "calendar_literal"):
+    if year_semantics == "academic_year_prefix":
+        uses_academic_year_prefix = pd.Series(True, index=year.index)
+    elif academic_year_range is not None:
+        # A value such as 2025-26 explicitly identifies an academic-year span, so its
+        # shape takes precedence over a stale or incorrectly inferred calendar_literal.
+        uses_academic_year_prefix = academic_year_range.fillna(False)
+    else:
         return year
+
     canonical = season_norm.astype("string").str.lower().map(raw_to_canonical)
-    rolls_forward = canonical.notna() & ~canonical.isin(_ACADEMIC_YEAR_START_SEASONS)
+    rolls_forward = (
+        uses_academic_year_prefix
+        & canonical.notna()
+        & ~canonical.isin(_ACADEMIC_YEAR_START_SEASONS)
+    )
     return year.where(~rolls_forward, other=year + 1)
+
+
+def _term_config_source_description(term_config: dict | None) -> str:
+    if not term_config:
+        return "term_config unavailable"
+    return (
+        f"term_col={term_config.get('term_col')!r} "
+        f"year_col={term_config.get('year_col')!r} "
+        f"season_col={term_config.get('season_col')!r} "
+        f"term_extraction={term_config.get('term_extraction')!r}"
+    )
+
+
+def _validate_extracted_years(
+    year: pd.Series,
+    term_config: dict | None,
+) -> None:
+    """
+    Raise when *every* extracted year is outside a plausible range.
+
+    A miscoded year extractor yields years that are non-null and therefore invisible to
+    :func:`_warn_if_term_order_all_null`, but still wrong — for example a Banner ``2187``
+    hook that multiplies the leading century digit instead of using it to select the
+    century produces 2218. Rows sort and label without error, silently misordered.
+    """
+    non_null = year.dropna()
+    if non_null.empty:
+        return
+
+    max_year = dt.date.today().year + _PLAUSIBLE_TERM_YEAR_LOOKAHEAD
+    out_of_range = non_null[
+        (non_null < _MIN_PLAUSIBLE_TERM_YEAR) | (non_null > max_year)
+    ]
+    if out_of_range.empty:
+        return
+
+    samples = sorted({int(v) for v in out_of_range.unique()})[:8]
+    source = _term_config_source_description(term_config)
+    if len(out_of_range) < len(non_null):
+        logger.warning(
+            "Term year extraction produced %d of %d row(s) outside %d-%d (%s). "
+            "Sample out-of-range years: %s.",
+            len(out_of_range),
+            len(non_null),
+            _MIN_PLAUSIBLE_TERM_YEAR,
+            max_year,
+            source,
+            samples,
+        )
+        return
+
+    raise ValueError(
+        f"Term year extraction produced no plausible years: all {len(non_null)} row(s) "
+        f"fall outside {_MIN_PLAUSIBLE_TERM_YEAR}-{max_year} ({source}). "
+        f"Sample extracted years: {samples}. Check the year extractor — for coded terms "
+        "such as 2187 the leading digit selects the century (2 -> 2000s) rather than being "
+        "added to the year, so the year is 2000 + int(term[1:3]), not century_digit * 100 + 2000."
+    )
 
 
 def _finalize_season_year_order(
@@ -191,6 +287,8 @@ def _finalize_season_year_order(
     *,
     raw_to_canonical: dict[str, str] | None = None,
     year_semantics: str | None = None,
+    academic_year_range: pd.Series | None = None,
+    term_config: dict | None = None,
 ) -> pd.DataFrame:
     out = out.copy()
     out[cols.season] = season_norm.astype("string")
@@ -199,22 +297,76 @@ def _finalize_season_year_order(
     valid = set(raw_to_rank.keys())
     unexpected = found - valid
     if unexpected:
+        mask = season_norm.isin(valid)
+        if len(out) > 0 and not bool(mask.any()):
+            raise ValueError(
+                f"Season extraction matched no rows: all {len(out)} row(s) produced a token "
+                f"outside season_map, so term ordering would drop the entire dataset. "
+                f"Unexpected tokens: {sorted(str(t) for t in unexpected)[:8]}. "
+                f"season_map raw keys: {sorted(valid)} ({_term_config_source_description(term_config)}). "
+                "Check that the season extractor returns a season_map raw key, and that the "
+                "source column kept its original dtype — a bare 4-digit term code coerced to "
+                "datetime becomes '2187-01-01', so positional slicing returns '7-01-01'."
+            )
         logger.warning(
             "Unexpected season tokens: %s. Filtering to valid: %s",
             unexpected,
             valid,
         )
-        mask = season_norm.isin(valid)
         out = out[mask]
         season_norm = season_norm[mask]
 
     out[cols.year] = _calendar_year_from_semantics(
-        out[cols.year], season_norm, raw_to_canonical or {}, year_semantics
+        out[cols.year],
+        season_norm,
+        raw_to_canonical or {},
+        year_semantics,
+        academic_year_range=academic_year_range,
     )
+    _validate_extracted_years(out[cols.year], term_config)
 
     season_rank = season_norm.map(raw_to_rank).astype("Int64")
     out[cols.term_order] = (out[cols.year] * 100 + season_rank).astype("Int64")
     return out
+
+
+def _warn_if_term_order_all_null(
+    df: pd.DataFrame,
+    cols: EdviseTermColumnSet,
+    term_config: dict,
+) -> None:
+    """Log when year extraction failed for every remaining row (silent all-null sort keys)."""
+    if df.empty or cols.term_order not in df.columns or cols.year not in df.columns:
+        return
+    n = len(df)
+    year_null = int(df[cols.year].isna().sum())
+    order_null = int(df[cols.term_order].isna().sum())
+    if year_null < n and order_null < n:
+        return
+
+    year_col = term_config.get("year_col")
+    term_col = term_config.get("term_col")
+    source = year_col or term_col
+    samples: list[str] = []
+    if isinstance(source, str) and source in df.columns:
+        samples = (
+            df[source].astype("string").dropna().drop_duplicates().head(8).tolist()
+        )
+
+    logger.warning(
+        "Term order produced all-null sort keys on %d row(s): %s null_rate=1.0, "
+        "%s null_rate=1.0 (year_col=%r term_col=%r season_col=%r "
+        "year_semantics=%r). Sample source values: %s. Downstream first_by "
+        "_term_order will not be chronological.",
+        n,
+        cols.year,
+        cols.term_order,
+        year_col,
+        term_col,
+        term_config.get("season_col"),
+        term_config.get("year_semantics"),
+        samples,
+    )
 
 
 def add_edvise_term_order(
@@ -320,7 +472,15 @@ def add_edvise_term_order(
         for c in (year_col, season_col):
             if c not in out.columns:
                 raise KeyError(f"DataFrame must contain column '{c}'")
-        out[cols.year] = _calendar_year_from_column(out[year_col])
+        out[cols.year], academic_year_range = _year_from_split_column(out[year_col])
+        if academic_year_range.any() and year_semantics != "academic_year_prefix":
+            logger.warning(
+                "Split year column %r contains explicit academic-year ranges; "
+                "applying academic_year_prefix semantics to those rows despite "
+                "year_semantics=%r.",
+                year_col,
+                year_semantics,
+            )
         s_season = out[season_col].astype("string").str.strip()
 
         def _cell_to_season_norm(val: object) -> str | None:
@@ -341,9 +501,13 @@ def add_edvise_term_order(
             cols,
             raw_to_canonical=raw_to_canonical,
             year_semantics=year_semantics,
+            academic_year_range=academic_year_range,
+            term_config=term_config,
         )
         ordered = _add_term_grain(ordered, cols)
-        return add_edvise_term_labels(ordered, term_config, columns=cols)
+        labeled = add_edvise_term_labels(ordered, term_config, columns=cols)
+        _warn_if_term_order_all_null(labeled, cols, term_config)
+        return labeled
 
     # --- Combined term_col path ---
     if term_col not in out.columns:
@@ -377,9 +541,12 @@ def add_edvise_term_order(
         cols,
         raw_to_canonical=raw_to_canonical,
         year_semantics=year_semantics,
+        term_config=term_config,
     )
     ordered = _add_term_grain(ordered, cols)
-    return add_edvise_term_labels(ordered, term_config, columns=cols)
+    labeled = add_edvise_term_labels(ordered, term_config, columns=cols)
+    _warn_if_term_order_all_null(labeled, cols, term_config)
+    return labeled
 
 
 def add_edvise_term_labels(

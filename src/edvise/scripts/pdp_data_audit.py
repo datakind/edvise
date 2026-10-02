@@ -26,7 +26,7 @@ from edvise.data_audit.standardizer import (
     PDPCourseStandardizer,
 )
 from edvise.utils.databricks import get_spark_session
-from edvise.utils.data_cleaning import handling_duplicates
+from edvise.utils.data_cleaning import handling_duplicates, resolve_misjoin_merge_key
 
 from edvise.dataio.path_management import pick_existing_path
 from edvise.dataio.read import (
@@ -171,10 +171,15 @@ class PDPDataAuditTask:
         LOGGER.info(
             " Loaded raw cohort and course data: checking for mismatches in cohort and course files: "
         )
+        misjoin_merge_key = resolve_misjoin_merge_key(
+            df_cohort_raw,
+            df_course_raw,
+            preferred=self.cfg.student_id_col_pre_val,
+        )
         log_misjoined_records(
             df_cohort_raw,
             df_course_raw,
-            merge_key=self.cfg.student_id_col_pre_val,
+            merge_key=misjoin_merge_key,
         )
 
         # Logs cohort year and terms and academic year and terms, grouped and sorted

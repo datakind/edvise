@@ -58,6 +58,7 @@ def run_grain_reconciliation_gate(
     mapped_source_columns: list[str],
     ia_source_keys: list[str] | None,
     hitl_output_path: Path,
+    catalog: str,
     *,
     sma_manifest_path: Path | None = None,
 ) -> None:
@@ -147,6 +148,7 @@ def run_grain_reconciliation_gate(
                     ia_source_keys=ia_source_keys,
                     variance=variance,
                     mapped_source_columns=mapped_source_columns,
+                    catalog=catalog,
                 )
         except Exception as e:
             logger.warning(

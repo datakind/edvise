@@ -1,8 +1,9 @@
 """Tests for opt-in prompt-caching support in the SMA streaming `run_once` path.
 
 Covers the actual production call path for Step 2a / refinement / Step 2b
-(`edvise_genai_sma._sma_llm_complete_run_once` -> `eval.run_once`), as opposed to
-`make_databricks_gateway_llm_complete` (used by IA and SMA grain resolution only).
+(`schema_mapping_agent.orchestration.helpers._sma_llm_complete_run_once` ->
+`eval.run_once`), as opposed to `make_databricks_gateway_llm_complete` (used by IA
+and SMA grain resolution only).
 """
 
 from __future__ import annotations
@@ -10,7 +11,9 @@ from __future__ import annotations
 from typing import Any
 
 from edvise.genai.mapping.schema_mapping_agent.manifest.eval import run_once
-from edvise.genai.mapping.scripts.edvise_genai_sma import _sma_llm_complete_run_once
+from edvise.genai.mapping.schema_mapping_agent.orchestration.helpers import (
+    _sma_llm_complete_run_once,
+)
 from edvise.genai.mapping.shared.databricks_ai_gateway import _CACHE_CONTROL_MIN_CHARS
 
 _LONG_SYSTEM = "x" * (_CACHE_CONTROL_MIN_CHARS + 1)
@@ -113,7 +116,9 @@ def test_sma_llm_complete_run_once_caches_long_system_when_enabled(monkeypatch) 
         _FakeChunk,
     )
     client = _FakeClient()
-    complete = _sma_llm_complete_run_once(client, cache_system_prompt=True)
+    complete = _sma_llm_complete_run_once(
+        client, catalog="test_catalog", cache_system_prompt=True
+    )
     result = complete(_LONG_SYSTEM, "user text")
     assert result == '{"ok": true}'
     sent_content = client.chat.completions.last_kwargs["messages"][0]["content"]
@@ -128,7 +133,7 @@ def test_sma_llm_complete_run_once_default_unaffected(monkeypatch) -> None:
         _FakeChunk,
     )
     client = _FakeClient()
-    complete = _sma_llm_complete_run_once(client)
+    complete = _sma_llm_complete_run_once(client, catalog="test_catalog")
     result = complete(_LONG_SYSTEM, "user text")
     assert result == '{"ok": true}'
     sent_content = client.chat.completions.last_kwargs["messages"][0]["content"]
@@ -144,7 +149,9 @@ def test_sma_llm_complete_run_once_caching_is_noop_for_empty_system(
         _FakeChunk,
     )
     client = _FakeClient()
-    complete = _sma_llm_complete_run_once(client, cache_system_prompt=True)
+    complete = _sma_llm_complete_run_once(
+        client, catalog="test_catalog", cache_system_prompt=True
+    )
     result = complete("", "user only prompt")
     assert result == '{"ok": true}'
     sent_content = client.chat.completions.last_kwargs["messages"][0]["content"]
@@ -157,7 +164,9 @@ def test_sma_llm_complete_run_once_skips_caching_for_short_system(monkeypatch) -
         _FakeChunk,
     )
     client = _FakeClient()
-    complete = _sma_llm_complete_run_once(client, cache_system_prompt=True)
+    complete = _sma_llm_complete_run_once(
+        client, catalog="test_catalog", cache_system_prompt=True
+    )
     result = complete(_SHORT_SYSTEM, "user text")
     assert result == '{"ok": true}'
     sent_content = client.chat.completions.last_kwargs["messages"][0]["content"]
@@ -218,7 +227,9 @@ def test_sma_llm_complete_run_once_logs_cache_usage_for_cached_call(
         _FakeChunk,
     )
     client = _FakeClient(usage_cache_read_tokens=5678)
-    complete = _sma_llm_complete_run_once(client, cache_system_prompt=True)
+    complete = _sma_llm_complete_run_once(
+        client, catalog="test_catalog", cache_system_prompt=True
+    )
     with caplog.at_level("INFO"):
         result = complete(_LONG_SYSTEM, "user text")
     assert result == '{"ok": true}'
@@ -238,7 +249,9 @@ def test_sma_llm_complete_run_once_does_not_log_for_step2a_style_call(
         _FakeChunk,
     )
     client = _FakeClient(usage_cache_read_tokens=999)
-    complete = _sma_llm_complete_run_once(client, cache_system_prompt=True)
+    complete = _sma_llm_complete_run_once(
+        client, catalog="test_catalog", cache_system_prompt=True
+    )
     with caplog.at_level("INFO"):
         result = complete("", "user only prompt")
     assert result == '{"ok": true}'

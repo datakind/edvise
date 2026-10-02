@@ -848,7 +848,7 @@ class TestPRCreation:
                     f"## Release {version}\n\n"
                     f"This PR merges `{branch}` into `main`.\n\n"
                     "- [x] Release branch CI passed\n"
-                    f"- [ ] Merge to create tag `v{version}` and open back-merge PR `main -> develop`"
+                    f"- [ ] Merge to create tag `v{version}` and open back-merge PR `sync/{version} -> develop`"
                 ),
             ],
             capture_output=True,
@@ -868,6 +868,7 @@ class TestPRCreation:
         )
 
         version = "0.1.9"
+        sync_branch = f"sync/{version}"
 
         result = subprocess.run(
             [
@@ -877,13 +878,13 @@ class TestPRCreation:
                 "--base",
                 "develop",
                 "--head",
-                "main",
+                sync_branch,
                 "--title",
                 f"chore: sync develop with release {version}",
                 "--body",
                 (
                     f"## Sync develop after release {version}\n\n"
-                    f"This PR merges `main` back into `develop` after tagging `v{version}`.\n\n"
+                    f"This PR merges `{sync_branch}` (current `main`) into `develop` after tagging `v{version}`.\n\n"
                     "- [x] Release merged to main\n"
                     "- [x] Tag pushed (deploy should be running)\n"
                     "- [ ] Merge to keep develop in sync"
@@ -1033,18 +1034,26 @@ class TestWorkflowConditions:
         event_name = "pull_request"
         merged = True
         base_ref = "develop"
-        head_ref = "main"
         title = "chore: sync develop with release 0.1.9"
 
-        should_trigger = (
+        for head_ref in ("sync/0.1.9", "main"):
+            should_trigger = (
+                event_name == "pull_request"
+                and merged
+                and base_ref == "develop"
+                and (head_ref.startswith("sync/") or head_ref == "main")
+                and title.startswith("chore: sync develop with release ")
+            )
+            assert should_trigger, f"should delete branches after {head_ref} sync"
+
+        should_not_trigger = (
             event_name == "pull_request"
             and merged
             and base_ref == "develop"
-            and head_ref == "main"
+            and "feature/foo".startswith("sync/")
             and title.startswith("chore: sync develop with release ")
         )
-
-        assert should_trigger
+        assert not should_not_trigger
 
 
 class TestIdempotency:
@@ -1208,9 +1217,42 @@ class TestWorkflowYAMLSyntax:
         assert "if" in job
 
         job = workflow["jobs"]["tag-and-open-backmerge-pr"]
-        assert "runs-on" in job
-        assert "steps" in job
-        assert "if" in job
+        backmerge_script = next(
+            step["run"]
+            for step in job["steps"]
+            if step.get("name", "").startswith("Open PR sync/")
+        )
+        assert '--head "$SYNC"' in backmerge_script
+        assert "--head main" not in backmerge_script
+        assert "HEAD:refs/heads/${SYNC}" in backmerge_script
+
+        delete_job = workflow["jobs"]["delete-release-branch"]
+        assert "sync/" in delete_job["if"]
+        delete_script = next(
+            step["run"]
+            for step in delete_job["steps"]
+            if "Delete release" in step.get("name", "")
+        )
+        assert "sync/${VER}" in delete_script
+
+    def test_start_release_blocks_open_sync_prs(self):
+        """Start Release must refuse to cut a release while a sync PR is open."""
+        workflow_path = WORKSPACE_ROOT / ".github" / "workflows" / "start-release.yml"
+
+        with open(workflow_path) as f:
+            workflow = yaml.safe_load(f)
+
+        job = workflow["jobs"]["create-release-branch"]
+        block_step = next(
+            step
+            for step in job["steps"]
+            if step.get("name") == "Block if a develop sync PR is still open"
+        )
+        script = block_step["run"]
+        assert "chore: sync develop with release" in script
+        assert 'headRefName == "main"' in script
+        assert 'startswith("sync/")' in script
+        assert "exit 1" in script
 
     def test_workflow_concurrency(self):
         """Test that finish-release workflow has concurrency control."""

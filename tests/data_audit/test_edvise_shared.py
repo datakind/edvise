@@ -186,9 +186,10 @@ def test_credential_degree_series_to_canonical_unmapped_returns_null() -> None:
 
 def test_grade_series_normalized_strip_uppercase() -> None:
     """Grade transform strips whitespace and uppercases."""
-    series = pd.Series(["  a  ", "b", "B-", "  A+  "])
+    series = pd.Series(["  a  ", "b", "B-", "  A+  ", pd.NA, "", "<NA>", "nan"])
     result = grade_series_normalized(series)
-    assert result.tolist() == ["A", "B", "B-", "A+"]
+    assert result.tolist()[:4] == ["A", "B", "B-", "A+"]
+    assert all(pd.isna(result.iloc[i]) for i in range(4, 8))
 
 
 def test_grade_series_normalized_preserves_valid_grade() -> None:

@@ -12,6 +12,7 @@ import copy
 import json
 import logging
 import re
+import sys
 import time
 from datetime import timedelta
 from pathlib import Path
@@ -209,13 +210,15 @@ def propagate_union_libraries_for_submit(
     """
     Attach the union of all task ``libraries`` to every task.
 
-    Deployed multi-task jobs reuse ``job_cluster_key`` clusters, so later tasks inherit
-    PyPI installs from earlier ones. ``runs/submit`` with per-task ``new_cluster`` does not;
-    propagating the union avoids ``ModuleNotFoundError`` on tasks like ``output_publish``.
+    A shared job cluster installs libraries as tasks run. Putting the union on every
+    task installs the full set with the first task, so a later task such as
+    ``output_publish`` does not hit ``ModuleNotFoundError``.
     """
     union: list[dict[str, Any]] = []
     seen: set[str] = set()
     for task in tasks:
+        if not _task_requires_compute(task):
+            continue
         for lib in task.get("libraries") or []:
             name = _pypi_package_name(lib)
             if name is None or name in seen:
@@ -227,6 +230,9 @@ def propagate_union_libraries_for_submit(
 
     enriched: list[dict[str, Any]] = []
     for task in tasks:
+        if not _task_requires_compute(task):
+            enriched.append(copy.deepcopy(task))
+            continue
         merged = copy.deepcopy(task)
         existing = {
             n
@@ -250,48 +256,80 @@ def propagate_union_libraries_for_submit(
     return enriched
 
 
-def inline_job_clusters_for_submit(
+def _task_requires_compute(task: dict[str, Any]) -> bool:
+    """False for condition / run_job tasks (no job_cluster_key on archived ES YAML)."""
+    if "condition_task" in task or "run_job_task" in task:
+        return False
+    return True
+
+
+def attach_shared_job_clusters_for_submit(
     tasks: list[Any],
     job_clusters: list[Any],
     *,
     logger: logging.Logger = LOGGER,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """
-    ``runs/submit`` does not support shared ``job_clusters``; attach ``new_cluster`` per task.
+    Keep one ``job_clusters`` entry per child run and point tasks at it.
 
-    DAB-deployed jobs use ``job_cluster_key`` + ``job_clusters``; submit requires inline clusters.
+    ``runs/submit`` rejects top-level ``job_clusters``. Multi-task child runs are
+    created with ``jobs/create`` so tasks still share one cluster. A one-task run
+    inlines ``new_cluster`` and uses ``runs/submit``. Condition and ``run_job``
+    tasks are passed through without compute.
     """
     cluster_map = _job_cluster_map(job_clusters)
     if not cluster_map:
         msg = "No job_clusters definitions found for runs/submit"
         raise ValueError(msg)
 
+    by_key: dict[str, dict[str, Any]] = {}
+    for raw in job_clusters:
+        if not isinstance(raw, dict):
+            continue
+        key = raw.get("job_cluster_key")
+        if isinstance(key, str) and key.strip() and key.strip() not in by_key:
+            by_key[key.strip()] = copy.deepcopy(raw)
+
     submit_tasks: list[dict[str, Any]] = []
+    referenced: list[str] = []
     for raw in tasks:
         if not isinstance(raw, dict):
             continue
         task = copy.deepcopy(raw)
-        key = task.pop("job_cluster_key", None)
+        if not _task_requires_compute(task):
+            task.pop("job_cluster_key", None)
+            task.pop("libraries", None)
+            submit_tasks.append(task)
+            continue
+        key = task.get("job_cluster_key")
         if isinstance(key, str) and key.strip():
             cluster_key = key.strip()
             if cluster_key not in cluster_map:
-                msg = f"Task {task.get('task_key')!r} references unknown job_cluster_key={cluster_key!r}"
+                msg = (
+                    f"Task {task.get('task_key')!r} references unknown "
+                    f"job_cluster_key={cluster_key!r}"
+                )
                 raise ValueError(msg)
-            task["new_cluster"] = copy.deepcopy(cluster_map[cluster_key])
+            task["job_cluster_key"] = cluster_key
+            task.pop("new_cluster", None)
+            if cluster_key not in referenced:
+                referenced.append(cluster_key)
         elif "new_cluster" not in task:
             msg = f"Task {task.get('task_key')!r} has no job_cluster_key or new_cluster"
             raise ValueError(msg)
         submit_tasks.append(task)
 
     if not submit_tasks:
-        msg = "No tasks after inlining job clusters for runs/submit"
+        msg = "No tasks after attaching shared job clusters for runs/submit"
         raise ValueError(msg)
+
+    shared = [by_key[key] for key in referenced if key in by_key]
     logger.info(
-        "Inlined %s job cluster(s) onto %s submit task(s) (runs/submit API)",
-        len(cluster_map),
+        "Sharing %s job cluster(s) across %s submit task(s)",
+        len(shared),
         len(submit_tasks),
     )
-    return submit_tasks
+    return submit_tasks, shared
 
 
 def build_submit_access_control_list(
@@ -432,14 +470,14 @@ def _raise_unless_child_run_success(
 ) -> None:
     if life_cycle == "TERMINATED" and result_state == _SUCCESS_RESULT_STATE:
         monitor_url = getattr(run, "run_page_url", None)
-        if monitor_url:
-            logger.info(
-                "Child inference run_id=%s succeeded — %s",
-                run_id,
-                monitor_url,
-            )
-        else:
-            logger.info("Child inference run_id=%s succeeded", run_id)
+        if not monitor_url and isinstance(run, dict):
+            monitor_url = run.get("run_page_url")
+        log_child_run_monitor_url(
+            run_id,
+            monitor_url if isinstance(monitor_url, str) else None,
+            logger=logger,
+            status="succeeded",
+        )
         return
     msg = (
         f"Child inference run_id={run_id} finished with "
@@ -465,6 +503,26 @@ def wait_for_inference_run(
 
     Raises ``RuntimeError`` if the run does not finish with ``result_state=SUCCESS``.
     """
+    try:
+        _wait_for_inference_run(
+            run_id,
+            workspace_client=workspace_client,
+            poll_interval_seconds=poll_interval_seconds,
+            timeout_seconds=timeout_seconds,
+            logger=logger,
+        )
+    finally:
+        release_ephemeral_job_if_terminal(run_id, workspace_client, logger=logger)
+
+
+def _wait_for_inference_run(
+    run_id: int,
+    *,
+    workspace_client: Any,
+    poll_interval_seconds: float = 30.0,
+    timeout_seconds: float | None = None,
+    logger: logging.Logger = LOGGER,
+) -> None:
     sdk_timeout = (
         timedelta(seconds=timeout_seconds)
         if timeout_seconds is not None
@@ -586,13 +644,17 @@ def build_submit_run_body(
     submit_tasks = propagate_union_libraries_for_submit(
         [t for t in cleaned_tasks if isinstance(t, dict)]
     )
-    submit_tasks = inline_job_clusters_for_submit(submit_tasks, cleaned_clusters)
+    submit_tasks, shared_clusters = attach_shared_job_clusters_for_submit(
+        submit_tasks, cleaned_clusters
+    )
 
     body: dict[str, Any] = {
         "run_name": run_name,
         "git_source": build_git_source(git_url, pipeline_version),
         "tasks": submit_tasks,
     }
+    if shared_clusters:
+        body["job_clusters"] = shared_clusters
     if parameters:
         body["parameters"] = parameters
 
@@ -621,6 +683,233 @@ def build_submit_run_body(
     return body
 
 
+def log_child_run_monitor_url(
+    run_id: int,
+    monitor_url: str | None,
+    *,
+    logger: logging.Logger = LOGGER,
+    status: str = "submitted",
+) -> None:
+    """
+    Emit the child run URL so Databricks Jobs logs can linkify it.
+
+    Logger format prefixes every ``logger.info`` line (e.g.
+    ``INFO trigger_…: https://…``), which prevents auto-linkification. Print the
+    bare URL on its own stdout line instead; keep a short logger line for context.
+    """
+    logger.info("Child inference run_id=%s %s", run_id, status)
+    if monitor_url and str(monitor_url).strip():
+        url = str(monitor_url).strip()
+        # Bare URL only — no logger name / level prefix.
+        print(url, flush=True, file=sys.stdout)
+        logger.info("Child run_id=%s URL printed above (stdout)", run_id)
+    else:
+        logger.info(
+            "(no run_page_url; search Workflows for run_id=%s)",
+            run_id,
+        )
+
+
+def fetch_run_page_url(
+    workspace_client: Any,
+    run_id: int,
+    *,
+    logger: logging.Logger = LOGGER,
+) -> str | None:
+    """Best-effort ``run_page_url`` from ``jobs.get_run``."""
+    try:
+        run = workspace_client.jobs.get_run(run_id=run_id)
+    except Exception as exc:
+        logger.warning("Could not fetch run_page_url for run_id=%s: %s", run_id, exc)
+        return None
+    url = getattr(run, "run_page_url", None)
+    if isinstance(url, str) and url.strip():
+        return url.strip()
+    if isinstance(run, dict):
+        raw = run.get("run_page_url")
+        if isinstance(raw, str) and raw.strip():
+            return raw.strip()
+    return None
+
+
+_EPHEMERAL_JOB_IDS: dict[int, int] = {}
+
+
+def _tasks_using_job_cluster(submit_body: dict[str, Any]) -> list[dict[str, Any]]:
+    tasks = submit_body.get("tasks") or []
+    return [
+        task
+        for task in tasks
+        if isinstance(task, dict) and isinstance(task.get("job_cluster_key"), str)
+    ]
+
+
+def _runs_submit_body_for_single_task(submit_body: dict[str, Any]) -> dict[str, Any]:
+    """Inline ``new_cluster`` when only one task needs compute.
+
+    ``runs/submit`` rejects ``job_clusters``. A one-task run does not need a
+    shared cluster, so it keeps the direct submit path.
+    """
+    keyed = _tasks_using_job_cluster(submit_body)
+    clusters = submit_body.get("job_clusters") or []
+    if len(keyed) != 1 or not isinstance(clusters, list) or not clusters:
+        return submit_body
+    cluster_key = keyed[0]["job_cluster_key"]
+    spec = next(
+        (
+            cluster.get("new_cluster")
+            for cluster in clusters
+            if isinstance(cluster, dict)
+            and cluster.get("job_cluster_key") == cluster_key
+        ),
+        None,
+    )
+    if not isinstance(spec, dict):
+        return submit_body
+    body = copy.deepcopy(submit_body)
+    for task in body.get("tasks") or []:
+        if isinstance(task, dict) and task.get("job_cluster_key") == cluster_key:
+            task.pop("job_cluster_key", None)
+            task["new_cluster"] = copy.deepcopy(spec)
+    body.pop("job_clusters", None)
+    return body
+
+
+def _ephemeral_job_create_body(submit_body: dict[str, Any]) -> dict[str, Any]:
+    """Map a submit body onto ``jobs/create``, which allows shared job clusters."""
+    create = {
+        key: value
+        for key, value in submit_body.items()
+        if key not in {"run_name", "access_control_list"}
+    }
+    create["name"] = submit_body.get("run_name") or "versioned-inference"
+    create.setdefault("max_concurrent_runs", 1)
+    return create
+
+
+def _apply_ephemeral_job_acl(
+    workspace_client: Any,
+    job_id: int,
+    acl: list[dict[str, Any]] | None,
+    *,
+    logger: logging.Logger,
+) -> None:
+    if not acl:
+        return
+    try:
+        workspace_client.api_client.do(
+            "PATCH",
+            f"/api/2.0/permissions/jobs/{job_id}",
+            body={"access_control_list": acl},
+        )
+    except Exception as exc:
+        logger.warning(
+            "Could not set ACL on ephemeral job_id=%s: %s",
+            job_id,
+            exc,
+        )
+
+
+def _delete_ephemeral_job(
+    workspace_client: Any,
+    job_id: int,
+    *,
+    logger: logging.Logger,
+) -> None:
+    try:
+        workspace_client.api_client.do(
+            "POST",
+            "/api/2.1/jobs/delete",
+            body={"job_id": job_id},
+        )
+    except Exception as exc:
+        logger.warning("Could not delete ephemeral job_id=%s: %s", job_id, exc)
+        return
+    logger.info("Deleted ephemeral job_id=%s", job_id)
+
+
+def release_ephemeral_job_if_terminal(
+    run_id: int,
+    workspace_client: Any | None,
+    *,
+    logger: logging.Logger = LOGGER,
+) -> None:
+    """Delete the short-lived job after its run has finished.
+
+    Deleting a job cancels a run that is still going, so a timeout leaves the job.
+    """
+    job_id = _EPHEMERAL_JOB_IDS.get(run_id)
+    if job_id is None or workspace_client is None:
+        return
+    try:
+        run = workspace_client.jobs.get_run(run_id=run_id)
+    except Exception as exc:
+        logger.warning(
+            "Leaving ephemeral job_id=%s; could not read run_id=%s: %s",
+            job_id,
+            run_id,
+            exc,
+        )
+        return
+    life_cycle, _result = _run_state_fields(run)
+    if life_cycle not in _TERMINAL_LIFE_CYCLE_STATES:
+        logger.info(
+            "Leaving ephemeral job_id=%s because run_id=%s is still %s",
+            job_id,
+            run_id,
+            life_cycle,
+        )
+        return
+    _EPHEMERAL_JOB_IDS.pop(run_id, None)
+    _delete_ephemeral_job(workspace_client, job_id, logger=logger)
+
+
+def _submit_shared_cluster_job(
+    submit_body: dict[str, Any],
+    workspace_client: Any,
+    *,
+    logger: logging.Logger,
+) -> int:
+    """Create a one-off job so multiple tasks share one cluster, then start it."""
+    created = workspace_client.api_client.do(
+        "POST",
+        "/api/2.1/jobs/create",
+        body=_ephemeral_job_create_body(submit_body),
+    )
+    if not isinstance(created, dict) or "job_id" not in created:
+        msg = f"Unexpected jobs/create response: {created!r}"
+        raise RuntimeError(msg)
+    job_id = int(created["job_id"])
+    logger.info(
+        "Created ephemeral job_id=%s so %s tasks share one cluster",
+        job_id,
+        len(_tasks_using_job_cluster(submit_body)),
+    )
+    acl = submit_body.get("access_control_list")
+    _apply_ephemeral_job_acl(
+        workspace_client,
+        job_id,
+        acl if isinstance(acl, list) else None,
+        logger=logger,
+    )
+    try:
+        started = workspace_client.api_client.do(
+            "POST",
+            "/api/2.1/jobs/run-now",
+            body={"job_id": job_id},
+        )
+    except Exception:
+        _delete_ephemeral_job(workspace_client, job_id, logger=logger)
+        raise
+    if not isinstance(started, dict) or "run_id" not in started:
+        _delete_ephemeral_job(workspace_client, job_id, logger=logger)
+        msg = f"Unexpected jobs/run-now response: {started!r}"
+        raise RuntimeError(msg)
+    run_id = int(started["run_id"])
+    _EPHEMERAL_JOB_IDS[run_id] = job_id
+    return run_id
+
+
 def submit_inference_run(
     submit_body: dict[str, Any],
     *,
@@ -628,7 +917,12 @@ def submit_inference_run(
     workspace_client: Any | None = None,
     logger: logging.Logger = LOGGER,
 ) -> int:
-    """POST ``/api/2.1/jobs/runs/submit``; return ``run_id`` (0 if ``dry_run``)."""
+    """Start a child run and return ``run_id`` (0 if ``dry_run``).
+
+    One compute task uses ``runs/submit`` with ``new_cluster``. Several tasks
+    that share a cluster use ``jobs/create`` plus ``jobs/run-now``, because
+    ``runs/submit`` rejects shared job clusters.
+    """
     if dry_run:
         logger.info(
             "dry-run submit (%s tasks): %s",
@@ -642,36 +936,22 @@ def submit_inference_run(
 
         workspace_client = WorkspaceClient()
 
-    response = workspace_client.api_client.do(
-        "POST",
-        "/api/2.1/jobs/runs/submit",
-        body=submit_body,
-    )
-    if not isinstance(response, dict) or "run_id" not in response:
-        msg = f"Unexpected submit response: {response!r}"
-        raise RuntimeError(msg)
-    run_id = int(response["run_id"])
-    monitor_url: str | None = None
-    try:
-        run = workspace_client.jobs.get_run(run_id=run_id)
-        monitor_url = getattr(run, "run_page_url", None)
-    except Exception as exc:
-        logger.warning("Could not fetch run_page_url for run_id=%s: %s", run_id, exc)
-
-    if monitor_url:
-        logger.info(
-            "Submitted versioned inference run_id=%s — monitor at %s",
-            run_id,
-            monitor_url,
+    if len(_tasks_using_job_cluster(submit_body)) > 1:
+        run_id = _submit_shared_cluster_job(
+            submit_body, workspace_client, logger=logger
         )
     else:
-        cfg = workspace_client.config
-        logger.info(
-            "Submitted versioned inference run_id=%s — find in Workflows → search run id. "
-            "(config host=%r is not always a clickable workspace URL)",
-            run_id,
-            getattr(cfg, "host", None),
+        response = workspace_client.api_client.do(
+            "POST",
+            "/api/2.1/jobs/runs/submit",
+            body=_runs_submit_body_for_single_task(submit_body),
         )
+        if not isinstance(response, dict) or "run_id" not in response:
+            msg = f"Unexpected submit response: {response!r}"
+            raise RuntimeError(msg)
+        run_id = int(response["run_id"])
+    monitor_url = fetch_run_page_url(workspace_client, run_id, logger=logger)
+    log_child_run_monitor_url(run_id, monitor_url, logger=logger, status="submitted")
     return run_id
 
 

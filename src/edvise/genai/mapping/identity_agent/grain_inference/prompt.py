@@ -81,12 +81,37 @@ def _identity_domain_priors() -> str:
   into `post_clean_primary_key` or `dedup_policy` unless they appear in the data.
 
 ### Student / demographic tables
-- Expected grain is ONE ROW PER STUDENT after cleaning.
+- Expected grain is ONE ROW PER STUDENT after cleaning
+  (`post_clean_primary_key` = student/learner identifier only;
+  `row_selection_required` typically false).
+- **Profiler uniqueness is not the product grain.** A candidate key such as
+  `(student_id, entry_term)` or `(learner_id, entry_term)` with `uniqueness_score=1.0`
+  means the *file* is multi-row per student — it does **not** authorize keeping that
+  wider key with `no_dedup` / `hitl_flag: false`. Edvise student/cohort entity grain is
+  one row per learner; leaving entry-term (or program/cohort) in the post-clean key
+  causes downstream SMA step-down / unexpected collapse gates.
+- If the learner/student identifier alone is **not** unique
+  (`non_unique_rows` > 0 on that single-column candidate — even when a longer key
+  including a **temporal** column like `entry_term`, `cohort_year`, `term`, or a
+  **non-temporal** dimension like program, major, or degree is fully unique):
+  1. Target grain after cleaning is still **student/learner id only**.
+  2. You **must** set `hitl_flag: true` and `dedup_policy.strategy`: `"policy_required"`
+     (or propose an explicit collapse such as `temporal_collapse` onto the extra
+     dimension with `post_clean_primary_key` already narrowed to the learner id —
+     still `hitl_flag: true` when first-vs-latest / policy choice remains).
+  3. **Never** auto-approve (`hitl_flag: false`, confidence ≥ mid-band) a multi-column
+     student grain with `no_dedup`, and **never** treat “intentionally multi-row per
+     student” as settled without HITL on student/demographic tables.
+  4. HITL options must ask how to collapse to one row per student (e.g. keep earliest
+     vs latest `entry_term` / enrollment) via `candidate_key_override` to the learner
+     id alone + `temporal_collapse`, or equivalent — not “confirm multi-row is fine”
+     as the only path.
 - If the natural key from profiling includes a non-temporal dimension beyond student_id
-  (e.g. program, major, cohort_year, degree), FLAG this immediately.
+  (e.g. program, major, cohort_year, degree), FLAG this immediately (same HITL rule).
   The cohort base policy requires a human to decide whether to collapse to student-only
   and how to handle the dropped dimension (keep first enrollment, keep most recent, etc.).
-- Do NOT silently collapse a student-program key to student-only without flagging.
+- Do NOT silently collapse a student-program (or student-entry-term) key to student-only
+  without flagging.
 
 ### Course / enrollment-detail tables
 - Expected grain is (student_id, course_identifier, term).
@@ -458,6 +483,14 @@ def _identity_reasoning_steps() -> str:
         already prescribe **`suffix_identifier`** for course enrollment.
 
 3. Apply domain priors (see above) — these override data inference when they conflict.
+   **Student / demographic tables (hard override):** If this table is a student/demographic
+   file and the learner/student identifier alone has `non_unique_rows` > 0, do **not**
+   emit `post_clean_primary_key` that keeps extra dimensions (including temporal
+   `entry_term` / term) with `no_dedup` and `hitl_flag: false` — even when that longer
+   key has `uniqueness_score=1.0`. Domain prior **one row per student** wins over
+   profiler uniqueness; force HITL / `policy_required` (or an explicit learner-only
+   collapse still flagged for first-vs-latest). This override applies only to
+   student/demographic files — course and semester tables keep term in the grain.
 
 4. Determine dedup policy — PRIORITY: prefer collapse to one row per semantic grain **unless**
    DOMAIN PRIORS **forbid** dropping rows (**Repeat course enrollment — grade and credit preservation
@@ -772,6 +805,10 @@ Use a **number from 0.0 to 1.0** (same scale as Schema Mapping Agent field mappi
 - **above {t} and below 0.85**: data inference is clear but domain prior doesn't fully apply, or minor variance
 - **at or below {t}**: conflicting signals, ambiguous grain, or policy decision required → always set
   `hitl_flag` true
+- **Student / demographic multi-row exception:** when the learner id alone is non-unique and
+  collapse-to-one-row-per-student still needs a human policy choice, do **not** score in the
+  0.85–1.0 band. Cap at or below {t} (or the mid band) and set `hitl_flag` true — a fully
+  unique `(learner_id, entry_term)` key is **not** “domain prior confirms.”
 
 - `hitl_flag` MUST be true whenever `confidence` ≤ {t}. In the mid band (above {t} through below 0.85), set
   `hitl_flag` true when a policy choice is still required.

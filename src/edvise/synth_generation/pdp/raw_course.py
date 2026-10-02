@@ -1,12 +1,10 @@
 import typing as t
 from datetime import date
 
-from faker.providers import BaseProvider
-
-from ... import utils
+from edvise.synth_generation.shared import SynthFieldMixin, maybe_snake_case_keys
 
 
-class Provider(BaseProvider):
+class Provider(SynthFieldMixin):
     def raw_course_record(
         self, cohort_record: t.Optional[dict] = None, normalize_col_names: bool = False
     ) -> dict[str, object]:
@@ -100,79 +98,55 @@ class Provider(BaseProvider):
                 _has_enrollment_other_inst
             ),
         }
-        if normalize_col_names:
-            record = {
-                utils.data_cleaning.convert_to_snake_case(key): val
-                for key, val in record.items()
-            }
-        return record
+        return maybe_snake_case_keys(record, normalize_col_names=normalize_col_names)
 
     def student_guid(self) -> str:
-        return self.numerify("#####!")  # type: ignore
+        return self.synth_student_id()
 
     def institution_id(self) -> str:
-        return self.numerify("#####!")  # type: ignore
+        return self.synth_institution_id()
 
     def student_age(self) -> str:
-        return self.random_element(["20 AND YOUNGER", ">20 - 24", "OLDER THAN 24"])
+        return self.synth_student_age()
 
     def race(self) -> str:
-        return self.random_element(
-            [
-                "NONRESIDENT ALIEN",
-                "AMERICAN INDIAN OR ALASKA NATIVE",
-                "ASIAN",
-                "BLACK OR AFRICAN AMERICAN",
-                "NATIVE HAWAIIAN OR OTHER PACIFIC ISLANDER",
-                "WHITE",
-                "HISPANIC",
-                "TWO OR MORE RACES",
-                "UNKNOWN",
-            ]
-        )
+        return self.synth_race()
 
     def ethnicity(self) -> str:
-        return self.random_element(["H", "N", "UK"])
+        return self.synth_ethnicity()
 
     def gender(self) -> str:
-        return self.random_element(["M", "F", "P", "X", "UK"])
+        return self.synth_gender()
 
     def cohort(self, min_yr: int = 2010, max_yr: t.Optional[int] = None) -> str:
-        start_dt = self.generator.date_between(start_date=date(min_yr, 1, 1))
-        end_dt = start_dt.replace(year=start_dt.year + 1)
-        return f"{start_dt:%Y}-{end_dt:%y}"
+        return self.synth_academic_year(min_yr=min_yr, max_yr=max_yr)
 
     def cohort_term(self) -> str:
-        return self.random_element(["FALL", "WINTER", "SPRING", "SUMMER"])
+        return self.synth_term()
 
     def academic_year(self, min_yr: int = 2010, max_yr: t.Optional[int] = None) -> str:
-        start_dt = self.generator.date_between(
-            start_date=date(min_yr, 1, 1),
-            end_date=(date(max_yr, 1, 1) if max_yr else "today"),
-        ).replace(day=1)
-        end_dt = start_dt.replace(year=start_dt.year + 1)
-        return f"{start_dt:%Y}-{end_dt:%y}"
+        return self.synth_academic_year(min_yr=min_yr, max_yr=max_yr)
 
     def academic_term(self) -> str:
-        return self.random_element(["FALL", "WINTER", "SPRING", "SUMMER"])
+        return self.synth_term()
 
     # TODO: more realistic course prefix and number?
 
     def course_prefix(self) -> str:
-        return self.lexify("????").upper()
+        return self.synth_course_prefix()
 
     def course_number(self) -> str:
-        return self.numerify("##!")
+        return self.synth_course_number()
 
     def section_id(self) -> str:
-        return self.numerify("##!.#")
+        return self.synth_section_id()
 
     def course_name(self) -> str:
-        return " ".join(self.generator.words(nb=3, part_of_speech="noun")).upper()
+        return self.synth_course_title().upper()
 
     def course_cip(self) -> str:
         # TODO: make this six-digit CIP code more realistic
-        return self.numerify("##.####")
+        return self.synth_cip()
 
     def course_type(self) -> str:
         return self.random_element(
@@ -185,21 +159,15 @@ class Provider(BaseProvider):
     def co_requisite_course(self) -> str:
         return self.random_element(["Y", "N"])
 
-    def _course_date(self, min_yr: int = 2010, max_yr: t.Optional[int] = None) -> date:
-        _end_date = date(max_yr, 1, 1) if max_yr is not None else "today"
-        return self.generator.date_between(  # type: ignore
-            start_date=date(min_yr, 1, 1), end_date=_end_date
-        )
-
     def course_begin_date(
         self, min_yr: int = 2010, max_yr: t.Optional[int] = None
     ) -> date:
-        return self._course_date(min_yr, max_yr)
+        return self.synth_course_date(min_yr, max_yr)
 
     def course_end_date(
         self, min_yr: int = 2010, max_yr: t.Optional[int] = None
     ) -> date:
-        return self._course_date(min_yr, max_yr)
+        return self.synth_course_date(min_yr, max_yr)
 
     def grade(self) -> str:
         # TODO: use weighting for more realistic distribution?
@@ -211,11 +179,7 @@ class Provider(BaseProvider):
     def _number_of_credits(
         self, min_value: float = 0.0, max_value: float = 20.0
     ) -> float:
-        return self.generator.pyfloat(  # type: ignore
-            min_value=min_value,
-            max_value=max(max_value, min_value + 1e-3),
-            right_digits=1,
-        )
+        return self.synth_credits(min_value=min_value, max_value=max_value)
 
     def number_of_credits_attempted(self) -> float:
         return self._number_of_credits(min_value=1.0)

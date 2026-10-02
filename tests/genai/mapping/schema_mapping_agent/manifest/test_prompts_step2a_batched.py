@@ -14,6 +14,9 @@ from edvise.genai.mapping.schema_mapping_agent.manifest.prompts import (
     build_step2a_prompt_course_pass,
     extract_schema_descriptor,
 )
+from edvise.genai.mapping.schema_mapping_agent.manifest.prompts.common_rules import (
+    STEP2A_SHARED_POLICY_RULES,
+)
 
 
 def _minimal_institution_schema_contract() -> dict:
@@ -182,3 +185,36 @@ def test_refinement_prompts_include_cohort_and_course_type_vs_major_rules():
     assert "term_degree" in pass1 and "term_declared_major" in pass1
     assert "prefer degree/credential-type columns" in pass2
     assert "Course term_degree vs term_declared_major" in pass2
+
+
+def test_shared_policy_rules_appear_once_in_generate_and_refinement():
+    """Datetime-not-HITL and all-null unmapped live in one fragment injected into 2a + HITL."""
+    policy = STEP2A_SHARED_POLICY_RULES
+    assert "DATETIME PARSING IS NOT A HITL REASON" in policy
+    assert "ALL-NULL SOURCE COLUMNS ARE AUTOMATICALLY UNMAPPED" in policy
+
+    generate_prompts = [
+        build_step2a_batched_prompt(
+            **_shared_prompt_kwargs(),
+            cohort_schema_class=RawEdviseStudentDataSchema,
+            course_schema_class=RawEdviseCourseDataSchema,
+        ),
+        build_step2a_prompt_cohort_pass(
+            **_shared_prompt_kwargs(),
+            cohort_schema_class=RawEdviseStudentDataSchema,
+        ),
+        build_step2a_prompt_course_pass(
+            **_shared_prompt_kwargs(),
+            course_schema_class=RawEdviseCourseDataSchema,
+        ),
+    ]
+    refinement_prompts = [
+        build_refinement_pass1_system_prompt(),
+        build_refinement_pass2_system_prompt(),
+    ]
+    for text in generate_prompts + refinement_prompts:
+        assert text.count(policy.strip()) == 1
+        assert (
+            "use lower confidence and validation_notes when parsing is required"
+            not in text
+        )

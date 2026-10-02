@@ -46,9 +46,7 @@ pointing at specific workspaces (`dev_sst_02` / `staging_sst_01`):
 - `pdp/` — the standardized PDP (Postsecondary Data Partnership / NSC) schema pipeline.
 - `es/` — "Edvise Schema", the standardized path for non-PDP institutions.
 - `legacy/` — older, fully custom per-institution pipelines predating the ES schema (one config maps to one
-  model; see `notebooks/legacy_templates/README.md` for the manual notebook execution order:
-  `00-data-assessment → 01-preprocess-data → 02-train-h2o-model → 03-make-h2o-predictions →
-  04-register-h2o-model-create-card → 05-inference-validation`).
+  model).
 - `genai_mapping/` — the GenAI onboarding pipeline (below); runs upstream of `pdp`/`es`, producing the
   standardized silver data those pipelines consume.
 - `ingestion/shared/` — shared ingestion bundle.
@@ -69,7 +67,7 @@ databricks bundle run <job_name> --target dev --params config_file_name=config.t
 Root-level `configs/` holds per-institution TOML templates (`configs/pdp_h2o/`, `configs/legacy_h2o/`,
 `configs/genai_mapping/`) that get deployed per institution and passed to scripts via `--config_file_path`.
 These are distinct from `src/edvise/configs/*.py`, the Pydantic schema classes (`PDPProjectConfig`,
-`LegacyProjectConfig`, etc.) that parse and validate them; `src/edvise/configs/schema_type.py` is the single
+`LegacyProjectConfig`, etc.) that parse and validate them; `src/edvise/shared/schema_type.py` is the single
 dispatch point mapping a `--schema_type` (`pdp`/`edvise`/`legacy`) flag to the right config class. That flag is
 the main axis pipeline scripts and `reporting/sections/{pdp,es,custom,legacy}` branch on.
 
@@ -129,8 +127,10 @@ Git-flow, driven end-to-end by chained GitHub Actions — there's no manual tagg
    dispatches **Finish Release**.
 3. **Finish Release** (`finish-release.yml`) opens the `release/<version> -> main` PR (blocked by `pre-release.yml`
    unless `CHANGELOG.md` was touched). Merging that PR triggers the same workflow's tag job: tags `v<version>`,
-   dispatches `release-deploy.yml` for that tag, and opens a `main -> develop` back-merge PR. Merging the
-   back-merge PR deletes the `release/<version>` branch.
+   dispatches `release-deploy.yml` for that tag, and opens a `sync/<version> -> develop` back-merge PR
+   (throwaway head so GitHub's Update branch cannot merge `develop` into `main`). Merging the
+   back-merge PR deletes the `release/<version>` and `sync/<version>` branches. Start Release refuses to
+   cut a new release while that sync PR (or a `main` → `develop` PR) is still open.
 4. **release-deploy.yml** (on the `v*` tag push) fans out in parallel: core DAB bundles (`deploy.yml`, gated to
    staging_sst_01 only on a `v*` tag ref), the GenAI mapping bundle, the GenAI HITL Streamlit app, and the
    metadata dashboard app — each redeployed to both `dev` and `staging`.

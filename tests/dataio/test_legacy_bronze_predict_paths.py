@@ -175,6 +175,24 @@ def test_resolve_legacy_bronze_predict_file_ignores_separator_spelling(tmp_path:
     ) == str(spaced)
 
 
+def test_resolve_legacy_bronze_predict_file_ignores_timestamp_changes(
+    tmp_path: Path,
+):
+    current = tmp_path / "Datakind - Learner Report_20260916_095850.csv"
+    current.write_text("data", encoding="utf-8")
+
+    ds = {
+        "predict_file_keyword": "Datakind - Learner Report_20260910_142024.csv",
+        "train_file_path": str(tmp_path / "train.csv"),
+    }
+    assert resolve_legacy_bronze_predict_file(
+        ds,
+        dataset_key="raw_student",
+        db_workspace="dev_sst_02",
+        institution_id="alcorn_state_uni",
+    ) == str(current)
+
+
 def test_resolve_legacy_bronze_predict_file_raises_when_no_keyword_matches(
     tmp_path: Path,
 ):
