@@ -24,6 +24,16 @@ SFTP_TMP_VOLUME_FQN: str
 SFTP_TMP_DIR: str
 
 
+_CATALOG_PATH_NAMES = (
+    "CATALOG",
+    "MANIFEST_TABLE_PATH",
+    "SELECTED_TABLE_PATH",
+    "PLAN_TABLE_PATH",
+    "SFTP_TMP_VOLUME_FQN",
+    "SFTP_TMP_DIR",
+)
+
+
 def configure_nsc_catalog(catalog: str) -> None:
     """Set Unity Catalog name and derived table/volume paths (once per process)."""
     global CATALOG, MANIFEST_TABLE_PATH, SELECTED_TABLE_PATH, PLAN_TABLE_PATH
@@ -40,6 +50,14 @@ def configure_nsc_catalog(catalog: str) -> None:
     PLAN_TABLE_PATH = f"{CATALOG}.{DEFAULT_SCHEMA}.{PLAN_TABLE}"
     SFTP_TMP_VOLUME_FQN = f"{CATALOG}.{DEFAULT_SCHEMA}.{SFTP_TMP_VOLUME_NAME}"
     SFTP_TMP_DIR = f"/Volumes/{CATALOG}/{DEFAULT_SCHEMA}/{SFTP_TMP_VOLUME_NAME}"
+    # Helpers import these names before the job parameter is applied.
+    import sys
+
+    helpers = sys.modules.get("edvise.ingestion.nsc_sftp.helpers")
+    if helpers is not None:
+        for name in _CATALOG_PATH_NAMES:
+            if name in helpers.__dict__:
+                setattr(helpers, name, globals()[name])
 
 
 # SFTP settings

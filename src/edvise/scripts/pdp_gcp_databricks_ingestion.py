@@ -145,7 +145,7 @@ class DataIngestionTask:
             self.args.databricks_institution_name,
         )
         self.model_run_id = model_run_id
-        # Run root: <silver>/<model_run_id>/  (config may be here or in training/ or inference/)
+        # Run root: <silver>/<model_run_id>/  (config is in training/, never inference/)
         silver_run_root = (
             f"/Volumes/{self.args.DB_workspace}/"
             f"{self.args.databricks_institution_name}_silver/silver_volume/{model_run_id}"

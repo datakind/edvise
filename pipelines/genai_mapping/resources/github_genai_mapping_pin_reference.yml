@@ -3,6 +3,9 @@
 # Action is derived from catalog (no mode param):
 #   catalog=dev_sst_02      → publish from institution active/
 #   catalog=staging_sst_01  → pull references/ from fixed canonical catalog (dev_sst_02)
+#
+# run_as is pin_reference_ds_run_as (not bundle ds_run_as) so staging can use a
+# dedicated reference-promotion SP while onboard/execute keep the usual genai SP.
 resources:
   jobs:
     edvise_genai_mapping_pin_reference_pipeline:
@@ -11,6 +14,10 @@ resources:
       max_concurrent_runs: 5
       queue:
         enabled: true
+
+      # Overrides bundle-level run_as (see pipelines/genai_mapping/databricks.yml).
+      run_as:
+        service_principal_name: ${var.pin_reference_ds_run_as}
 
       tasks:
         - task_key: pin_reference
