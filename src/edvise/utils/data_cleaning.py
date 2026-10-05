@@ -106,6 +106,27 @@ def replace_values_with_null(
     return df[col].replace(to_replace=to_replace, value=None)
 
 
+def replace_missing_sentinel(series: pd.Series) -> pd.Series:
+    """Replace the string ``MISSING`` (any case, trimmed) with null."""
+    if not (
+        pd.api.types.is_object_dtype(series.dtype)
+        or pd.api.types.is_string_dtype(series.dtype)
+        or isinstance(series.dtype, pd.CategoricalDtype)
+    ):
+        return series
+    hit = series.astype("string").str.strip().str.upper().eq("MISSING").fillna(False)
+    if isinstance(series.dtype, pd.CategoricalDtype):
+        return series.astype("object").mask(hit)
+    return series.mask(hit)
+
+
+def replace_missing_sentinel_with_null(df: pd.DataFrame) -> pd.DataFrame:
+    text_cols = df.select_dtypes(include=["object", "string", "category"]).columns
+    if len(text_cols) == 0:
+        return df
+    return df.assign(**{col: replace_missing_sentinel(df[col]) for col in text_cols})
+
+
 def cast_to_bool_via_int(df: pd.DataFrame, *, col: str) -> pd.Series:
     return (
         df[col]

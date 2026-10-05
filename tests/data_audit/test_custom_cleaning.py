@@ -180,6 +180,18 @@ def test_clean_dataset_raises_on_column_collision(monkeypatch):
     assert "Column-name collisions" in str(exc.value)
 
 
+def test_clean_dataset_replaces_missing_sentinel():
+    df = pd.DataFrame(
+        {
+            "student_id": ["1", "2", "3", "4"],
+            "a": ["MISSING", " missing ", "NA", "ok"],
+        }
+    )
+    out = clean_dataset(df, CleanSpec(unique_keys=["student_id"]), dataset_name="t")
+    assert out["a"].isna().tolist() == [True, True, False, False]
+    assert out["a"].iloc[3] == "ok"
+
+
 def test_clean_dataset_student_id_rename_null_handling_and_pk_uniqueness(caplog):
     caplog.set_level(logging.INFO, logger="edvise.data_audit.custom_cleaning")
 
