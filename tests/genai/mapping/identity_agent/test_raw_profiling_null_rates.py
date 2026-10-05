@@ -45,6 +45,14 @@ def test_whitespace_only_counts_when_treat_empty_strings_as_null():
     assert col.null_rate_including_tokens == pytest.approx(0.5, rel=1e-4)
 
 
+def test_missing_sentinel_counts_as_token_null():
+    df = pd.DataFrame({"t": ["MISSING", " missing ", "ok"]})
+    rtp = profile_raw_table(df, "inst", "student", cleaning=CleaningConfig())
+    col = next(c for c in rtp.columns if c.name == "t")
+    assert col.null_rate == 0.0
+    assert col.null_rate_including_tokens == pytest.approx(2 / 3, rel=1e-4)
+
+
 def test_native_null_in_both_rates():
     df = pd.DataFrame({"t": [None, "2001FA"]})
     rtp = profile_raw_table(df, "inst", "student", cleaning=CleaningConfig())
