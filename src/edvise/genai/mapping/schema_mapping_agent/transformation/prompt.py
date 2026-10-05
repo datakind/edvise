@@ -147,13 +147,15 @@ term column visible in the schema contract, even if both columns appear on the s
 Different columns on the same table routinely use different term encodings.
 
 TERM CONFIG CONTEXT (when provided): If `institution_term_config` is present in the
-prompt, inspect the `season_map` for the dataset whose term column most plausibly
-matches the conferral source column's encoding — use it only to **recognize** season
-vocabulary / encoding family, not to build a finite `map_values` table. Still flag
-`review_required: true` and `reason: inferred_season_mapping` when the match between
-term config and conferral column encoding is uncertain. Do NOT apply a season_map from
-a different encoding scheme (e.g. entry term Season_YYYY season_map applied to a YYYYMM
-conferral column).
+prompt, inspect `season_map` as a **reference** for institution season vocabulary
+(labels, synonyms, calendar family) — not to build a finite `map_values` table.
+Prefer the dataset whose term column most closely matches the conferral source
+column's encoding when one is available; a season_map from a different encoding
+(e.g. entry term Season_YYYY while the conferral column is YYYYMM) may still inform
+season wording, but must not be treated as proof of the conferral column's token
+format — always ground format choice in that column's own `sample_values`. Still
+flag `review_required: true` and `reason: inferred_season_mapping` when the match
+between term config and conferral column encoding is uncertain.
 When the plan uses ``compact_term_code_to_conferral_date``, every token must already be
 ``YYYY`` + a suffix from the **EXECUTOR SUFFIX TABLE** below (IdentityAgent ``season_map``
 may use institution-specific spellings — those are **not** compact suffixes; use
@@ -346,14 +348,14 @@ def _step2b_term_config_context(institution_term_config: dict) -> str:
     return (
         "<institution_term_config>\n"
         "IdentityAgent term normalization output for this institution. "
-        "Use ONLY to recognize season vocabulary / encoding family on raw term-code "
-        "conferral date columns (case 2 in COHORT degree- and certificate-related "
-        "DATETIME rules). Do NOT build finite map_values tables from season_map. "
-        "Do NOT use to override the manifest's source_column "
-        "choice. Do NOT apply entry term season_map to a conferral column without "
-        "first verifying via sample_values that both columns share the same "
-        "encoding — different columns on the same table routinely use different "
-        "term encodings.\n"
+        "Use as a **reference** for season vocabulary / calendar family on raw "
+        "term-code conferral date columns (case 2 in COHORT degree- and "
+        "certificate-related DATETIME rules). Do NOT build finite map_values "
+        "tables from season_map. Do NOT override the manifest's source_column "
+        "choice. A season_map from a different column encoding may still inform "
+        "season labels, but always ground the conferral column's token format in "
+        "its own sample_values — different columns on the same table routinely "
+        "use different term encodings.\n"
         f"{json.dumps(institution_term_config, indent=2)}\n"
         "</institution_term_config>"
     )
