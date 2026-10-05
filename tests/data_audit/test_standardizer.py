@@ -23,6 +23,15 @@ def test_pdp_cohort_standardizer_keeps_first_term_snapshots() -> None:
     assert "program_of_study_year_1" in standardized.columns
 
 
+def test_es_course_standardizer_leaves_frame_unchanged_without_missing_sentinel() -> (
+    None
+):
+    df = pd.DataFrame(
+        {"grade": pd.Series(["A", "NA"], dtype="category"), "credits": [1.0, 2.0]}
+    )
+    assert ESCourseStandardizer().standardize(df) is df
+
+
 def test_es_course_standardizer_nulls_missing_sentinel() -> None:
     df = pd.DataFrame({"grade": ["A", "MISSING", " missing ", "NA"]})
     out = ESCourseStandardizer().standardize(df)
