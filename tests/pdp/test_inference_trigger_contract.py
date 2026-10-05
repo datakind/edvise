@@ -28,10 +28,22 @@ def test_build_versioned_inference_job_parameters_flat() -> None:
     assert params["schema_type"] == "pdp"
     assert params["model_name"] == "retention_into_year_2_associates"
     assert params["cohort_file_name"] == "cohort.csv"
+    assert "term_filter" not in params
     assert "stable_trigger_json" not in params
     assert "viewer_user" not in params
     assert "inference_output_run_id" not in params
     assert "inference_parameters_json" not in params
+
+
+def test_build_versioned_inference_job_parameters_includes_term_filter() -> None:
+    params = itc.build_versioned_inference_job_parameters(
+        databricks_institution_name="miles_cc",
+        model_name="retention_into_year_2_associates",
+        db_workspace="staging_sst_01",
+        term_filter='["fall 2025-26", "spring 2025-26"]',
+    )
+    assert params["term_filter"] == '["fall 2025-26", "spring 2025-26"]'
+    assert "term_filter" in itc.VERSIONED_INFERENCE_LAUNCHER_JOB_PARAMETERS
 
 
 def test_build_versioned_inference_job_parameters_with_extra_json() -> None:
