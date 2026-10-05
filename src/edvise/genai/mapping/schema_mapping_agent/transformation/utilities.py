@@ -8,7 +8,8 @@ No DataFrame context, no cross-table joins — those are handled by field_execut
 
 # Conferral Date
 ``academic_year_and_canonical_season_to_conferral_date``,
-``compact_term_code_to_conferral_date``, and
+``compact_term_code_to_conferral_date``,
+``spelled_season_year_to_conferral_date``, and
 ``SEASON_END_MONTH_DAY`` build proxy end-of-term
 conferral datetimes from academic year strings (YYYY-YY) and canonical season labels;
 see definitions at the bottom of this module.
@@ -20,6 +21,7 @@ Removed from previous version:
   - deduplicate_rows: DataFrame-level operation, not compatible with Series-only model
 """
 
+import re
 import typing as t
 import warnings
 from datetime import datetime
@@ -649,6 +651,50 @@ def compact_term_code_to_conferral_date(s: pd.Series) -> pd.Series:
     year_series = parts[0].astype("string")
     suffix = parts[1].astype("string").str.upper()
     season_series = suffix.map(COMPACT_TERM_CODE_SUFFIX_TO_SEASON)
+    return academic_year_and_canonical_season_to_conferral_date(
+        year_series, season_series
+    )
+
+
+# Spelled English season + calendar year with a separator (space / hyphen / slash).
+# Open-ended: any matching year parses — do not materialize these via map_values.
+_YEAR_THEN_SPELLED_SEASON_RE = re.compile(
+    r"^(?P<year>\d{4})\s*[-/\s]\s*(?P<season>Spring|Summer|Fall|Winter)$",
+    re.IGNORECASE,
+)
+_SPELLED_SEASON_THEN_YEAR_RE = re.compile(
+    r"^(?P<season>Spring|Summer|Fall|Winter)\s*[-/\s]\s*(?P<year>\d{4})$",
+    re.IGNORECASE,
+)
+
+
+def spelled_season_year_to_conferral_date(s: pd.Series) -> pd.Series:
+    """
+    **One** Series of spelled season + year tokens → proxy conferral datetime.
+
+    Accepts ``YYYY Season`` and ``Season YYYY`` with space, hyphen, or slash
+    separators (e.g. ``2019 Spring``, ``Fall 2023``, ``2020-Summer``). Season
+    words are matched case-insensitively, uppercased to canonical FALL / SPRING /
+    SUMMER / WINTER, then delegated to
+    :func:`academic_year_and_canonical_season_to_conferral_date`.
+
+    Prefer this over ``map_values`` → ``compact_term_code_to_conferral_date`` for
+    separator formats: a closed lookup of observed years nulls out future terms.
+
+    Contiguous compact codes (``2025SP``) belong on
+    :func:`compact_term_code_to_conferral_date` instead. Unrecognized tokens →
+    ``NaT``.
+    """
+    str_s = s.astype("string").str.strip()
+    year_first = str_s.str.extract(_YEAR_THEN_SPELLED_SEASON_RE, expand=True)
+    season_first = str_s.str.extract(_SPELLED_SEASON_THEN_YEAR_RE, expand=True)
+    year_series = year_first["year"].fillna(season_first["year"]).astype("string")
+    season_series = (
+        year_first["season"]
+        .fillna(season_first["season"])
+        .astype("string")
+        .str.upper()
+    )
     return academic_year_and_canonical_season_to_conferral_date(
         year_series, season_series
     )

@@ -15,6 +15,7 @@ from edvise.genai.mapping.shared.token_audit.prompt_token_audit import (
 )
 
 from .schemas import (
+    CONFERRAL_DATETIME_FIELDS_FORBIDDING_MAP_VALUES,
     RAW_EDVISE_FIELDS_FORBIDDING_MAP_VALUES,
     get_transformation_map_schema_context,
 )
@@ -147,16 +148,17 @@ Different columns on the same table routinely use different term encodings.
 
 TERM CONFIG CONTEXT (when provided): If `institution_term_config` is present in the
 prompt, inspect the `season_map` for the dataset whose term column most plausibly
-matches the conferral source column's encoding. Use it to pre-fill the `map_values`
-mapping rather than inferring from sample_values alone — this raises confidence when
-the season map covers all observed fragments. Still flag `review_required: true` and
-`reason: inferred_season_mapping` when the match between term config and conferral
-column encoding is uncertain. Do NOT apply a season_map from a different encoding
-scheme (e.g. entry term Season_YYYY season_map applied to a YYYYMM conferral column).
-When the plan chains to ``compact_term_code_to_conferral_date``, every **full** token
-after ``map_values`` must be ``YYYY`` + a suffix from the **EXECUTOR SUFFIX TABLE** below
-(IdentityAgent ``season_map`` may use institution-specific spellings — you must **translate**
-those into allowed compact suffixes, e.g. never emit ``MW`` or other codes outside the table).
+matches the conferral source column's encoding — use it only to **recognize** season
+vocabulary / encoding family, not to build a finite `map_values` table. Still flag
+`review_required: true` and `reason: inferred_season_mapping` when the match between
+term config and conferral column encoding is uncertain. Do NOT apply a season_map from
+a different encoding scheme (e.g. entry term Season_YYYY season_map applied to a YYYYMM
+conferral column).
+When the plan uses ``compact_term_code_to_conferral_date``, every token must already be
+``YYYY`` + a suffix from the **EXECUTOR SUFFIX TABLE** below (IdentityAgent ``season_map``
+may use institution-specific spellings — those are **not** compact suffixes; use
+``spelled_season_year_to_conferral_date`` or ``hook_required`` instead of inventing a
+closed remap).
 
 **EXECUTOR SUFFIX TABLE** for ``compact_term_code_to_conferral_date`` (must match runtime;
 case-insensitive; token = 4-digit calendar year + suffix with **no** separator):
@@ -171,14 +173,22 @@ This branch applies whether the manifest's `source_table` is an award/degree loo
 (joined from student) or the wide student row directly. Step 2a handles join + filter +
 order; the resolved Series arrives at Step 2b as a single value per student.
 
+**`map_values` is forbidden** on these conferral/certificate datetime targets (schema
+validation rejects it): `bachelors_degree_conferral_date`, `associates_degree_conferral_date`,
+`certificate1_date`, `certificate2_date`, `certificate3_date`. Never build a closed
+year/season lookup — future terms would become null.
+
 CONFERRAL-STYLE DATETIME — EXACT ``function_name`` VALUES (copy these strings into JSON)
+- ``spelled_season_year_to_conferral_date`` — **one** resolved source column with **spelled**
+  English season + year and a separator (space, hyphen, or slash), either order:
+  ``2019 Spring``, ``Fall 2023``, ``2020-Summer``. Open-ended: any matching year parses —
+  do **not** materialize observed years via `map_values`. Typical chain:
+  ``strip_whitespace`` → ``spelled_season_year_to_conferral_date``.
 - ``compact_term_code_to_conferral_date`` — **one** resolved source column with **contiguous** compact tokens such as
   ``2025SP``, ``2024FA``, ``2015S1`` (4-digit year immediately followed by the suffix; **no** space or punctuation
-  between year and season). Values like ``2019 Spring`` or ``2020-Fall`` are **not** compact: ``strip_whitespace``
-  only trims ends and will **not** produce a valid token — insert ``map_values`` first (each observed raw string → a
-  contiguous code, e.g. ``2019 Spring`` → ``2019SP``) then ``compact_term_code_to_conferral_date``. When samples are
-  already contiguous, typical chain: ``strip_whitespace`` → ``compact_term_code_to_conferral_date`` only (no
-  ``extract_year`` before it).
+  between year and season). Values like ``2019 Spring`` or ``2020-Fall`` are **not** compact — use
+  ``spelled_season_year_to_conferral_date`` instead. When samples are already contiguous, typical chain:
+  ``strip_whitespace`` → ``compact_term_code_to_conferral_date`` only (no ``extract_year`` before it).
 - ``academic_year_and_canonical_season_to_conferral_date`` — **two** inputs: the pipelined ``column`` must carry
   a 4-digit calendar year (string may embed it, e.g. ``2022-23``); ``extra_columns`` must include
   ``{{"season_series": "<name of a real base-table column>"}}`` whose values are canonical FALL / SPRING /
@@ -194,8 +204,8 @@ HOW TO CHOOSE CONFERRAL UTILITIES (executor contract — read before picking ste
     use `academic_year_and_canonical_season_to_conferral_date` or `term_components_to_datetime` here (they need `extra_columns` from
     **physical base-table columns**). For one token that encodes year + season as a **contiguous** compact code
     (``2025SP``, ``2024FA``, …): `strip_whitespace` → `compact_term_code_to_conferral_date`. If samples show a
-    separator (e.g. ``2019 Spring``), add `map_values` before `compact_term_code_to_conferral_date` as in the
-    YYYY+suffix rules below. For true YYYYMM calendar encodings on that same
+    separator with spelled seasons (e.g. ``2019 Spring``, ``Fall 2023``):
+    `strip_whitespace` → `spelled_season_year_to_conferral_date`. For true YYYYMM calendar encodings on that same
     single column: `strip_trailing_decimal` → `coerce_datetime(fmt="%Y%m")` when justified by sample_values.
     If the format needs a year column + a separate season column but only one lookup column exists →
     `hook_required: true`, empty `steps`, explain in `reviewer_notes` (executor gap).
@@ -205,16 +215,21 @@ HOW TO CHOOSE CONFERRAL UTILITIES (executor contract — read before picking ste
     the primary `column` / pipelined series and `_edvise_term_season` in `extra_columns` — but conferral
     targets must not source `_edvise_term_*` as the manifest `source_column` per rules above; this case is
     rare for conferral and usually means a different target or a wide row with paired columns).
+    For a single spelled season+year column on the base table, prefer
+    `strip_whitespace` → `spelled_season_year_to_conferral_date`.
 
 - **YYYY + compact season suffix** (e.g. ``2025SP``, ``2024FA``, ``2015S1`` — year and suffix **touching**):
-  - If sample_values show a **separator** between the year and season words (space, hyphen, slash), treat as **not**
-    compact: `strip_whitespace` → `map_values` (distinct raw strings → contiguous tokens such as ``2019SP``) →
-    `compact_term_code_to_conferral_date` on the **same** pipelined Series. (This is not using `map_values` output as
-    `extra_columns` — it is normalizing the token before the compact parser.)
   - When values are already contiguous compact codes: `strip_whitespace` → `compact_term_code_to_conferral_date` — **one
     Series only**; do not chain `academic_year_and_canonical_season_to_conferral_date` with `extra_columns` here (lookup
     columns like `term` are not on the cohort base table, and you cannot point `extra_columns` at prior-step output).
   - Flag `review_required: true` when suffix coverage is inferred from sample_values.
+
+- **Spelled season + year with separator** (e.g. ``2019 Spring``, ``Fall 2023``, ``2020-Summer``):
+  - `strip_whitespace` → `spelled_season_year_to_conferral_date` on the **same** pipelined Series.
+  - **Never** use `map_values` to rewrite observed years into compact codes — schema validation rejects
+    that pattern (and rejects `map_values` on all five conferral/certificate datetime targets).
+  - If season words are non-English or outside Spring/Summer/Fall/Winter → `hook_required: true`,
+    empty `steps`, explain in `reviewer_notes`.
 
 - **YYYYMM-style compact numeric** (e.g. sample_values show "202301.0", "202305.0"):
   - `strip_trailing_decimal` → leaves "202301", "202305"
@@ -222,24 +237,11 @@ HOW TO CHOOSE CONFERRAL UTILITIES (executor contract — read before picking ste
     distribution across all 12), treat as true YYYYMM → `coerce_datetime(fmt="%Y%m")`.
   - If digits 5–6 appear to be season codes (e.g. only "01", "05", "08" appear — sparse, not all
     12 months): **do not** chain to `academic_year_and_canonical_season_to_conferral_date` when the manifest `source_table` is a
-    **lookup** — `map_values` output is not a base-table column and cannot be passed via `extra_columns`.
+    **lookup** — prior-step outputs are not base-table columns and cannot be passed via `extra_columns`.
     Prefer `hook_required: true` with empty `steps` and `reviewer_notes` describing the encoding until a
     single-Series utility or manifest change exists. If the manifest `source_table` **is** the cohort base and
     two **physical** base columns supply year fragment + season fragment, you may design a base-table-only
     chain; otherwise do not simulate paired columns through Step 2b alone.
-  - Any inferred season fragment `map_values` on conferral: flag `reason=inferred_season_mapping`,
-    `review_required: true`, confidence ≤ PIPELINE_HITL_CONFIDENCE_THRESHOLD when applicable.
-
-- **Season_YYYY string** (e.g. "Fall 2023", "Spring 2022"):
-  - Only when the manifest `source_column` lives on the **cohort base table** so a second column for
-    `academic_year_and_canonical_season_to_conferral_date` can legally be resolved: e.g. split into year + season columns that
-    both exist on `student`, or use `compact_term_code_to_conferral_date` / `coerce_datetime` if a single
-    token column is easier.
-  - If you truly have paired year and season **as base-table columns**, you may use
-    `academic_year_and_canonical_season_to_conferral_date` with `extra_columns` pointing only at those base columns — never at
-    a joined lookup-only column.
-  - `map_values` is flagged: `reason=inferred_season_mapping` unless `unique_values` provides complete
-    explicit coverage.
 
 - **Opaque format** — cannot classify from sample_values alone:
   - `hook_required: true`, empty `steps`, `reviewer_notes` explaining what was observed.
@@ -344,9 +346,10 @@ def _step2b_term_config_context(institution_term_config: dict) -> str:
     return (
         "<institution_term_config>\n"
         "IdentityAgent term normalization output for this institution. "
-        "Use ONLY to inform season fragment mapping decisions on raw term-code "
+        "Use ONLY to recognize season vocabulary / encoding family on raw term-code "
         "conferral date columns (case 2 in COHORT degree- and certificate-related "
-        "DATETIME rules). Do NOT use to override the manifest's source_column "
+        "DATETIME rules). Do NOT build finite map_values tables from season_map. "
+        "Do NOT use to override the manifest's source_column "
         "choice. Do NOT apply entry term season_map to a conferral column without "
         "first verifying via sample_values that both columns share the same "
         "encoding — different columns on the same table routinely use different "
@@ -454,6 +457,9 @@ def _step2b_rules() -> str:
     _raw_edvise_no_map_values = ", ".join(
         sorted(RAW_EDVISE_FIELDS_FORBIDDING_MAP_VALUES)
     )
+    _conferral_no_map_values = ", ".join(
+        sorted(CONFERRAL_DATETIME_FIELDS_FORBIDDING_MAP_VALUES)
+    )
     return f"""<rules>
 STRUCTURE
 - Match the reference transformation map shape: transformation_maps with cohort + course sections,
@@ -521,11 +527,9 @@ OUTPUT DTYPES
 
 STEP ORDERING
 - Apply string cleaning (strip_whitespace, lowercase, uppercase) before value mapping
-- Never place `extract_year` before `compact_term_code_to_conferral_date` in the same plan — the compact
-  parser needs the full token (e.g. 2025SP) on the pipelined Series. Schema validation rejects that order.
-  For chains that use `map_values` on full tokens then `extract_year` for
-  `academic_year_and_canonical_season_to_conferral_date`, run `map_values` **before**
-  `extract_year`.
+- Never place `extract_year` before `compact_term_code_to_conferral_date` or
+  `spelled_season_year_to_conferral_date` in the same plan — those parsers need the full
+  year+season token on the pipelined Series. Schema validation rejects that order.
 - If map_values key matching depends on a normalized form (e.g. uppercase grade tokens),
   apply the normalizing step (normalize_grade, uppercase, etc.) BEFORE map_values —
   not after. The map keys must match the values that actually arrive at that step.
@@ -548,8 +552,9 @@ EXTRA COLUMNS
   the cross-table resolver only fetches the manifest's `source_column`, not arbitrary co-resolved
   columns from the same selected lookup row. The output of an earlier Step 2b step is **not** a new
   base-table column — you cannot point `extra_columns` at ``"term"`` (or any lookup-only field) to
-  stand in for a prior `map_values` result; use `compact_term_code_to_conferral_date` for single-token
-  codes like ``2025SP`` from degree/award lookups instead.
+  stand in for a prior step result; use `compact_term_code_to_conferral_date` for contiguous
+  codes like ``2025SP``, or `spelled_season_year_to_conferral_date` for ``2019 Spring`` /
+  ``Fall 2023``, from degree/award lookups instead.
 
 NULL HANDLING
 - Missing values are already pd.NA upstream. Do not fill nulls with invented labels
@@ -566,9 +571,10 @@ CONSTANT FIELDS
 MAP VALUES USAGE
 - **Do not use map_values** on these RawEdvise targets — the pipeline rejects such plans;
   preserve institution source wording (use strip_whitespace, cast_string, or empty steps only): {_raw_edvise_no_map_values}.
-- Intermediate map_values on **datetime conferral / certificate targets** is allowed when required by
-  **COHORT degree- and certificate-related DATETIME** (token shaping before parsers such as
-  compact_term_code_to_conferral_date). That pattern is not value-remapping of free-text cohort or term-snapshot labels.
+- **Do not use map_values** on these completion datetime targets either — the pipeline rejects
+  such plans (closed year/season lookups null future terms): {_conferral_no_map_values}.
+  Use `spelled_season_year_to_conferral_date`, `compact_term_code_to_conferral_date`,
+  `coerce_datetime`, or `hook_required` per **COHORT degree- and certificate-related DATETIME**.
 - Otherwise, map_values is appropriate only where the target schema enforces a constrained
   allowed-value set: category fields (academic_term, entry_term, pell_recipient_year1,
   term_pell_recipient), learner_age (isin LEARNER_AGE_BUCKETS), and grade
