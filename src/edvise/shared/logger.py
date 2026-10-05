@@ -187,6 +187,12 @@ def _read_run_id(path: str) -> Optional[str]:
         return None
 
 
+def _is_config_toml(name: str) -> bool:
+    """Project config snapshots stay put. Inference archival must not relocate them."""
+    lower = name.lower()
+    return lower.endswith(".toml") and "config" in lower
+
+
 def _relocate_entries(
     src_dir: str,
     dest_dir: str,
@@ -197,7 +203,7 @@ def _relocate_entries(
         return
     os.makedirs(dest_dir, exist_ok=True)
     for name in os.listdir(src_dir):
-        if name in skip:
+        if name in skip or _is_config_toml(name):
             continue
         src = os.path.join(src_dir, name)
         dest = os.path.join(dest_dir, name)
@@ -207,8 +213,17 @@ def _relocate_entries(
 
 
 def _archive_prior_inference_run(inference_dir: str, job_run_id: str) -> None:
-    """Move existing ``inference/`` files to ``inference/archive/<prior_run>``."""
+    """Move existing ``inference/`` outputs to ``inference/archive/<prior_run>``.
+
+    Config TOML files are left in place. This never operates on a ``training/``
+    directory: the trained model's config lives there for the life of the model.
+    """
     root = local_fs_path(inference_dir)
+    if os.path.basename(os.path.normpath(root)) != "inference":
+        raise ValueError(
+            f"Refusing to archive {root!r}: only an inference/ directory can be "
+            "archived. Training config must stay in training/."
+        )
     archive_root = os.path.join(root, "archive")
     marker = os.path.join(root, "run_id")
     prior = _read_run_id(marker)

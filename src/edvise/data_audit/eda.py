@@ -343,8 +343,23 @@ def _drop_incomplete_pairs(s1: pd.Series, s2: pd.Series) -> tuple[pd.Series, pd.
     return (df["s1"], df["s2"])
 
 
+def _missing_mask(series: pd.Series) -> pd.Series:
+    """Pandas-null or the string ``MISSING`` (any case, trimmed)."""
+    missing = series.isna()
+    if not (
+        pd.api.types.is_object_dtype(series.dtype)
+        or pd.api.types.is_string_dtype(series.dtype)
+        or isinstance(series.dtype, pd.CategoricalDtype)
+    ):
+        return missing
+    token = series.astype("string").str.strip().str.upper().eq("MISSING").fillna(False)
+    return missing | token
+
+
 def log_high_null_columns(df: pd.DataFrame, threshold: float = 0.2) -> None:
-    null_ratios = df.isna().mean(axis="index").sort_values(ascending=False)
+    null_ratios = pd.Series(
+        {col: _missing_mask(series).mean() for col, series in df.items()}
+    ).sort_values(ascending=False)
     high_nulls = null_ratios[null_ratios > threshold]
 
     if high_nulls.empty:
@@ -1742,8 +1757,8 @@ def check_variable_missingness(
 
     For each variable in `var_list`, this function:
     - Verifies the column exists in the DataFrame.
-    - Logs the percentage distribution of all values, including NaNs.
-    - Flags variables whose percentage of missing values meets or exceeds
+    - Logs the percentage distribution of all values, including NaNs and "MISSING".
+    - Flags variables whose share of null or "MISSING" values meets or exceeds
       the specified null threshold.
 
     This function is intended for exploratory data validation and bias auditing.
@@ -1777,15 +1792,10 @@ def check_variable_missingness(
         pct_counts = (
             df[var].value_counts(dropna=False, normalize=True).mul(100).round(2)
         )
-
-        null_pct = 0.0
+        null_pct = round(100 * float(_missing_mask(df[var]).mean()), 2)
 
         for value, pct in pct_counts.items():
-            if pd.isna(value):
-                label = "NaN"
-                null_pct = pct
-            else:
-                label = value
+            label = "NaN" if pd.isna(value) else value
             LOGGER.info(f"{label}: {pct}%")
 
         if null_pct >= null_threshold_pct:

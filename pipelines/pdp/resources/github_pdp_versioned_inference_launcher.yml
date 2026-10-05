@@ -1,7 +1,8 @@
 # PDP versioned inference launcher — triggered by edvise-api (see inference_trigger_contract.py).
 #
 # API-overridden job parameters mirror edvise_github_sourced_pdp_inference_pipeline plus:
-#   release_base_path, inference_parameters_json (optional archived-name overrides).
+#   release_base_path, inference_parameters_json (optional archived-name overrides),
+#   term_filter (JSON list forwarded to child inf_prep).
 #
 # Models trained in dev store pipeline_version as Git SHA; staging models store a release tag.
 resources:
@@ -72,6 +73,8 @@ resources:
               - "{{job.parameters.cohort_file_name}}"
               - --course_file_name
               - "{{job.parameters.course_file_name}}"
+              - --term_filter
+              - "{{job.parameters.term_filter}}"
               - --gcp_bucket_name
               - "{{job.parameters.gcp_bucket_name}}"
               - --datakind_notification_email
@@ -118,6 +121,8 @@ resources:
               - "{{job.parameters.cohort_file_name}}"
               - --course_file_name
               - "{{job.parameters.course_file_name}}"
+              - --term_filter
+              - "{{job.parameters.term_filter}}"
               - --gcp_bucket_name
               - "{{job.parameters.gcp_bucket_name}}"
               - --datakind_notification_email
@@ -177,6 +182,8 @@ resources:
         - name: cohort_file_name
           default: ""
         - name: course_file_name
+          default: ""
+        - name: term_filter
           default: ""
         - name: gcp_bucket_name
           default: ""
