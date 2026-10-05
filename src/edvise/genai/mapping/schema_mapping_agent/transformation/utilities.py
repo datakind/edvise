@@ -690,10 +690,7 @@ def spelled_season_year_to_conferral_date(s: pd.Series) -> pd.Series:
     season_first = str_s.str.extract(_SPELLED_SEASON_THEN_YEAR_RE, expand=True)
     year_series = year_first["year"].fillna(season_first["year"]).astype("string")
     season_series = (
-        year_first["season"]
-        .fillna(season_first["season"])
-        .astype("string")
-        .str.upper()
+        year_first["season"].fillna(season_first["season"]).astype("string").str.upper()
     )
     return academic_year_and_canonical_season_to_conferral_date(
         year_series, season_series

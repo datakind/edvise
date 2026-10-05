@@ -122,9 +122,7 @@ def _reject_closed_spelled_season_map_values_before_conferral(
     for i, step in enumerate(steps):
         if getattr(step, "function_name", None) != "map_values":
             continue
-        later = {
-            getattr(s, "function_name", None) for s in steps[i + 1 :]
-        }
+        later = {getattr(s, "function_name", None) for s in steps[i + 1 :]}
         if not later & _TOKEN_PRESERVING_CONFERRAL_FUNCTIONS:
             continue
         mapping = getattr(step, "mapping", None) or {}

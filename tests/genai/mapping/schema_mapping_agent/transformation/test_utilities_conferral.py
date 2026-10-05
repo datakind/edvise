@@ -18,7 +18,10 @@ from edvise.genai.mapping.schema_mapping_agent.transformation.utilities import (
         ("Fall 2023", "2023-12-31"),
         ("2020-Summer", "2020-08-31"),
         ("Winter/2021", "2021-03-31"),
-        ("2025SP", pd.NaT),  # compact codes belong on compact_term_code_to_conferral_date
+        (
+            "2025SP",
+            pd.NaT,
+        ),  # compact codes belong on compact_term_code_to_conferral_date
         ("not-a-term", pd.NaT),
     ],
 )
