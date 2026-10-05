@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from edvise.shared.logger import resolve_run_path
+from edvise.shared.logger import _archive_prior_inference_run, resolve_run_path
 
 
 def _inf_args(run_id: str | None) -> argparse.Namespace:
@@ -78,3 +78,34 @@ def test_latest_run_stays_in_inference_until_next_job(tmp_path) -> None:
     )
     assert (inference / "student_terms.parquet").read_text() == "second"
     assert not (inference / "archive" / "run-2").exists()
+
+
+def test_inference_archive_does_not_move_config_toml(tmp_path) -> None:
+    silver = str(tmp_path)
+    run_root = tmp_path / "model-1"
+    training = run_root / "training"
+    inference = run_root / "inference"
+    training.mkdir(parents=True)
+    inference.mkdir(parents=True)
+    (training / "config.toml").write_text("trained")
+    (inference / "config.toml").write_text("do-not-move")
+    (inference / "student_terms.parquet").write_text("old")
+
+    resolve_run_path(_inf_args("inf-new"), _cfg("model-1"), silver)
+
+    assert (training / "config.toml").read_text() == "trained"
+    assert (inference / "config.toml").read_text() == "do-not-move"
+    assert not (inference / "student_terms.parquet").exists()
+    assert (inference / "archive" / "student_terms.parquet").read_text() == "old"
+    assert not (inference / "archive" / "config.toml").exists()
+
+
+def test_archive_refuses_training_directory(tmp_path) -> None:
+    training = tmp_path / "model-1" / "training"
+    training.mkdir(parents=True)
+    (training / "config.toml").write_text("trained")
+
+    with pytest.raises(ValueError, match="Training config must stay in training/"):
+        _archive_prior_inference_run(str(training), "inf-new")
+
+    assert (training / "config.toml").read_text() == "trained"

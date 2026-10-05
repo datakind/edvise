@@ -69,12 +69,17 @@ def test_parse_is_genai_institution() -> None:
 
 def test_build_es_launcher_parameter_overrides_includes_es_fields() -> None:
     overrides = build_es_launcher_parameter_overrides(
-        _es_args(is_genai_institution="true", batch_id="b1")
+        _es_args(
+            is_genai_institution="true",
+            batch_id="b1",
+            term_filter='["fall 2025-26"]',
+        )
     )
     assert overrides["schema_type"] == "edvise"
     assert overrides["is_genai_institution"] == "true"
     assert overrides["batch_id"] == "b1"
     assert overrides["db_run_id"] == "12345"
+    assert overrides["term_filter"] == '["fall 2025-26"]'
     assert "cohort_file_name" not in overrides
 
 
