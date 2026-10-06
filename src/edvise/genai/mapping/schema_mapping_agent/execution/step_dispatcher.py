@@ -43,6 +43,7 @@ from ..transformation.utilities import (
     normalize_pell,
     normalize_student_age,
     compact_term_code_to_conferral_date,
+    spelled_season_year_to_conferral_date,
     replace_null_tokens,
     replace_values_with_null,
     strip_trailing_decimal,
@@ -165,6 +166,9 @@ def dispatch_step(
         "extract_year": lambda: extract_year(s),
         "compact_term_code_to_conferral_date": lambda: (
             compact_term_code_to_conferral_date(s)
+        ),
+        "spelled_season_year_to_conferral_date": lambda: (
+            spelled_season_year_to_conferral_date(s)
         ),
         "substring_after_first_delimiter": lambda: substring_after_first_delimiter(
             s,
