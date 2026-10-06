@@ -35,7 +35,10 @@ import pandas as pd
 import pydantic as pyd
 from pandas.api import types as ptypes
 
-from edvise.utils.data_cleaning import convert_to_snake_case
+from edvise.utils.data_cleaning import (
+    convert_to_snake_case,
+    replace_missing_sentinel_with_null,
+)
 from edvise.feature_generation.term import add_term_order
 
 if t.TYPE_CHECKING:
@@ -705,6 +708,7 @@ def clean_dataset(
     # 3) normalize null tokens & whitespace
     null_tokens = cleaning_cfg.null_tokens if cleaning_cfg else ["(Blank)"]
     g = g.replace(null_tokens, np.nan)
+    g = replace_missing_sentinel_with_null(g)
 
     obj_cols = g.select_dtypes(include=["object", "string"]).columns
     if cleaning_cfg is None or cleaning_cfg.treat_empty_strings_as_null:

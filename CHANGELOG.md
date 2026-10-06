@@ -1,3 +1,10 @@
+## 1.17.0 (2026-10-05)
+- fix: keep training config in place during inference archival (#352)
+- feat: update NA logs for columns to include "MISSING" strings (#366)
+- feat: versioned inference shared job cluster (#367)
+- feat: treat MISSING strings as null during cleaning (#368)
+- fix: forward term_filter through PDP versioned inference launcher (#369)
+
 ## 1.16.1 (2026-09-30)
 - fix: follow DB_workspace for NSC SFTP ingestion (#358)
 
