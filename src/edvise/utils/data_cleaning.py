@@ -585,10 +585,12 @@ def strip_trailing_decimal_strings(df_course: pd.DataFrame) -> pd.DataFrame:
                 r"\.0$", "", regex=True
             )
 
-            truncated = (pre_truncated != df_course[validated]).sum(min_count=1)
+            # fillna(False): NA != NA is NA under nullable string dtypes, and
+            # sum(min_count=1) then returns pd.NA — which breaks `x or 0`.
+            truncated = int((pre_truncated != df_course[validated]).fillna(False).sum())
             LOGGER.info(
                 ' Stripped trailing ".0" in %s rows for column "%s".',
-                int(truncated or 0),
+                truncated,
                 validated,
             )
     return df_course
