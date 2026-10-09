@@ -63,7 +63,7 @@ resources:
             - pypi:
                 package: numpy==1.26.4
             - pypi:
-                package: pyarrow>=17.0.0
+                package: pyarrow>=17.0.0,<26  # CVE-2024-52338; 26 requires numpy>=2
             - pypi:
                 package: requests==2.32.5
             - pypi:
@@ -93,7 +93,7 @@ resources:
             - pypi:
                 package: numpy==1.26.4
             - pypi:
-                package: pyarrow>=17.0.0
+                package: pyarrow>=17.0.0,<26  # CVE-2024-52338; 26 requires numpy>=2
             - pypi:
                 package: requests==2.32.5
             - pypi:
@@ -123,7 +123,7 @@ resources:
             - pypi:
                 package: numpy==1.26.4
             - pypi:
-                package: pyarrow>=17.0.0
+                package: pyarrow>=17.0.0,<26  # CVE-2024-52338; 26 requires numpy>=2
             - pypi:
                 package: requests==2.32.5
             - pypi:
