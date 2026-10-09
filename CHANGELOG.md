@@ -1,3 +1,6 @@
+## 1.17.2 (2026-10-08)
+- fix(h2o-automl): set unseen enum levels to missing before tree SHAP (#374)
+
 ## 1.17.1 (2026-10-06)
 - ci: comprehensive features table contract unit test for PDP/ES feature generation & cleanup (#357)
 - fix(genai): prevent closed map_values for spelled season+year conferral dates (#370)
