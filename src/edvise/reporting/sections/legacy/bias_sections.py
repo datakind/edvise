@@ -21,6 +21,14 @@ _FNR_COMPARISON_KEYS = (
 _DEFAULT_THRESHOLD = 0.5
 _DEFAULT_GROUP_COL = "student_group"
 _DEFAULT_GROUP_COL_ALIAS = "Student Group"
+_BIAS_MITIGATION_ARTIFACT_DIR = "bias_mitigation"
+_THRESHOLD_ARTIFACT_PREFIX = "bias_mitigation_thresholds_"
+_ARTIFACT_COLUMNS = {
+    "threshold": "bias_mitigation_custom_threshold",
+    "group_fnr": "bias_mitigation_group_fnr",
+    "reference_fnr": "bias_mitigation_reference_fnr",
+    "fnr_abs_gap": "bias_mitigation_fnr_abs_gap",
+}
 _PRE_MITIGATION_NOTE = (
     "This is the pre-mitigation training audit at the default threshold, "
     "using one threshold for every student."
@@ -166,12 +174,104 @@ def logged_bias_mitigation_values(card):
     return found
 
 
+def _as_bool(value):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return value == 1
+    if isinstance(value, str):
+        return value.strip().lower() in {"true", "1", "yes"}
+    return False
+
+
+def _select_threshold_row(frame, target_threshold):
+    """Row for the configured threshold, otherwise the search's chosen row."""
+    required = {"threshold", "group_fnr", "reference_fnr", "fnr_abs_gap"}
+    if frame.empty or not required.issubset(frame.columns):
+        return None
+    work = frame.copy()
+    work["_threshold"] = pd.to_numeric(work["threshold"], errors="coerce")
+    matched = work[(work["_threshold"] - float(target_threshold)).abs() <= 1e-4]
+    if not matched.empty:
+        return matched.iloc[0]
+    if "within_tolerance" in work.columns:
+        eligible = work[work["within_tolerance"].map(_as_bool)]
+        if not eligible.empty:
+            balanced = (
+                pd.to_numeric(eligible["balanced_accuracy"], errors="coerce")
+                if "balanced_accuracy" in eligible.columns
+                else pd.Series(pd.NA, index=eligible.index)
+            )
+            eligible = eligible.assign(
+                _balanced=balanced,
+                _gap=pd.to_numeric(eligible["fnr_abs_gap"], errors="coerce"),
+            )
+            return eligible.sort_values(
+                ["_balanced", "_gap"], ascending=[False, True], na_position="last"
+            ).iloc[0]
+    work = work.assign(_gap=pd.to_numeric(work["fnr_abs_gap"], errors="coerce"))
+    return work.sort_values("_gap", ascending=True, na_position="last").iloc[0]
+
+
+def artifact_bias_mitigation_values(card, mitigation):
+    """Read the chosen threshold row from the bias_mitigation search CSV."""
+    run_id = getattr(card, "run_id", None)
+    if not run_id:
+        return {}
+    paths = utils.list_paths_in_directory(run_id, _BIAS_MITIGATION_ARTIFACT_DIR)
+    csv_paths = sorted(
+        path
+        for path in paths
+        if os.path.basename(path).startswith(_THRESHOLD_ARTIFACT_PREFIX)
+        and path.endswith(".csv")
+    )
+    if not csv_paths:
+        return {}
+    local_path = utils.download_artifact(
+        run_id=run_id,
+        local_folder=getattr(card, "assets_folder", None),
+        artifact_path=csv_paths[-1],
+    )
+    if not isinstance(local_path, str) or not os.path.isfile(local_path):
+        LOGGER.warning(
+            "Bias mitigation threshold artifact was listed but could not be read: %s",
+            csv_paths[-1],
+        )
+        return {}
+    try:
+        frame = pd.read_csv(local_path)
+    except Exception as exc:
+        LOGGER.warning(
+            "Could not read bias mitigation threshold artifact %s: [%s] %s",
+            csv_paths[-1],
+            type(exc).__name__,
+            exc,
+        )
+        return {}
+    row = _select_threshold_row(frame, float(mitigation.custom_threshold))
+    if row is None:
+        return {}
+    found = {}
+    for column, key in _ARTIFACT_COLUMNS.items():
+        number = _coerce_float(row[column])
+        if number is None:
+            LOGGER.warning(
+                "Ignoring non-numeric bias mitigation artifact value for %s", column
+            )
+            continue
+        found[key] = number
+    return found
+
+
 def render_post_mitigation_section(card, mitigation):
     """Document the configured dual-threshold rule and any logged FNR comparison."""
     target_group = str(mitigation.student_group).strip()
     target_threshold = float(mitigation.custom_threshold)
     default_threshold = default_positive_threshold(card)
     logged = logged_bias_mitigation_values(card)
+    if not all(key in logged for key in _FNR_COMPARISON_KEYS):
+        for key, value in artifact_bias_mitigation_values(card, mitigation).items():
+            logged.setdefault(key, value)
 
     lines = [
         f"{card.format.header_level(4)}Post-Mitigation Dual Threshold\n",

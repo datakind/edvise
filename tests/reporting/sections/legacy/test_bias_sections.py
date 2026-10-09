@@ -229,9 +229,13 @@ def test_bias_summary_with_mitigation_includes_logged_fnr(
     mock_card.client.get_run.assert_called_once_with("run123")
 
 
+@patch(
+    "edvise.reporting.utils.utils.list_paths_in_directory",
+    return_value=[],
+)
 @patch("edvise.reporting.utils.utils.download_artifact")
 def test_bias_summary_with_mitigation_config_only_when_metrics_missing(
-    mock_download_artifact, mock_card, tmp_path
+    mock_download_artifact, _mock_list_paths, mock_card, tmp_path
 ):
     mock_card.cfg.student_group_aliases = {"gender": "Gender"}
     mock_card.cfg.modeling.bias_mitigation = SimpleNamespace(
@@ -267,9 +271,13 @@ def test_bias_summary_with_mitigation_config_only_when_metrics_missing(
     )
 
 
+@patch(
+    "edvise.reporting.utils.utils.list_paths_in_directory",
+    return_value=[],
+)
 @patch("edvise.reporting.utils.utils.download_artifact")
 def test_bias_summary_documents_rule_when_mlflow_read_fails(
-    mock_download_artifact, mock_card, tmp_path
+    mock_download_artifact, _mock_list_paths, mock_card, tmp_path
 ):
     mock_card.cfg.student_group_aliases = {"student_group": "Student Group"}
     mock_card.cfg.modeling.bias_mitigation = SimpleNamespace(
@@ -293,9 +301,66 @@ def test_bias_summary_documents_rule_when_mlflow_read_fails(
     assert "12% difference" in summary
 
 
+@patch("edvise.reporting.utils.utils.list_paths_in_directory")
+@patch("edvise.reporting.utils.utils.download_artifact")
+def test_bias_summary_reads_fnr_from_threshold_artifact(
+    mock_download_artifact, mock_list_paths, mock_card, tmp_path
+):
+    mock_card.cfg.student_group_aliases = {"age_bias_group": "Age Bias Group"}
+    mock_card.cfg.modeling.bias_mitigation = SimpleNamespace(
+        student_group_col="age_bias_group",
+        student_group_col_alias="Age",
+        student_group="18-24",
+        custom_threshold=0.3,
+    )
+    mock_card.cfg.inference.min_prob_pos_label = 0.5
+    run = MagicMock()
+    run.data.params = {}
+    run.data.metrics = {}
+    mock_card.client.get_run.return_value = run
+
+    artifact_name = "bias_mitigation/bias_mitigation_thresholds_oc7qn6v_.csv"
+    frame = pd.DataFrame(
+        {
+            "group": ["18-24", "18-24", "18-24"],
+            "threshold": [0.2, 0.3, 0.4],
+            "reference_fnr": [0.21621621621621623] * 3,
+            "group_fnr": [0.05, 0.2074074074074074, 0.29074074074074074],
+            "fnr_abs_gap": [
+                0.16621621621621624,
+                0.008808808808808827,
+                0.07452452452452452,
+            ],
+            "within_tolerance": [False, True, False],
+            "balanced_accuracy": [0.64, 0.69, 0.74],
+        }
+    )
+    artifact_path = tmp_path / artifact_name
+    artifact_path.parent.mkdir(parents=True)
+    frame.to_csv(artifact_path, index=False)
+    mock_list_paths.return_value = [artifact_name]
+    mock_download_artifact.side_effect = _attach_bias_flags(
+        mock_card, tmp_path, "age_bias_group"
+    )
+
+    summary = _render_legacy_bias(mock_card)["bias_summary_section"]
+
+    assert "**18-24**" in summary
+    assert "**0.3**" in summary
+    assert "**20.7%**" in summary
+    assert "**21.6%**" in summary
+    assert "**0.9%**" in summary
+    assert "Post-mitigation metrics were not logged." not in summary
+    mock_list_paths.assert_called_once_with("run123", "bias_mitigation")
+
+
+@patch(
+    "edvise.reporting.utils.utils.list_paths_in_directory",
+    return_value=[],
+)
 @patch("edvise.reporting.utils.utils.download_artifact", return_value=None)
 def test_group_column_omits_generic_alias_for_custom_column(
-    _mock_download_artifact, mock_card
+    _mock_download_artifact, _mock_list_paths, mock_card
 ):
     mock_card.cfg.student_group_aliases = {}
     mock_card.cfg.modeling.bias_mitigation = SimpleNamespace(
