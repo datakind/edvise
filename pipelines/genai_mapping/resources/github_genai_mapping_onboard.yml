@@ -51,7 +51,7 @@ resources:
             - pypi:
                 package: databricks-sdk~=0.38.0
             - pypi:
-                package: pyarrow>=14.0.0
+                package: pyarrow>=17.0.0,<26  # CVE-2024-52338; 26 requires numpy>=2
 
         - task_key: ia_onboard_gate_1
           depends_on:
