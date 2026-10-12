@@ -300,7 +300,7 @@ resources:
             - pypi:
                 package: markdown~=3.5
             - pypi:
-                package: pyarrow>=17.0.0
+                package: pyarrow>=17.0.0,<26  # CVE-2024-52338; 26 requires numpy>=2
             - pypi:
                 package: polars~=0.20
       job_clusters:
