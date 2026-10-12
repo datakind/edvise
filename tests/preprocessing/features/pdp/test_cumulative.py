@@ -259,12 +259,13 @@ def test_add_cumfrac_terms_enrolled_features(df, exp_new):
             3,
             pd.DataFrame(
                 {
-                    "num_courses_diff_prev_term": [np.nan, -1.0, 0.0, 0.0, -1.0],
+                    # Summer (row 3) is skipped. Core sequence: 3, 2, 2, 1 courses.
+                    "num_courses_diff_prev_term": [np.nan, -1.0, np.nan, 0.0, -1.0],
                     "course_grade_num_mean_diff_prev_term": [
                         np.nan,
                         -1.5,
-                        -0.75,
-                        1.5,
+                        np.nan,
+                        0.75,
                         0.25,
                     ],
                     "num_courses_diff_term_1_to_term_2": [-1.0, -1.0, -1.0, -1.0, -1.0],
@@ -277,11 +278,11 @@ def test_add_cumfrac_terms_enrolled_features(df, exp_new):
                         -1.5,
                     ],
                     "course_grade_num_mean_diff_term_2_to_term_3": [
-                        -0.75,
-                        -0.75,
-                        -0.75,
-                        -0.75,
-                        -0.75,
+                        0.75,
+                        0.75,
+                        0.75,
+                        0.75,
+                        0.75,
                     ],
                 }
             ),
@@ -291,7 +292,7 @@ def test_add_cumfrac_terms_enrolled_features(df, exp_new):
             2,
             pd.DataFrame(
                 {
-                    "num_courses_diff_prev_term": [np.nan, -1.0, 0.0, 0.0, -1.0],
+                    "num_courses_diff_prev_term": [np.nan, -1.0, np.nan, 0.0, -1.0],
                     "num_courses_diff_term_1_to_term_2": [-1.0, -1.0, -1.0, -1.0, -1.0],
                 }
             ),
@@ -303,13 +304,15 @@ def test_add_term_diff_features(df, cols, max_term_num, exp_new):
     df = df.assign(
         cumnum_terms_enrolled=pd.Series([1.0, 2.0, 3.0, 4.0, 5.0]),
         cumnum_core_terms_enrolled=pd.Series([1.0, 2.0, 2.0, 3.0, 4.0]),
+        term_is_core=pd.Series([True, True, False, True, True]),
     )
     obs = cumulative.add_term_diff_features(
         df,
         cols=cols,
         max_term_num=max_term_num,
         student_id_cols=["student_id"],
-        term_num_col="cumnum_terms_enrolled",
+        term_num_col="cumnum_core_terms_enrolled",
+        core_term_flag_col="term_is_core",
     )
     assert isinstance(obs, pd.DataFrame) and not obs.empty
     # all *existing* columns are unchanged
