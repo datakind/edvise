@@ -53,10 +53,6 @@ def resolve_student_group_label(card, group_key):
         return card.format.friendly_case(group_key)
 
 
-def _is_number(value):
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
-
-
 def _coerce_float(value):
     if isinstance(value, bool) or isinstance(value, (list, dict)):
         return None
@@ -86,17 +82,11 @@ def _as_mapping(value):
 
 def configured_bias_mitigation(card):
     """Return bias mitigation config when a legacy school has set the rule."""
-    modeling = getattr(card.cfg, "modeling", None)
-    if modeling is None:
+    from edvise.configs.legacy import bias_mitigation_is_configured
+
+    if not bias_mitigation_is_configured(getattr(card, "cfg", None)):
         return None
-    mitigation = getattr(modeling, "bias_mitigation", None)
-    if mitigation is None:
-        return None
-    group = getattr(mitigation, "student_group", None)
-    threshold = getattr(mitigation, "custom_threshold", None)
-    if isinstance(group, str) and group.strip() and _is_number(threshold):
-        return mitigation
-    return None
+    return card.cfg.modeling.bias_mitigation
 
 
 def default_positive_threshold(card):
