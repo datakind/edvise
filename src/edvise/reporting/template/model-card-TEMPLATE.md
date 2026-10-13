@@ -175,7 +175,7 @@ The broader academic family in the [Classification of Instructional Programs (CI
 The more specific discipline or declared program, identified by a full CIP code (typically six digits, e.g. **27.0102** *Algebra and Number Theory*). A program of study is narrower than a [program of study area](#glossary-program-of-study-area): many distinct programs of study map to the same area (many specialties under *Mathematics and Statistics*, for instance). Official CIP titles and related resources are available from [NCES](https://nces.ed.gov/).
 
 ***Term-over-Term Comparison*** <a id="glossary-term-over-term"></a><br>
-A comparison of metrics across consecutive core terms (for example, fall to spring). Shorter terms such as summer and winter are left out of this comparison unless the school treats them as core terms.
+A comparison of metrics across consecutive Fall and Spring terms. Summer and Winter are left out of this comparison.
 
 #### Evaluation & Performance Metrics
 
