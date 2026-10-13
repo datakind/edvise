@@ -339,7 +339,13 @@ def test_add_noncore_credit_cumulative_features():
         df, student_id_cols=["student_id"]
     )
     assert obs.loc[:, df.columns].equals(df)
-    assert obs["cumsum_noncore_num_credits_earned"].tolist() == [0.0, 4.0, 4.0, 7.0, 0.0]
+    assert obs["cumsum_noncore_num_credits_earned"].tolist() == [
+        0.0,
+        4.0,
+        4.0,
+        7.0,
+        0.0,
+    ]
     assert obs["cumsum_noncore_num_credits_attempted"].tolist() == [
         0.0,
         6.0,
