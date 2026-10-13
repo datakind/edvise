@@ -9,8 +9,9 @@ def infer_first_term_of_year(s: pd.Series) -> utils.types.TermType:
     """
     Infer the first term of the (academic) year by the ordering of its categorical values.
 
-    Training uses ``preprocessing.features.first_term_of_year`` instead. Raw term
-    categories are a fixed vocabulary and do not encode the institution calendar.
+    Edvise training uses ``preprocessing.features.first_term_of_year`` instead.
+    PDP training always starts the year in FALL. Raw term categories are a fixed
+    vocabulary and do not encode the institution calendar.
 
     See Also:
         - :class:`schemas.base.TermField()`

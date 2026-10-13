@@ -243,6 +243,7 @@ class FeaturesConfig(pyd.BaseModel):
     first_term_of_year: t.Literal["FALL", "SUMMER"] = pyd.Field(
         default=constants.DEFAULT_FIRST_TERM_OF_YEAR,
         description=(
+            "Edvise schema only. PDP training always starts the academic year in FALL. "
             "Term that begins the academic year. FALL (default) ranks Summer last "
             "within YYYY-YY, dates it in the end year (2024-25 SUMMER → summer 2025), "
             "and treats a summer cohort like the following Fall for retention coverage. "

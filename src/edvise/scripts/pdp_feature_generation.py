@@ -118,7 +118,6 @@ class PDPFeatureGenerationTask:
             min_num_credits_full_time=min_num_credits_full_time,
             course_level_pattern=course_level_pattern,
             core_terms=core_terms,
-            first_term_of_year=features_cfg.first_term_of_year,
             key_course_subject_areas=key_course_subject_areas,
             key_course_ids=key_course_ids,
         )

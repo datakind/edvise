@@ -34,6 +34,7 @@ print("Repo root:", repo_root)
 print("src_path:", src_path)
 print("sys.path:", sys.path)
 
+from edvise.configs.es import ESProjectConfig
 from edvise.shared.schema_type import is_edvise_schema, project_config_class
 from edvise.dataio.read import read_config
 from edvise.shared.logger import (
@@ -75,12 +76,16 @@ class TargetsTask:
                 retention_into_year=getattr(target_cfg, "retention_into_year", 2),
             )
 
+        # PDP calendars always open in Fall. Only Edvise configs carry the setting.
+        first_term_of_year = "FALL"
+        if isinstance(self.cfg, ESProjectConfig) and self.cfg.preprocessing is not None:
+            first_term_of_year = self.cfg.preprocessing.features.first_term_of_year
         return compute_target_from_config(
             target_cfg,
             df,
             df_ckpt,
             student_id_col=self.cfg.student_id_col,
-            first_term_of_year=preproc.features.first_term_of_year,
+            first_term_of_year=first_term_of_year,
         )
 
     def run(self) -> None:

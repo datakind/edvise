@@ -94,9 +94,10 @@ def make_student_term_dataset(
 ) -> pd.DataFrame:
     """Generate student-term features from standardized cohort/course dataframes.
 
-    ``first_term_of_year`` is the institution calendar (``"FALL"`` or ``"SUMMER"``),
-    from ``preprocessing.features.first_term_of_year``. It is not inferred from the
-    term column's category order.
+    ``first_term_of_year`` is the Edvise institution calendar (``"FALL"`` or
+    ``"SUMMER"``), from ``preprocessing.features.first_term_of_year``. PDP callers
+    leave the default, ``"FALL"``. It is not inferred from the term column's
+    category order.
     """
     first_term = first_term_of_year
 
