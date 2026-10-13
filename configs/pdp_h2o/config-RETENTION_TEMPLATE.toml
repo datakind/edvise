@@ -31,6 +31,8 @@ min_passing_grade = 1.0
 min_num_credits_full_time = 12
 course_level_pattern =  '^(?:[A-Z_-]+)?(?P<course_level>\d)\d{2}(?:-?[A-Z\d]+)?$'
 core_terms = ["FALL", "SPRING"]
+# Term that starts the academic year: "FALL" (default; Summer ends YYYY-YY) or "SUMMER".
+# first_term_of_year = "FALL"
 key_course_subject_areas = []
 key_course_ids = []
 

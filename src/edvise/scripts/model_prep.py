@@ -28,7 +28,7 @@ print("Repo root:", repo_root)
 print("src_path:", src_path)
 print("sys.path:", sys.path)
 
-from edvise.shared.schema_type import is_edvise_schema, project_config_class
+from edvise.shared.schema_type import project_config_class
 from edvise.utils.academic_terms import (
     DEFAULT_FIRST_TERM_OF_YEAR,
     cohort_term_sort_ranks,
@@ -357,11 +357,11 @@ class ModelPrepTask:
                 features = (
                     getattr(preproc, "features", None) if preproc is not None else None
                 )
-                # PDP calendars always open in Fall. Only Edvise configs carry the setting.
-                if is_edvise_schema(self.args.schema_type) and features is not None:
-                    first_term = features.first_term_of_year
-                else:
-                    first_term = DEFAULT_FIRST_TERM_OF_YEAR
+                first_term = (
+                    features.first_term_of_year
+                    if features is not None
+                    else DEFAULT_FIRST_TERM_OF_YEAR
+                )
                 term_order = cohort_term_sort_ranks(first_term)
 
                 def _cohort_sort_key(x: str) -> tuple[int, int]:
