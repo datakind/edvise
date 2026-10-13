@@ -19,6 +19,12 @@ _DEFAULT_NUMERIC_TERM_DIFF_COLS = [
     "course_grade_numeric_mean",
     "course_level_mean",
 ]
+# Running totals of credits taken only in non-core terms (winter and summer,
+# unless the school counts that season as core). The all-term credit totals stay.
+_NONCORE_CREDIT_CUMSUMS = (
+    ("num_credits_earned", "cumsum_noncore_num_credits_earned"),
+    ("num_credits_attempted", "cumsum_noncore_num_credits_attempted"),
+)
 
 
 def _col_aggs_for_expanding(
@@ -140,6 +146,10 @@ def add_features(
     if s.cumfrac_terms_enrolled and s.expanding_aggregate:
         out = out.pipe(
             add_cumfrac_terms_enrolled_features, student_id_cols=student_id_cols
+        )
+    if "term_is_noncore" in out.columns:
+        out = out.pipe(
+            add_noncore_credit_cumulative_features, student_id_cols=student_id_cols
         )
     if s.term_differences and s.expanding_aggregate:
         diff_cols = [c for c in _DEFAULT_NUMERIC_TERM_DIFF_COLS if c in out.columns]
@@ -342,6 +352,37 @@ def add_cumfrac_terms_enrolled_features(
             cumnum_terms_enrolled_col="cumnum_noncore_terms_enrolled",
         ),
     )
+
+
+def add_noncore_credit_cumulative_features(
+    df: pd.DataFrame,
+    *,
+    student_id_cols: str | list[str] = "student_id",
+    noncore_flag_col: str = "term_is_noncore",
+) -> pd.DataFrame:
+    """
+    Cumulative credits earned and attempted in non-core terms only.
+
+    Core-term rows add zero. A later core term keeps the total from the last
+    winter or summer. ``cumsum_num_credits_earned`` and
+    ``cumsum_num_credits_attempted`` are unchanged and still include every term.
+    """
+    if noncore_flag_col not in df.columns:
+        return df
+    student_id_cols = utils.types.to_list(student_id_cols)
+    noncore = df[noncore_flag_col].fillna(False).astype(bool)
+    assigned: dict[str, pd.Series] = {}
+    for src, dest in _NONCORE_CREDIT_CUMSUMS:
+        if src not in df.columns:
+            continue
+        masked = df[src].where(noncore, 0).fillna(0)
+        assigned[dest] = masked.groupby(
+            [df[col] for col in student_id_cols], sort=False
+        ).cumsum()
+    if not assigned:
+        return df
+    LOGGER.info("adding non-core credit cumulative features ...")
+    return df.assign(**assigned)
 
 
 def add_term_diff_features(

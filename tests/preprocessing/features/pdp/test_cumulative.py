@@ -322,3 +322,28 @@ def test_add_term_diff_features(df, cols, max_term_num, exp_new):
         pd.testing.assert_frame_equal(obs.drop(columns=df.columns), exp_new, rtol=0.01)
         is None
     )
+
+
+def test_add_noncore_credit_cumulative_features():
+    """Winter and summer credits accumulate; fall and spring do not."""
+    df = pd.DataFrame(
+        {
+            "student_id": ["A", "A", "A", "A", "B"],
+            "academic_term": ["FALL", "WINTER", "SPRING", "SUMMER", "FALL"],
+            "term_is_noncore": [False, True, False, True, False],
+            "num_credits_earned": [15.0, 4.0, 12.0, 3.0, 10.0],
+            "num_credits_attempted": [15.0, 6.0, 12.0, 3.0, 12.0],
+        }
+    )
+    obs = cumulative.add_noncore_credit_cumulative_features(
+        df, student_id_cols=["student_id"]
+    )
+    assert obs.loc[:, df.columns].equals(df)
+    assert obs["cumsum_noncore_num_credits_earned"].tolist() == [0.0, 4.0, 4.0, 7.0, 0.0]
+    assert obs["cumsum_noncore_num_credits_attempted"].tolist() == [
+        0.0,
+        6.0,
+        6.0,
+        9.0,
+        0.0,
+    ]
