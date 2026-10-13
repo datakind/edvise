@@ -21,6 +21,7 @@ def compute_target(
     enrollment_year_col: str = "year_of_enrollment_at_cohort_inst",
     term_is_pre_cohort_col: str = "term_is_pre_cohort",
     term_rank_col: str = "term_rank",
+    first_term_of_year: str = "FALL",
 ) -> pd.Series:
     """
     Compute *non* graduation target for each distinct student in ``df`` , for which
@@ -116,16 +117,14 @@ def compute_target(
     intensity_num_terms = utils.data_cleaning.convert_intensity_time_limits(
         "term", intensity_time_limits, num_terms_in_year=num_terms_in_year
     )
-    # Four terms per year only (e.g. fall/winter/spring/summer): a limit of N academic
-    # years from first fall to spring of year N spans N * 4 - 1 terms (the summer after
-    # graduation is outside the window). Two- and three-term calendars do not use this
-    # adjustment here; three-term fall→spring is applied in
-    # :func:`shared.get_students_with_max_target_term_in_dataset` when start season is known.
-    if num_terms_in_year == 4:
-        intensity_num_terms = {
-            intensity: max(num_terms - 1.0, 1.0)
-            for intensity, num_terms in intensity_num_terms.items()
-        }
+    # Fall-start, four terms per year: N academic years from first fall through
+    # spring of year N is N * 4 - 1 terms. Summer-start calendars span N * 4 terms.
+    # See :func:`shared.apply_on_time_term_budget`.
+    intensity_num_terms = shared.apply_on_time_term_budget(
+        intensity_num_terms,
+        num_terms_in_year=num_terms_in_year,
+        first_term_of_year=first_term_of_year,
+    )
 
     intensity_time_limits_for_eligibility = t.cast(
         utils.types.IntensityTimeLimitsType,
@@ -154,6 +153,7 @@ def compute_target(
         student_id_cols=student_id_cols,
         enrollment_intensity_col=enrollment_intensity_col,
         term_rank_col=term_rank_col,
+        first_term_of_year=first_term_of_year,
     )
     df_labeled = (
         # match positive labels to label-able students

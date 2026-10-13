@@ -80,6 +80,7 @@ class TargetsTask:
             df,
             df_ckpt,
             student_id_col=self.cfg.student_id_col,
+            first_term_of_year=preproc.features.first_term_of_year,
         )
 
     def run(self) -> None:

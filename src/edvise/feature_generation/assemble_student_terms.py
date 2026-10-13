@@ -90,11 +90,15 @@ def make_student_term_dataset(
     student_term_add_feature_spec: StudentTermAddFeatureSpec | None = None,
     cumulative_feature_spec: CumulativeFeatureSpec | None = None,
     grade_semantics: GradeSemantics = "pdp",
+    first_term_of_year: str = feature_generation.constants.DEFAULT_FIRST_TERM_OF_YEAR,
 ) -> pd.DataFrame:
-    """Generate student-term features from standardized cohort/course dataframes."""
-    first_term = utils.infer_data_terms.infer_first_term_of_year(
-        df_course[course_input_columns.academic_term]
-    )
+    """Generate student-term features from standardized cohort/course dataframes.
+
+    ``first_term_of_year`` is the institution calendar (``"FALL"`` or ``"SUMMER"``),
+    from ``preprocessing.features.first_term_of_year``. It is not inferred from the
+    term column's category order.
+    """
+    first_term = first_term_of_year
 
     df_students = df_cohort.pipe(
         feature_generation.student.add_features,
@@ -150,12 +154,18 @@ def make_student_term_dataset(
     )
 
     cumulative_ids = [k for k in merge_on if k in df_student_terms.columns]
+    # term_rank follows first_term_of_year. Sorting the academic_term categorical
+    # would keep Summer last even when the year starts in Summer.
+    if "term_rank" in df_student_terms.columns:
+        cumulative_sort_cols = ["term_rank"]
+    else:
+        cumulative_sort_cols = [
+            course_input_columns.academic_year,
+            course_input_columns.academic_term,
+        ]
     return feature_generation.cumulative.add_features(
         df_student_terms,
         student_id_cols=cumulative_ids,
-        sort_cols=[
-            course_input_columns.academic_year,
-            course_input_columns.academic_term,
-        ],
+        sort_cols=cumulative_sort_cols,
         spec=cumulative_feature_spec,
     ).rename(columns=utils.data_cleaning.convert_to_snake_case)
