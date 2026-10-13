@@ -24,6 +24,7 @@ from openai.types.chat.chat_completion_message_param import ChatCompletionMessag
 
 from edvise.genai.mapping.shared.utilities import (
     disable_mlflow_side_effects_for_openai_gateway,
+    disable_openai_autolog_for_gateway,
 )
 
 MLFLOW_AI_GATEWAY_ON_WORKSPACE_PATH: Final[str] = "/ai-gateway/mlflow/v1"
@@ -349,14 +350,20 @@ def create_openai_client_for_databricks_gateway(
     *,
     api_key: str | None = None,
     base_url: str | None = None,
+    disable_tracing: bool = True,
 ) -> OpenAI:
     """
     Build an :class:`openai.OpenAI` client pointed at the Databricks gateway.
 
     If ``api_key`` is omitted, :func:`require_databricks_token` is used.
     If ``base_url`` is omitted, :func:`resolve_ai_gateway_base_url` is used.
+    ``disable_tracing=False`` leaves MLflow tracing on for ``mlflow.genai.evaluate``
+    and disables only OpenAI autologging.
     """
-    disable_mlflow_tracing_for_openai_gateway_client()
+    if disable_tracing:
+        disable_mlflow_tracing_for_openai_gateway_client()
+    else:
+        disable_openai_autolog_for_gateway()
     key = api_key if api_key is not None else require_databricks_token()
     url = base_url if base_url is not None else resolve_ai_gateway_base_url()
     return OpenAI(api_key=key, base_url=url)
