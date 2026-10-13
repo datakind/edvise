@@ -53,4 +53,8 @@ def test_bias_groups_section_uses_student_group_cols():
     bias_section = sections["bias_groups_section"]
     assert "Learner Age" in bias_section
     assert "First Generation Status" in bias_section
+    assert "Incarcerated Status" in bias_section
+    assert "Military Status" in bias_section
+    assert "Employment Status" in bias_section
+    assert "Disability Status" in bias_section
     assert "Student Age" not in bias_section
