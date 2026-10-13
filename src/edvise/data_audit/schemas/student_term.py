@@ -22,8 +22,8 @@ TermField = ft.partial(
     pda.Field,
     dtype_kwargs={
         "categories": ["FALL", "WINTER", "SPRING", "SUMMER"],
-        # Vocabulary only. Within-year order comes from
-        # preprocessing.features.first_term_of_year, not this list.
+        # Within-year order comes from
+        # preprocessing.features.first_term_of_year, not order of this list.
         # "ordered": True,
     },
 )
