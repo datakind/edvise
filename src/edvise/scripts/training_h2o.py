@@ -297,10 +297,15 @@ class TrainingTask:
             "No feature columns found after excluding non_feature_cols",
         )
 
-        if self.spec.schema_type == "legacy":
-            forbidden = set(self.cfg.student_group_cols or [])
-            leak = sorted([c for c in feature_cols if c in forbidden])
-            require(not leak, f"Student-group columns leaked into features: {leak}")
+        meta_cols = {
+            self.cfg.student_id_col,
+            self.cfg.target_col,
+            self.cfg.split_col,
+            self.cfg.sample_weight_col,
+        }
+        forbidden = set(self.cfg.non_feature_cols) - meta_cols
+        leak = sorted([c for c in feature_cols if c in forbidden])
+        require(not leak, f"Student-group columns leaked into features: {leak}")
 
     def _validate_features_in_ft(self, df_modeling: pd.DataFrame) -> None:
         """
@@ -415,7 +420,8 @@ class TrainingTask:
         split_col = self.cfg.split_col or "split"
 
         exclude_cols = list(
-            set((training_cfg.exclude_cols or []) + (self.cfg.student_group_cols or []))
+            set((training_cfg.exclude_cols or []) + self.cfg.non_feature_cols)
+            & set(df_modeling.columns)
         )
 
         calibrate_underpred = (
@@ -454,12 +460,18 @@ class TrainingTask:
         return experiment_id
 
     def evaluate_models(self, df_modeling: pd.DataFrame, experiment_id: str) -> None:
-        student_group_cols: t.List[str] = t.cast(
-            t.List[str], self.cfg.student_group_cols or []
-        )
+        # Bias groups = configured student_group_cols present in the modeling
+        # frame. Feature exclusion stays separate: non_feature_cols (ES unions
+        # DEFAULT_ES_STUDENT_GROUP_COLS) so protected status fields never become
+        # features even when omitted from student_group_cols. Missing configured
+        # groups are skipped inside evaluate_bias.
+        student_group_cols = list(self.cfg.student_group_cols or [])
 
         if self.cfg.split_col is not None:
-            df_features = df_modeling.drop(columns=self.cfg.non_feature_cols)
+            present_non_features = [
+                c for c in self.cfg.non_feature_cols if c in df_modeling.columns
+            ]
+            df_features = df_modeling.drop(columns=present_non_features)
         else:
             raise ValueError("SPLIT COL DOES NOT EXIST IN THE CONFIG, PLEASE ADD")
 

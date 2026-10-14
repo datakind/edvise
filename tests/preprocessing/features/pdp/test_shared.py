@@ -113,6 +113,13 @@ def test_year_term(df, year_col, term_col, exp):
                 dtype="datetime64[ns]",
             ),
         ),
+        (
+            pd.DataFrame({"yt": ["2021-22 SUMMER"]}),
+            "yt",
+            "end",
+            "summer",
+            pd.Series(["2021-08-31"], dtype="datetime64[ns]"),
+        ),
     ],
 )
 def test_year_term_dt(df, col, bound, first_term_of_year, exp):
