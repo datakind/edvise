@@ -7,18 +7,13 @@ import pandas as pd
 import scipy.stats as ss
 from functools import cached_property, wraps
 from edvise import utils as edvise_utils
+from edvise.configs.es import DEFAULT_ES_STUDENT_GROUP_COLS
 from edvise.shared.utils import as_percent, validate_optional_column
 
 LOGGER = logging.getLogger(__name__)
 
 DEFAULT_BIAS_VARS = ["first_gen", "gender", "race", "ethnicity", "student_age"]
-DEFAULT_ES_BIAS_VARS = [
-    "first_generation_status",
-    "gender",
-    "race",
-    "ethnicity",
-    "learner_age",
-]
+DEFAULT_ES_BIAS_VARS = list(DEFAULT_ES_STUDENT_GROUP_COLS)
 
 # column name -> log label for cohort categorical percent breakdowns
 PDP_COHORT_PCT_BREAKDOWN_COLS: dict[str, str] = {
