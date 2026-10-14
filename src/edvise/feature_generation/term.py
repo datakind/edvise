@@ -8,6 +8,7 @@ import numpy as np
 import re
 
 from edvise.utils import types
+from edvise.utils.academic_terms import academic_term_order, CANONICAL_ACADEMIC_TERMS
 from . import constants, shared
 from .column_names import TermFeatureSpec
 
@@ -30,7 +31,8 @@ def add_features(
 
     Args:
         df
-        first_term_of_year
+        first_term_of_year: Term that opens the academic year, ``"FALL"`` or ``"SUMMER"``.
+            Sets approximate term dates and the within-year ``term_rank`` order.
         core_terms: Set of terms that together comprise the "core" of the academic year,
             in contrast with additional, usually shorter terms that may take place
             between core terms. Default value is {"FALL", "SPRING"}, which typically
@@ -43,7 +45,12 @@ def add_features(
     LOGGER.info("adding term features ...")
     s = spec or TermFeatureSpec.all()
     noncore_terms: set[types.TermType] = set(df[term_col].unique()) - set(core_terms)
-    first_term = _get_unique_sorted_terms_df(df, year_col=year_col, term_col=term_col)
+    first_term = _get_unique_sorted_terms_df(
+        df,
+        year_col=year_col,
+        term_col=term_col,
+        first_term_of_year=first_term_of_year,
+    )
     assign_kw: dict[str, t.Any] = {}
     if s.term_id:
         assign_kw["term_id"] = ft.partial(
@@ -60,7 +67,10 @@ def add_features(
         )
     if s.term_rank:
         assign_kw["term_rank"] = ft.partial(
-            term_rank, year_col=year_col, term_col=term_col
+            term_rank,
+            year_col=year_col,
+            term_col=term_col,
+            first_term_of_year=first_term_of_year,
         )
     if s.term_rank_core:
         assign_kw["term_rank_core"] = ft.partial(
@@ -68,6 +78,7 @@ def add_features(
             year_col=year_col,
             term_col=term_col,
             terms_subset=core_terms,
+            first_term_of_year=first_term_of_year,
         )
     if s.term_rank_noncore:
         assign_kw["term_rank_noncore"] = ft.partial(
@@ -75,6 +86,7 @@ def add_features(
             year_col=year_col,
             term_col=term_col,
             terms_subset=noncore_terms,
+            first_term_of_year=first_term_of_year,
         )
     if s.term_in_peak_covid:
         assign_kw["term_in_peak_covid"] = ft.partial(
@@ -101,14 +113,21 @@ def term_rank(
     year_col: str = "academic_year",
     term_col: str = "academic_term",
     terms_subset: t.Optional[Collection[str]] = None,
+    first_term_of_year: str = constants.DEFAULT_FIRST_TERM_OF_YEAR,
 ) -> pd.Series:
     df_terms = (
-        _get_unique_sorted_terms_df(df, year_col=year_col, term_col=term_col)
+        _get_unique_sorted_terms_df(
+            df,
+            year_col=year_col,
+            term_col=term_col,
+            first_term_of_year=first_term_of_year,
+        )
         if terms_subset is None
         else _get_unique_sorted_terms_df(
             df.loc[df[term_col].isin(terms_subset), :],
             year_col=year_col,
             term_col=term_col,
+            first_term_of_year=first_term_of_year,
         )
     )
     df_terms_ranked = df_terms.assign(
@@ -389,18 +408,42 @@ def _assign_month_to_season(season):
         raise Exception(f"Season {season} not expected. Try again!")
 
 
+def _canonical_season_rank(
+    terms: pd.Series, first_term_of_year: str
+) -> pd.Series | None:
+    """Map canonical season labels onto ``first_term_of_year`` order.
+
+    Returns None when no value is FALL/WINTER/SPRING/SUMMER, so callers can keep
+    sorting an ordered categorical with a different vocabulary (for example FA/SP).
+    """
+    normalized = terms.astype("string").str.strip().str.upper()
+    if not normalized.isin(CANONICAL_ACADEMIC_TERMS).any():
+        return None
+    rank = {name: i for i, name in enumerate(academic_term_order(first_term_of_year))}
+    return normalized.map(rank)
+
+
 def _get_unique_sorted_terms_df(
     df: pd.DataFrame,
     *,
     year_col: str = "academic_year",
     term_col: str = "academic_term",
+    first_term_of_year: str = constants.DEFAULT_FIRST_TERM_OF_YEAR,
 ) -> pd.DataFrame:
-    return (
+    out = (
         df[[year_col, term_col]]
         # dedupe more convenient op than groupby([year_col, term_col])
         .drop_duplicates(ignore_index=True)
         # null year and/or term values aren't relevant/useful here
         .dropna(axis="index", how="any")
-        # assumes year col is alphanumerically sortable, term col is categorically ordered
-        .sort_values(by=[year_col, term_col], ignore_index=True)
+    )
+    # Year is alphanumerically sortable. Canonical seasons follow first_term_of_year
+    # rather than the column's categorical order, which is a fixed vocabulary.
+    season_rank = _canonical_season_rank(out[term_col], first_term_of_year)
+    if season_rank is None:
+        return out.sort_values(by=[year_col, term_col], ignore_index=True)
+    return (
+        out.assign(_term_sort=season_rank)
+        .sort_values(by=[year_col, "_term_sort"], ignore_index=True)
+        .drop(columns="_term_sort")
     )

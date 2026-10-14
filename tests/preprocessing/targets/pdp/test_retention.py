@@ -191,3 +191,47 @@ def test_compute_target_retention_into_year_three_tightens_horizon():
         dtype="boolean",
     )
     pd.testing.assert_series_equal(obs, exp)
+
+
+def test_summer_start_keeps_summer_cohort_with_the_same_academic_year():
+    """2024-25 SUMMER is year 2024 when Summer opens the academic year."""
+    df = pd.DataFrame(
+        {
+            "student_id": ["01", "02", "03", "04", "05", "06"],
+            "retention": [True, False, True, False, True, False],
+            "cohort_id": [
+                "2023-24 FALL",
+                "2024-25 WINTER",
+                "2024-25 SPRING",
+                "2024-25 SUMMER",
+                "2024-25 FALL",
+                "2025-26 FALL",
+            ],
+            "term_id": [
+                "2023-24 FALL",
+                "2024-25 WINTER",
+                "2024-25 SPRING",
+                "2024-25 SUMMER",
+                "2024-25 FALL",
+                "2025-26 SUMMER",
+            ],
+        },
+    ).astype({"student_id": "string", "retention": "boolean"})
+    obs = retention.compute_target(
+        df,
+        max_academic_year="2025",
+        student_id_cols="student_id",
+        retention_col="retention",
+        cohort_id_col="cohort_id",
+        term_id_col="term_id",
+        first_term_of_year="SUMMER",
+    )
+    exp = pd.Series(
+        data=[False, True, False, True, False],
+        index=pd.Index(
+            ["01", "02", "03", "04", "05"], dtype="string", name="student_id"
+        ),
+        name="target",
+        dtype="boolean",
+    )
+    pd.testing.assert_series_equal(obs, exp)

@@ -1,7 +1,11 @@
+from typing import Literal
+
 DEFAULT_MIN_PASSING_GRADE = 1.0
 DEFAULT_MIN_NUM_CREDITS_FULL_TIME = 12.0
 DEFAULT_COURSE_CREDIT_CHECK = 12
-DEFAULT_FIRST_TERM_OF_YEAR = "FALL"
+# Same value as edvise.utils.academic_terms.DEFAULT_FIRST_TERM_OF_YEAR.
+# Kept as a literal so this module does not import utils during package init.
+DEFAULT_FIRST_TERM_OF_YEAR: Literal["FALL", "SUMMER"] = "FALL"
 DEFAULT_CORE_TERMS = {"FALL", "SPRING"}
 DEFAULT_COURSE_LEVEL_PATTERN = r"^(?P<course_level>\d)\d{2}(?:[A-Z]{,2})?$"
 DEFAULT_PEAK_COVID_TERMS = {

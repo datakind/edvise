@@ -92,8 +92,16 @@ def evaluate_bias(
     model_flags = []
     fnr_rows: list[dict] = []
 
+    present_group_cols = [c for c in student_group_cols if c in df_pred.columns]
+    missing_group_cols = sorted(set(student_group_cols) - set(present_group_cols))
+    if missing_group_cols:
+        LOGGER.warning(
+            "Skipping bias assessment for student_group_cols absent from predictions: %s",
+            missing_group_cols,
+        )
+
     for split_name, split_data in df_pred.groupby(split_col):
-        for group_col in student_group_cols:
+        for group_col in present_group_cols:
             bias_metrics, perf_metrics, fnr_data = compute_group_bias_metrics(
                 split_data,
                 split_name,
