@@ -33,7 +33,7 @@ def registry():
 
 
 @patch(
-    "edvise.reporting.sections.legacy.bias_sections.utils.get_assessed_bias_group_cols",
+    "edvise.reporting.sections.bias_sections.utils.get_assessed_bias_group_cols",
     return_value=["firstgenflag", "gender", "ethnicity_ipeds", "demo_race"],
 )
 def test_bias_groups_section_with_valid_aliases(mock_groups, mock_card, registry):
@@ -61,7 +61,7 @@ def test_bias_groups_section_with_valid_aliases(mock_groups, mock_card, registry
 
 
 @patch(
-    "edvise.reporting.sections.legacy.bias_sections.utils.get_assessed_bias_group_cols",
+    "edvise.reporting.sections.bias_sections.utils.get_assessed_bias_group_cols",
     return_value=["firstgenflag", "disabilityflag"],
 )
 def test_bias_groups_section_with_aliases_that_need_friendlycase(
@@ -83,7 +83,7 @@ def test_bias_groups_section_with_aliases_that_need_friendlycase(
 
 
 @patch(
-    "edvise.reporting.sections.legacy.bias_sections.utils.get_assessed_bias_group_cols",
+    "edvise.reporting.sections.bias_sections.utils.get_assessed_bias_group_cols",
     return_value=[],
 )
 def test_bias_groups_section_with_missing_artifacts(mock_groups, mock_card, caplog):

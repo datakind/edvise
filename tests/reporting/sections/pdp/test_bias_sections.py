@@ -16,7 +16,7 @@ def mock_card():
 
 
 @patch(
-    "edvise.reporting.sections.pdp.bias_sections.utils.get_assessed_bias_group_cols",
+    "edvise.reporting.sections.bias_sections.utils.get_assessed_bias_group_cols",
     return_value=["ethnicity", "first_gen", "gender", "race", "student_age"],
 )
 def test_pdp_bias_groups_lists_assessed_with_labels(mock_groups, mock_card):
@@ -36,7 +36,7 @@ def test_pdp_bias_groups_lists_assessed_with_labels(mock_groups, mock_card):
 
 
 @patch(
-    "edvise.reporting.sections.pdp.bias_sections.utils.get_assessed_bias_group_cols",
+    "edvise.reporting.sections.bias_sections.utils.get_assessed_bias_group_cols",
     return_value=["gender", "race"],
 )
 def test_pdp_bias_groups_omits_unassessed(mock_groups, mock_card):

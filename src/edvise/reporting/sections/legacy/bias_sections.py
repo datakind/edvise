@@ -25,8 +25,13 @@ def resolve_student_group_label(card, group_key):
 
 
 def register_bias_sections(card, registry):
-    # Register base sections
-    base_bias_sections.register_bias_sections(card, registry)
+    def group_label_fn(col: str) -> str:
+        return card.format.friendly_case(resolve_student_group_label(card, col))
+
+    # Register base sections (bias_groups_section uses aliases via group_label_fn)
+    base_bias_sections.register_bias_sections(
+        card, registry, group_label_fn=group_label_fn
+    )
 
     bias_levels = ["high", "moderate", "low"]
     group_disparities = {}
@@ -119,30 +124,6 @@ def register_bias_sections(card, registry):
         header = f"{card.format.header_level(5)}{label}\n\n"
         text_block = "\n\n".join(descriptions)
         all_blocks.append(header + text_block + "\n\n" + plot_md)
-
-    @registry.register("bias_groups_section")
-    def bias_groups_section():
-        """
-        List student groups actually bias-assessed for this run, labeled via
-        student_group_aliases when available.
-        """
-        intro = f"{card.format.indent_level(1)}- Our assessment for FNR Parity was conducted across the following student groups.\n"
-        group_cols = utils.get_assessed_bias_group_cols(card.run_id)
-        if not group_cols:
-            LOGGER.warning(
-                "[bias_groups_section] No bias_test group_metrics artifacts found"
-            )
-            return (
-                intro
-                + f"{card.format.indent_level(2)}- Unable to determine assessed student groups\n"
-            )
-
-        nested = [
-            f"{card.format.indent_level(2)}- "
-            f"{card.format.friendly_case(resolve_student_group_label(card, col))}\n"
-            for col in group_cols
-        ]
-        return intro + "".join(nested)
 
     @registry.register("bias_summary_section")
     def bias_summary_section():

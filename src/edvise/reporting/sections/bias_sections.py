@@ -1,5 +1,7 @@
 import os
 import logging
+import typing as t
+
 import pandas as pd
 
 from ..utils import utils
@@ -7,12 +9,55 @@ from ..utils import utils
 LOGGER = logging.getLogger(__name__)
 
 
-def register_bias_sections(card, registry):
+def build_bias_groups_section(
+    card,
+    label_fn: t.Callable[[str], str] | None = None,
+) -> str:
+    """
+    Shared body for the bias groups list section.
+
+    Args:
+        card: Model card with format helpers and run_id.
+        label_fn: Maps a group column name to a display label. Defaults to
+            card.format.friendly_case.
+    """
+    if label_fn is None:
+        label_fn = card.format.friendly_case
+
+    intro = (
+        f"{card.format.indent_level(1)}- Our assessment for FNR Parity was "
+        "conducted across the following student groups.\n"
+    )
+    group_cols = utils.get_assessed_bias_group_cols(card.run_id)
+    if not group_cols:
+        LOGGER.warning(
+            "No bias_test group_metrics artifacts found; cannot list assessed "
+            "student groups for the model card."
+        )
+        return (
+            intro
+            + f"{card.format.indent_level(2)}- Unable to determine assessed student groups\n"
+        )
+    nested = [f"{card.format.indent_level(2)}- {label_fn(col)}\n" for col in group_cols]
+    return intro + "".join(nested)
+
+
+def register_bias_sections(
+    card,
+    registry,
+    group_label_fn: t.Callable[[str], str] | None = None,
+):
     """
     Registers the bias section of the model card with FNR group plots and
     subgroup disparity summaries. We focus on test data specifically for our reporting.
 
     This information is gathered from mlflow artifacts.
+
+    Args:
+        card: Model card with format helpers and run_id.
+        registry: Section registry to register into.
+        group_label_fn: Optional label function for bias_groups_section. When
+            omitted, uses card.format.friendly_case.
     """
     bias_levels = ["high", "moderate", "low"]
     bias_flags = {}
@@ -124,25 +169,7 @@ def register_bias_sections(card, registry):
         List student groups that were actually bias-assessed for this run
         (from group_metrics/bias_test_* artifacts).
         """
-        intro = (
-            f"{card.format.indent_level(1)}- Our assessment for FNR Parity was "
-            "conducted across the following student groups.\n"
-        )
-        group_cols = utils.get_assessed_bias_group_cols(card.run_id)
-        if not group_cols:
-            LOGGER.warning(
-                "No bias_test group_metrics artifacts found; cannot list assessed "
-                "student groups for the model card."
-            )
-            return (
-                intro
-                + f"{card.format.indent_level(2)}- Unable to determine assessed student groups\n"
-            )
-        nested = [
-            f"{card.format.indent_level(2)}- {card.format.friendly_case(col)}\n"
-            for col in group_cols
-        ]
-        return intro + "".join(nested)
+        return build_bias_groups_section(card, label_fn=group_label_fn)
 
     @registry.register("bias_summary_section")
     def bias_summary_section():
