@@ -142,6 +142,11 @@ class BaseCleanup:
             col_term = int(match.group("num"))
         else:
             raise ValueError(f"Column '{col}' does not end with '_term_NUM'")
+        # Numbered change features count core terms. A student can reach enrolled
+        # term 3 by taking summer without having a third core term, so mask those
+        # columns with the core-term count when it is available.
+        if "_diff_term_" in col and "cumnum_core_terms_enrolled" in df.columns:
+            enrollment_term_col = "cumnum_core_terms_enrolled"
         return df[col].mask(df[enrollment_term_col].lt(col_term), other=pd.NA)
 
 
