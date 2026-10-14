@@ -129,7 +129,8 @@ def year_term_dt(
         bound: Which bound of the date range spanned by ``year_term`` to return;
             either the start (left) or end (right) bound.
         first_term_of_year: Term that officially begins the institution's academic year,
-            either "FALL" or "SUMMER", which determines how the date's year is assigned.
+            either "FALL" or "SUMMER" (case-insensitive), which determines how the
+            date's year is assigned.
 
     See Also:
         - :func:`year_term()`
@@ -152,9 +153,10 @@ def _year_term_to_dt(
     if match := RE_YEAR_TERM.search(year_term):
         start_yr = int(match["start_yr"])
         term = match["term"].upper()
+        first_term = first_term_of_year.upper()
         yr = (
             start_yr
-            if (term == "FALL" or (term == "SUMMER" and first_term_of_year == "SUMMER"))
+            if (term == "FALL" or (term == "SUMMER" and first_term == "SUMMER"))
             else start_yr + 1
         )
         mo, dy = TERM_BOUND_MONTH_DAYS[term][bound]
