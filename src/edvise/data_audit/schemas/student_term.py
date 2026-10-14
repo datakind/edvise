@@ -22,8 +22,8 @@ TermField = ft.partial(
     pda.Field,
     dtype_kwargs={
         "categories": ["FALL", "WINTER", "SPRING", "SUMMER"],
-        # TODO: do these need to be ordered anymore?
-        # if so, how should we handle schools with alt orderings?
+        # Within-year order comes from
+        # preprocessing.features.first_term_of_year, not order of this list.
         # "ordered": True,
     },
 )

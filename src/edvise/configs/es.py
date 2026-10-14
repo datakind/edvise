@@ -259,6 +259,18 @@ class FeaturesConfig(pyd.BaseModel):
             "between core terms"
         ),
     )
+    first_term_of_year: t.Literal["FALL", "SUMMER"] = pyd.Field(
+        default=constants.DEFAULT_FIRST_TERM_OF_YEAR,
+        description=(
+            "Term that begins the academic year. FALL (default) ranks Summer last "
+            "within YYYY-YY, dates it in the end year (2024-25 SUMMER → summer 2025), "
+            "and treats a summer cohort like the following Fall for retention coverage. "
+            "SUMMER ranks Summer first, dates it in the start year "
+            "(2024-25 SUMMER → summer 2024), and keeps that cohort with Fall of the "
+            "same academic year. The 4-term on-time window that ends in Spring applies "
+            "only when this is FALL."
+        ),
+    )
     peak_covid_terms: set[tuple[str, str]] = pyd.Field(
         default=constants.DEFAULT_PEAK_COVID_TERMS,
         description=(
