@@ -291,3 +291,46 @@ def test_add_term_order_with_extended_custom_season_map_sessions():
     assert term_to_term_order["Summer Session 1 2020"] == 2020 * 100 + 4
     assert term_to_term_order["Summer Session 2 2020"] == 2020 * 100 + 5
     assert term_to_term_order["Fall 2020"] == 2020 * 100 + 6
+
+
+def _one_year_terms() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "academic_year": ["2020-21"] * 4,
+            "academic_term": ["FALL", "WINTER", "SPRING", "SUMMER"],
+        }
+    ).astype(
+        {
+            "academic_term": pd.CategoricalDtype(
+                ["FALL", "WINTER", "SPRING", "SUMMER"], ordered=True
+            )
+        }
+    )
+
+
+def test_summer_start_ranks_and_dates_summer_at_the_beginning_of_the_year():
+    obs = term.add_features(
+        _one_year_terms(),
+        first_term_of_year="SUMMER",
+        core_terms={"FALL", "SPRING"},
+        peak_covid_terms=set(),
+    )
+    by_term = dict(zip(obs["academic_term"], obs["term_rank"]))
+    assert by_term == {"SUMMER": 0, "FALL": 1, "WINTER": 2, "SPRING": 3}
+    start = dict(zip(obs["academic_term"], obs["term_start_dt"]))
+    assert start["SUMMER"] == pd.Timestamp("2020-06-01")
+    assert start["FALL"] == pd.Timestamp("2020-09-01")
+
+
+def test_fall_start_ranks_and_dates_summer_at_the_end_of_the_year():
+    obs = term.add_features(
+        _one_year_terms(),
+        first_term_of_year="FALL",
+        core_terms={"FALL", "SPRING"},
+        peak_covid_terms=set(),
+    )
+    by_term = dict(zip(obs["academic_term"], obs["term_rank"]))
+    assert by_term == {"FALL": 0, "WINTER": 1, "SPRING": 2, "SUMMER": 3}
+    start = dict(zip(obs["academic_term"], obs["term_start_dt"]))
+    assert start["SUMMER"] == pd.Timestamp("2021-06-01")
+    assert start["FALL"] == pd.Timestamp("2020-09-01")

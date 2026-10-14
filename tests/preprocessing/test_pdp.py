@@ -10,30 +10,6 @@ from edvise import utils, model_prep
 @pytest.mark.parametrize(
     ["series", "exp"],
     [
-        (
-            pd.Series(
-                ["WI", "SP", "FA", "SU"],
-                dtype=pd.CategoricalDtype(["FA", "WI", "SP", "SU"], ordered=True),
-            ),
-            "FA",
-        ),
-        (
-            pd.Series(
-                ["FA", "SU", "SP"],
-                dtype=pd.CategoricalDtype(["SU", "FA", "SP"], ordered=True),
-            ),
-            "SU",
-        ),
-    ],
-)
-def test_infer_first_term_of_year(series, exp):
-    obs = utils.infer_data_terms.infer_first_term_of_year(series)
-    assert obs == exp
-
-
-@pytest.mark.parametrize(
-    ["series", "exp"],
-    [
         (pd.Series(["WI", "SP", "FA", "SU"], dtype="category"), 4),
         (pd.Series(["SU", "FA", "WI"], dtype="category"), 3),
     ],
