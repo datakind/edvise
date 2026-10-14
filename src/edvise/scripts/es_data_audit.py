@@ -33,6 +33,7 @@ from edvise.data_audit.standardizer import (
     ESCohortStandardizer,
     ESCourseStandardizer,
 )
+from edvise.utils.academic_terms import log_configured_first_term_of_year
 from edvise.utils.databricks import get_spark_session
 from edvise.dataio.genai_registry_paths import resolve_genai_pipeline_input_dir
 from edvise.dataio.batch_dataset_paths import resolve_es_raw_dataset_paths
@@ -273,6 +274,7 @@ class ESDataAuditTask:
 
         # Logs entry and academic year/term pairs, grouped and sorted (Edvise column names)
 
+        log_configured_first_term_of_year(self.cfg, logger=LOGGER)
         LOGGER.info(
             " Listing grouped entry year/term and academic year/term for raw cohort and course data files: "
         )

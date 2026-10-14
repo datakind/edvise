@@ -5,8 +5,34 @@ import numpy as np
 import pandas as pd
 
 from .. import utils
+from ..utils.academic_terms import summer_is_end_of_academic_year
 
 LOGGER = logging.getLogger(__name__)
+
+
+def apply_on_time_term_budget(
+    intensity_num_terms: dict[str, float],
+    *,
+    num_terms_in_year: int,
+    first_term_of_year: str = "FALL",
+) -> dict[str, float]:
+    """Shorten an N-year term budget when four terms run Fall through a trailing Summer.
+
+    A limit of N academic years from a leading Fall through Spring of year N is
+    ``N * 4 - 1`` terms; the summer after that Spring is outside the window.
+    A summer-start year spans exactly ``N * 4`` terms (leading Summer through
+    Spring), so the budget is left unchanged. Two- and three-term calendars are
+    unchanged here.
+    """
+    if num_terms_in_year == 4 and summer_is_end_of_academic_year(first_term_of_year):
+        return {
+            intensity: max(float(num_terms) - 1.0, 1.0)
+            for intensity, num_terms in intensity_num_terms.items()
+        }
+    return {
+        intensity: float(num_terms)
+        for intensity, num_terms in intensity_num_terms.items()
+    }
 
 
 def get_students_with_max_target_term_in_dataset(
@@ -21,6 +47,7 @@ def get_students_with_max_target_term_in_dataset(
     term_rank_col: str = "term_rank",
     term_is_core_col: str = "term_is_core",
     academic_term_col: str = "academic_term",
+    first_term_of_year: str = "FALL",
 ) -> pd.DataFrame:
     """
     Get set of students in ``checkpoint`` data for which ``df`` includes
@@ -54,6 +81,8 @@ def get_students_with_max_target_term_in_dataset(
             term within the full dataset ``df`` .
         term_is_core_col: Boolean column identifying core terms (FALL/SPRING by default).
         academic_term_col: Column with term season labels (FALL, SPRING, SUMMER, …).
+        first_term_of_year: ``"FALL"`` or ``"SUMMER"``. The 4-term Summer/Winter
+            rank correction applies only when Summer ends the academic year.
     """
     # Coverage must reach a core term; a trailing summer alone is never enough.
     if max_term_rank == "infer":
@@ -94,14 +123,18 @@ def get_students_with_max_target_term_in_dataset(
                 - 1.0
             )
         )
-    # Season corrections on top of caller budgets (callers already apply 4-term -1):
+    # Season corrections on top of caller budgets. Callers shorten a 4-term
+    # fall-start budget by one term (see :func:`apply_on_time_term_budget`):
     # - 3-term FALL → SPRING (-1); Spring is enough — no later Fall required
-    # - 4-term SUMMER/WINTER: undo blanket -1 (Summer already lands on Spring; Winter→Fall)
+    # - 4-term fall-start SUMMER/WINTER: undo that shortening (Summer already
+    #   lands on Spring; Winter→Fall). Summer-start calendars skip both.
     if academic_term_col in df_ckpt.columns:
         season = df_ckpt[academic_term_col].astype("string").str.upper()
         if num_terms_in_year == 3:
             df_ckpt.loc[season.eq("FALL"), "student_max_term_rank"] -= 1.0
-        elif num_terms_in_year == 4:
+        elif num_terms_in_year == 4 and summer_is_end_of_academic_year(
+            first_term_of_year
+        ):
             df_ckpt.loc[season.isin(["SUMMER", "WINTER"]), "student_max_term_rank"] += (
                 1.0
             )
@@ -142,6 +175,7 @@ def get_students_with_retention_year_in_dataset(
     cohort_id_col: str = "cohort_id",
     term_id_col: str = "term_id",
     retention_into_year: int = 2,
+    summer_as_end_year: bool = True,
 ) -> pd.DataFrame:
     """
     Students whose cohort year leaves room for academic year ``retention_into_year``
@@ -157,8 +191,10 @@ def get_students_with_retention_year_in_dataset(
             from ``df[term_id_col]`` itself or as a manually specified value which
             may be different from the actual max value in ``df`` , depending on use case.
             Note: Value must be a string formatted as "YYYY[-YY]".
-            Summer cohorts use the end year (``2024-25 SUMMER`` → 2025) so they share
-            the cutoff with Fall of that year; Fall/Winter/Spring keep the start year.
+            When ``summer_as_end_year`` is True (fall-start calendars), Summer cohorts
+            use the end year (``2024-25 SUMMER`` → 2025) so they share the cutoff with
+            the following Fall. When False, Summer keeps the start year with Fall of
+            the same academic year. Fall/Winter/Spring always keep the start year.
         student_id_cols: One or multiple columns uniquely identifying students.
         cohort_id_col: Column used to uniquely identify student cohorts.
         term_id_col: Colum used to uniquely identify academic terms.
@@ -180,9 +216,8 @@ def get_students_with_retention_year_in_dataset(
         # assume every value for a student's cohort id is the same, so "first" is fine
         .agg(student_cohort_id=(cohort_id_col, "first"))
         .assign(
-            # Summer → end year (like following Fall); other seasons keep start year
             student_cohort_year=lambda df: _extract_year_from_id(
-                df["student_cohort_id"], summer_as_end_year=True
+                df["student_cohort_id"], summer_as_end_year=summer_as_end_year
             ),
             max_academic_year=max_academic_year,  # type: ignore
         )

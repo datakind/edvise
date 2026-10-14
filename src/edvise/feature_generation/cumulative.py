@@ -19,6 +19,12 @@ _DEFAULT_NUMERIC_TERM_DIFF_COLS = [
     "course_grade_numeric_mean",
     "course_level_mean",
 ]
+# Running totals of credits taken only in non-core terms (winter and summer,
+# unless the school counts that season as core). The all-term credit totals stay.
+_NONCORE_CREDIT_CUMSUMS = (
+    ("num_credits_earned", "cumsum_noncore_num_credits_earned"),
+    ("num_credits_attempted", "cumsum_noncore_num_credits_attempted"),
+)
 
 
 def _col_aggs_for_expanding(
@@ -141,14 +147,36 @@ def add_features(
         out = out.pipe(
             add_cumfrac_terms_enrolled_features, student_id_cols=student_id_cols
         )
+    if "term_is_noncore" in out.columns:
+        out = out.pipe(
+            add_noncore_credit_cumulative_features, student_id_cols=student_id_cols
+        )
     if s.term_differences and s.expanding_aggregate:
         diff_cols = [c for c in _DEFAULT_NUMERIC_TERM_DIFF_COLS if c in out.columns]
         if diff_cols:
+            # Compare core terms only when the core-term flag and count exist.
+            # Winter and summer stay in cumulative totals; they are not the
+            # "previous term" for these change features.
+            core_ready = (
+                "term_is_core" in out.columns
+                and "cumnum_core_terms_enrolled" in out.columns
+            )
+            if not core_ready:
+                LOGGER.warning(
+                    "term diff features are comparing every enrolled term; "
+                    "term_is_core or cumnum_core_terms_enrolled is missing"
+                )
             out = out.pipe(
                 add_term_diff_features,
                 cols=diff_cols,
                 max_term_num=4,
                 student_id_cols=student_id_cols,
+                term_num_col=(
+                    "cumnum_core_terms_enrolled"
+                    if core_ready
+                    else "cumnum_terms_enrolled"
+                ),
+                core_term_flag_col="term_is_core" if core_ready else None,
             )
     return out
 
@@ -326,17 +354,55 @@ def add_cumfrac_terms_enrolled_features(
     )
 
 
+def add_noncore_credit_cumulative_features(
+    df: pd.DataFrame,
+    *,
+    student_id_cols: str | list[str] = "student_id",
+    noncore_flag_col: str = "term_is_noncore",
+) -> pd.DataFrame:
+    """
+    Cumulative credits earned and attempted in non-core terms only.
+
+    Core-term rows add zero. A later core term keeps the total from the last
+    winter or summer. ``cumsum_num_credits_earned`` and
+    ``cumsum_num_credits_attempted`` are unchanged and still include every term.
+    """
+    if noncore_flag_col not in df.columns:
+        return df
+    student_id_cols = utils.types.to_list(student_id_cols)
+    noncore = df[noncore_flag_col].fillna(False).astype(bool)
+    assigned: dict[str, pd.Series] = {}
+    for src, dest in _NONCORE_CREDIT_CUMSUMS:
+        if src not in df.columns:
+            continue
+        masked = df[src].where(noncore, 0).fillna(0)
+        assigned[dest] = masked.groupby(
+            [df[col] for col in student_id_cols], sort=False
+        ).cumsum()
+    if not assigned:
+        return df
+    LOGGER.info("adding non-core credit cumulative features ...")
+    return df.assign(**assigned)
+
+
 def add_term_diff_features(
     df: pd.DataFrame,
     *,
     cols: list[str],
     max_term_num: int = 4,
     student_id_cols: str | list[str] = "student_id",
-    term_num_col: str = "cumnum_terms_enrolled",
+    term_num_col: str = "cumnum_core_terms_enrolled",
+    core_term_flag_col: str | None = "term_is_core",
 ) -> pd.DataFrame:
     """
     Compute term-over-term differences per student for a set of columns, up to a specified
     maximum term number, where term numbers are _relative_, per student.
+
+    When ``core_term_flag_col`` is present, only core terms are compared. Non-core
+    terms (winter and summer, unless the school counts them as core) are skipped.
+    A non-core row has a null change versus the previous term. Numbered columns
+    such as ``num_credits_earned_diff_term_1_to_term_2`` count core terms, using
+    ``term_num_col``.
 
     Args:
         df
@@ -344,24 +410,56 @@ def add_term_diff_features(
         max_term_num
         student_id_cols
         term_num_col
+        core_term_flag_col: Column that is true on core terms. ``None`` compares
+            every enrolled term.
     """
     LOGGER.info("computing term diff features ...")
     student_id_cols = utils.types.to_list(student_id_cols)
-    df_grped = (
-        df.loc[:, student_id_cols + [term_num_col] + cols]
-        .groupby(by=student_id_cols)
-    )  # fmt: skip
-    df_diffs = df.assign(
-        **{f"{col}_diff_prev_term": df_grped[col].transform("diff") for col in cols}
+    if term_num_col not in df.columns:
+        raise KeyError(f"'{term_num_col}' is not in the DataFrame.")
+    compare_all_terms = (
+        core_term_flag_col is None or core_term_flag_col not in df.columns
     )
+    if compare_all_terms:
+        df_compare = df
+    else:
+        core_mask = df[core_term_flag_col].fillna(False).astype(bool)
+        df_compare = df.loc[core_mask]
+
+    diff_names = [f"{col}_diff_prev_term" for col in cols]
+    if df_compare.empty:
+        df_diffs = df.assign(
+            **{
+                name: pd.Series(pd.NA, index=df.index, dtype="Float64")
+                for name in diff_names
+            }
+        )
+    else:
+        df_grped = df_compare.loc[:, student_id_cols + cols].groupby(
+            by=student_id_cols, sort=False
+        )
+        df_diffs = df.assign(
+            **{
+                name: df_grped[col].transform("diff").reindex(df.index)
+                for col, name in zip(cols, diff_names, strict=True)
+            }
+        )
+
+    pivot_source = df_diffs if compare_all_terms else df_diffs.loc[df_compare.index]
+    pivot_source = pivot_source.dropna(subset=[term_num_col])
+    if pivot_source.empty:
+        return df_diffs
+
     df_pivots = []
     for col in cols:
-        df_pivot_ = df_diffs.pivot(
+        df_pivot_ = pivot_source.pivot(
             index=student_id_cols, columns=term_num_col, values=f"{col}_diff_prev_term"
         )
-        # col 1 is always null (since no preceding periods to diff against)
-        cols_to_drop = [1] + [
-            col for col in df_pivot_.columns if int(col) > max_term_num
+        # Term 1 is always null (there is no preceding core term to compare).
+        cols_to_drop = [
+            term_num
+            for term_num in df_pivot_.columns
+            if int(term_num) == 1 or int(term_num) > max_term_num
         ]
         df_pivots.append(
             df_pivot_.drop(columns=cols_to_drop)

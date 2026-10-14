@@ -255,6 +255,36 @@ def list_paths_in_directory(run_id: str, directory: str) -> t.List[str]:
         return []
 
 
+def assessed_bias_groups_from_artifact_paths(paths: t.Iterable[str]) -> list[str]:
+    """
+    Parse student-group column names that were bias-assessed from group_metrics
+    artifact paths (``group_metrics/bias_test_<group>_metrics.csv``).
+
+    Order follows first appearance in ``paths``; duplicates are dropped.
+    """
+    prefix = "group_metrics/bias_test_"
+    suffix = "_metrics.csv"
+    groups: list[str] = []
+    for path in paths:
+        if not path.startswith(prefix) or not path.endswith(suffix):
+            continue
+        group_name = path[len(prefix) : -len(suffix)]
+        if group_name and group_name not in groups:
+            groups.append(group_name)
+    return groups
+
+
+def get_assessed_bias_group_cols(run_id: str) -> list[str]:
+    """
+    Return student-group columns that have bias_test metrics logged for a run.
+
+    Used by model-card bias group listing so the card reflects groups that were
+    actually assessed, not merely configured.
+    """
+    paths = list_paths_in_directory(run_id=run_id, directory="group_metrics")
+    return assessed_bias_groups_from_artifact_paths(paths)
+
+
 def safe_count_runs(
     experiment_id: str, max_results_per_page: int = 1000
 ) -> t.Optional[int]:
