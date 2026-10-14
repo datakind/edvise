@@ -34,6 +34,12 @@ _PRE_MITIGATION_NOTE = (
     "using one threshold for every student."
 )
 _METRICS_NOT_LOGGED = "Post-mitigation metrics were not logged."
+_POST_FLAGS_DIR = "bias_flags/post_mitigation"
+_POST_PLOTS_DIR = "fnr_plots/post_mitigation"
+_POST_GROUP_NOTE = (
+    "{target} students are flagged at {group_threshold}. "
+    "Everyone else is flagged at {default_threshold}."
+)
 _SUPPORT_LABEL_NOTE = "Advisors see this dual-threshold decision via Support Label when the pipeline writes one."
 
 
@@ -307,6 +313,121 @@ def render_post_mitigation_section(card, mitigation):
     return "\n".join(lines)
 
 
+def _usable_plot(value):
+    if not isinstance(value, str) or not value.strip():
+        return None
+    if value.lstrip().startswith("<"):
+        return value
+    if os.path.isfile(value):
+        return value
+    return None
+
+
+def _describe_disparity(card, subgroups, diff, stat_summary):
+    try:
+        subgroup_1, subgroup_2 = [s.strip() for s in str(subgroups).split("vs")]
+    except ValueError:
+        return f"{card.format.bold('Could not parse subgroup comparison')}"
+    sg1 = card.format.bold(card.format.italic(subgroup_1))
+    sg2 = card.format.bold(card.format.italic(subgroup_2))
+    percent_higher = card.format.bold(f"{int(round(float(diff) * 100))}% difference")
+    return (
+        f"- {sg1} students have a {percent_higher} in False Negative Rate (FNR) than {sg2} students. "
+        f"Statistical analysis indicates {stat_summary}."
+    )
+
+
+def _load_flag_descriptions(card, flags_dir):
+    descriptions_by_group = {}
+    for level in ("high", "moderate", "low"):
+        local_path = utils.download_artifact(
+            run_id=card.run_id,
+            local_folder=card.assets_folder,
+            artifact_path=f"{flags_dir}/{level}_bias_flags.csv",
+        )
+        if not isinstance(local_path, str) or not os.path.isfile(local_path):
+            continue
+        try:
+            frame = pd.read_csv(local_path)
+        except Exception as exc:
+            LOGGER.warning(
+                "Could not read %s bias flags: [%s] %s",
+                level,
+                type(exc).__name__,
+                exc,
+            )
+            continue
+        if frame.empty or "split_name" not in frame.columns:
+            continue
+        frame = frame[frame["split_name"] == "test"]
+        for _, row in frame.iterrows():
+            descriptions_by_group.setdefault(row["group"], []).append(
+                _describe_disparity(
+                    card,
+                    row["subgroups"],
+                    row["fnr_percentage_difference"],
+                    row["type"],
+                )
+            )
+    return descriptions_by_group
+
+
+def _post_group_order(card, mitigation, descriptions_by_group):
+    ordered = []
+    mitigation_col = getattr(mitigation, "student_group_col", None)
+    configured = []
+    if isinstance(mitigation_col, str) and mitigation_col.strip():
+        configured.append(mitigation_col.strip())
+    configured.extend(getattr(card.cfg, "student_group_cols", None) or [])
+    for group in [*configured, *descriptions_by_group]:
+        if isinstance(group, str) and group and group not in ordered:
+            ordered.append(group)
+    return ordered
+
+
+def render_post_mitigation_disparities(card, mitigation):
+    """Per-group FNR after the dual threshold, including groups with no flag."""
+    descriptions_by_group = _load_flag_descriptions(card, _POST_FLAGS_DIR)
+    blocks = []
+    for group in _post_group_order(card, mitigation, descriptions_by_group):
+        label = resolve_student_group_label(card, group)
+        normalized_name = group.lower().replace(" ", "_")
+        plot_md = _usable_plot(
+            utils.download_artifact(
+                run_id=card.run_id,
+                local_folder=card.assets_folder,
+                artifact_path=f"{_POST_PLOTS_DIR}/test_{normalized_name}_fnr.png",
+                description=f"False Negative Parity Rate for {label} after the dual threshold",
+                caption=f"FNR Parity for {label} after the dual threshold",
+            )
+        )
+        descriptions = descriptions_by_group.get(group, [])
+        if not descriptions and plot_md is None:
+            continue
+        text = (
+            "\n\n".join(descriptions)
+            if descriptions
+            else card.format.italic(
+                "No statistically significant disparity was found for this group after the dual threshold."
+            )
+        )
+        header = f"{card.format.header_level(5)}{label}\n\n"
+        plot_text = f"\n\n{plot_md}" if plot_md else ""
+        blocks.append(header + text + plot_text)
+    if not blocks:
+        return ""
+    target = str(mitigation.student_group).strip()
+    note = _POST_GROUP_NOTE.format(
+        target=target,
+        group_threshold=_format_threshold(mitigation.custom_threshold),
+        default_threshold=_format_threshold(default_positive_threshold(card)),
+    )
+    return (
+        f"\n{card.format.header_level(4)}Post-Mitigation Disparities by Student Group\n\n"
+        f"{note}\n\n" + "\n\n".join(blocks)
+    )
+
+
 def register_bias_sections(card, registry):
     # Register base sections
     base_bias_sections.register_bias_sections(card, registry)
@@ -459,6 +580,8 @@ def register_bias_sections(card, registry):
             return (
                 pre_mitigation
                 + "\n\n"
+                + render_post_mitigation_disparities(card, mitigation)
+                + "\n\n"
                 + render_post_mitigation_section(card, mitigation)
             )
 
@@ -475,6 +598,8 @@ def register_bias_sections(card, registry):
         return (
             section_header
             + "\n\n".join(all_blocks)
+            + "\n\n"
+            + render_post_mitigation_disparities(card, mitigation)
             + "\n\n"
             + render_post_mitigation_section(card, mitigation)
         )

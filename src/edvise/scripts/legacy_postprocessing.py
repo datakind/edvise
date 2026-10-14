@@ -268,6 +268,17 @@ def write_model_card_after_bias_mitigation(
         "Generating legacy model card after postprocessing for model %s",
         model_name,
     )
+    try:
+        from edvise.modeling.post_mitigation_bias import log_post_mitigation_group_bias
+
+        log_post_mitigation_group_bias(cfg)
+    except Exception as exc:
+        LOGGER.warning(
+            "Post-mitigation group FNR was not logged; the model card will keep "
+            "the pre-mitigation plots. [%s] %s",
+            type(exc).__name__,
+            exc,
+        )
     card = H2OLegacyModelCard(
         config=cfg,
         catalog=catalog,

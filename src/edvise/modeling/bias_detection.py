@@ -59,6 +59,10 @@ def evaluate_bias(
     pred_prob_col: str = "pred_prob",
     sample_weight_col: str = "sample_weight_col",
     classification_threshold: float = 0.5,
+    artifact_subdir: str | None = None,
+    log_run_metrics: bool = True,
+    plot_all_groups: bool = False,
+    threshold_label: str | None = None,
 ) -> None:
     """
     Evaluates the bias in a model's predictions across different student groups for a split
@@ -96,10 +100,16 @@ def evaluate_bias(
                 pred_prob_col,
                 pos_label,
                 sample_weight_col,
+                log_run_metrics=log_run_metrics,
             )
 
-            log_group_metrics_to_mlflow(bias_metrics, f"bias_{split_name}", group_col)
-            log_group_metrics_to_mlflow(perf_metrics, f"perf_{split_name}", group_col)
+            if log_run_metrics:
+                log_group_metrics_to_mlflow(
+                    bias_metrics, f"bias_{split_name}", group_col
+                )
+                log_group_metrics_to_mlflow(
+                    perf_metrics, f"perf_{split_name}", group_col
+                )
 
             # Detect bias flags
             all_flags = flag_bias(fnr_data)
@@ -111,13 +121,18 @@ def evaluate_bias(
                 if flag["flag"] not in ["🟢 NO BIAS", "⚪ INSUFFICIENT DATA"]
             ]
 
-            if group_flags:
+            if group_flags or (plot_all_groups and fnr_data):
                 fnr_fig = plot_fnr_group(
-                    fnr_data, classification_threshold=classification_threshold
+                    fnr_data,
+                    classification_threshold=classification_threshold,
+                    threshold_label=threshold_label,
                 )
-                mlflow.log_figure(
-                    fnr_fig, f"fnr_plots/{split_name}_{group_col}_fnr.png"
-                )
+                plot_name = f"fnr_plots/{split_name}_{group_col}_fnr.png"
+                if artifact_subdir:
+                    plot_name = (
+                        f"fnr_plots/{artifact_subdir}/{split_name}_{group_col}_fnr.png"
+                    )
+                mlflow.log_figure(fnr_fig, plot_name)
                 plt.close()
 
                 for flag in group_flags:
@@ -133,12 +148,13 @@ def evaluate_bias(
 
             model_flags.extend(all_flags)
 
-        # Compute and log bias scores to mlflow
-        summary = aggregate_bias_scores(model_flags, split=split_name)
-        log_bias_scores_to_mlflow(summary, split=split_name)
+        if log_run_metrics:
+            # Compute and log bias scores to mlflow
+            summary = aggregate_bias_scores(model_flags, split=split_name)
+            log_bias_scores_to_mlflow(summary, split=split_name)
 
     # Log bias flags to mlflow
-    log_bias_flags_to_mlflow(model_flags)
+    log_bias_flags_to_mlflow(model_flags, artifact_subdir=artifact_subdir)
 
 
 def compute_group_bias_metrics(
@@ -150,6 +166,7 @@ def compute_group_bias_metrics(
     pred_prob_col: str,
     pos_label: PosLabelType,
     sample_weight_col: str,
+    log_run_metrics: bool = True,
 ) -> tuple[list, list, list]:
     """
     Computes group metrics (including FNR) based on evaluation parameters and logs them to MLflow.
@@ -202,12 +219,13 @@ def compute_group_bias_metrics(
             eval_metrics, fnr_subgroup_data
         )
 
-        log_subgroup_metrics_to_mlflow(
-            bias_subgroup_metrics, f"{split_name}_bias", group_col
-        )
-        log_subgroup_metrics_to_mlflow(
-            perf_subgroup_metrics, f"{split_name}_performance", group_col
-        )
+        if log_run_metrics:
+            log_subgroup_metrics_to_mlflow(
+                bias_subgroup_metrics, f"{split_name}_bias", group_col
+            )
+            log_subgroup_metrics_to_mlflow(
+                perf_subgroup_metrics, f"{split_name}_performance", group_col
+            )
 
         bias_group_metrics.append(bias_subgroup_metrics)
         perf_group_metrics.append(perf_subgroup_metrics)
@@ -558,7 +576,9 @@ def generate_bias_flag(
     return flag_entry
 
 
-def log_bias_flags_to_mlflow(all_model_flags: list) -> None:
+def log_bias_flags_to_mlflow(
+    all_model_flags: list, artifact_subdir: str | None = None
+) -> None:
     """
     Save and log bias flags to MLflow. If no flags exist for the model, then we do not log anything.
 
@@ -578,10 +598,14 @@ def log_bias_flags_to_mlflow(all_model_flags: list) -> None:
                 else None
             )
             if df_flag is not None:
-                bias_tmp_path = f"/tmp/{flag_name}_flags.csv"
+                prefix = f"{artifact_subdir}_" if artifact_subdir else ""
+                bias_tmp_path = f"/tmp/{prefix}{flag_name}_flags.csv"
                 df_flag.to_csv(bias_tmp_path, index=False)
+                artifact_path = (
+                    f"bias_flags/{artifact_subdir}" if artifact_subdir else "bias_flags"
+                )
                 mlflow.log_artifact(
-                    local_path=bias_tmp_path, artifact_path="bias_flags"
+                    local_path=bias_tmp_path, artifact_path=artifact_path
                 )
 
 
@@ -645,7 +669,9 @@ def log_subgroup_metrics_to_mlflow(
 
 
 def plot_fnr_group(
-    fnr_data: list, classification_threshold: float = 0.5
+    fnr_data: list,
+    classification_threshold: float = 0.5,
+    threshold_label: str | None = None,
 ) -> matplotlib.figure.Figure:
     """
     Plots False Negative Rate (FNR) for a group by subgroup on
@@ -691,7 +717,10 @@ def plot_fnr_group(
         ylim=(-1, len(subgroups)),
         ylabel="Subgroup",
         xlabel="False Negative Rate",
-        title=f"""FNR @ {classification_threshold} for {fnr_data[0]["group"]} on {fnr_data[0]["split_name"]}""",
+        title=(
+            f"FNR @ {threshold_label or classification_threshold} for "
+            f"{fnr_data[0]['group']} on {fnr_data[0]['split_name']}"
+        ),
     )
     ax.tick_params(axis="both", labelsize=12)
     ax.grid(True, linestyle="--", alpha=0.6)

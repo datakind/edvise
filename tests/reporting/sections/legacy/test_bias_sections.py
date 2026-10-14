@@ -382,3 +382,89 @@ def test_group_column_omits_generic_alias_for_custom_column(
     assert "**0.55**" in summary
     assert "**0.3**" in summary
     assert "Post-mitigation metrics were not logged." in summary
+    assert "Post-Mitigation Disparities by Student Group" not in summary
+
+
+def test_bias_summary_shows_post_mitigation_group_plots(mock_card, tmp_path):
+    mock_card.assets_folder = str(tmp_path)
+    mock_card.cfg.student_group_cols = ["gender", "ethnicity"]
+    mock_card.cfg.student_group_aliases = {
+        "age_bias_group": "Age Bias Group",
+        "gender": "Gender",
+    }
+    mock_card.cfg.modeling.bias_mitigation = SimpleNamespace(
+        student_group_col="age_bias_group",
+        student_group_col_alias="Age",
+        student_group="18-24",
+        custom_threshold=0.3,
+    )
+    mock_card.cfg.inference.min_prob_pos_label = 0.5
+    run = MagicMock()
+    run.data.params = {}
+    run.data.metrics = {}
+    mock_card.client.get_run.return_value = run
+
+    pre_flags = tmp_path / "bias_flags" / "high_bias_flags.csv"
+    pre_flags.parent.mkdir(parents=True)
+    pd.DataFrame(
+        [
+            {
+                "group": "age_bias_group",
+                "split_name": "test",
+                "subgroups": "18-24 vs 25+",
+                "fnr_percentage_difference": 0.2,
+                "type": "a significant difference",
+            }
+        ]
+    ).to_csv(pre_flags, index=False)
+    post_flags = tmp_path / "bias_flags" / "post_mitigation" / "low_bias_flags.csv"
+    post_flags.parent.mkdir(parents=True)
+    pd.DataFrame(
+        [
+            {
+                "group": "gender",
+                "split_name": "test",
+                "subgroups": "Female vs Male",
+                "fnr_percentage_difference": 0.12,
+                "type": "a significant difference",
+            }
+        ]
+    ).to_csv(post_flags, index=False)
+    age_plot = (
+        tmp_path / "fnr_plots" / "post_mitigation" / "test_age_bias_group_fnr.png"
+    )
+    age_plot.parent.mkdir(parents=True)
+    age_plot.write_bytes(b"png")
+    gender_plot = tmp_path / "fnr_plots" / "post_mitigation" / "test_gender_fnr.png"
+    gender_plot.write_bytes(b"png")
+
+    def _download(**kwargs):
+        return str(tmp_path / kwargs["artifact_path"])
+
+    with (
+        patch("edvise.reporting.utils.utils.download_artifact", side_effect=_download),
+        patch(
+            "edvise.reporting.utils.utils.list_paths_in_directory",
+            return_value=[],
+        ),
+    ):
+        summary = _render_legacy_bias(mock_card)["bias_summary_section"]
+
+    assert "Pre-Mitigation Disparities by Student Group" in summary
+    assert "20% difference" in summary
+    assert "Post-Mitigation Disparities by Student Group" in summary
+    assert (
+        "18-24 students are flagged at 0.3. Everyone else is flagged at 0.5." in summary
+    )
+    assert "#####Age Bias Group" in summary
+    assert (
+        "No statistically significant disparity was found for this group after the dual threshold."
+        in summary
+    )
+    assert str(age_plot) in summary
+    assert "#####Gender" in summary
+    assert "Female" in summary
+    assert "12% difference" in summary
+    assert str(gender_plot) in summary
+    assert "ethnicity" not in summary.lower()
+    assert "Post-mitigation metrics were not logged." in summary
