@@ -11,10 +11,11 @@ import pytest
 
 from edvise.genai.mapping.eval.dataset import (
     Step2aEvalContext,
-    load_step2a_eval_context,
+    load_step2a_reference_cases,
 )
 from edvise.genai.mapping.eval.models import (
     GATEWAY_MODELS_ENV,
+    resolve_comparison_models,
     resolve_eval_model,
 )
 from edvise.genai.mapping.eval.predict import (
@@ -170,11 +171,13 @@ def restore_model_env():
                 os.environ[key] = value
 
 
-def test_resolve_model_requires_a_gateway_id(restore_model_env: None) -> None:
+def test_resolve_model_defaults_to_hosted_foundation_model(
+    restore_model_env: None,
+) -> None:
     os.environ.pop(GATEWAY_MODELS_ENV, None)
     os.environ.pop("EDVISE_EVAL_MODEL_SONNET_4_5", None)
-    with pytest.raises(ValueError, match="No gateway model id"):
-        resolve_eval_model("sonnet:4.5")
+    resolved = resolve_eval_model("sonnet:4.5")
+    assert resolved.gateway_model_id == "system.ai.claude-sonnet-4-5"
 
 
 def test_resolve_model_uses_explicit_id_over_environment(
@@ -204,82 +207,117 @@ def test_resolve_model_rejects_unknown_selection() -> None:
         resolve_eval_model("opus:4.5")
 
 
-def test_load_context_builds_one_evaluation_record(
+def test_resolve_comparison_models_requires_at_least_two_slots(
+    restore_model_env: None,
+) -> None:
+    with pytest.raises(ValueError, match="at least two"):
+        resolve_comparison_models("sonnet:4.5")
+    resolved = resolve_comparison_models("haiku:5.5,sonnet:4.5")
+    assert [(model.family, model.version) for model in resolved] == [
+        ("haiku", "5.5"),
+        ("sonnet", "4.5"),
+    ]
+    assert resolved[0].gateway_model_id == "system.ai.claude-haiku-5-5"
+    assert resolved[1].gateway_model_id == "system.ai.claude-sonnet-4-5"
+
+
+def test_resolve_comparison_models_accepts_list_and_json_array(
+    restore_model_env: None,
+) -> None:
+    from_list = resolve_comparison_models(["sonnet:4.5", "haiku:4.5"])
+    from_json = resolve_comparison_models('["sonnet:4.5", "haiku:4.5"]')
+    assert [m.selection for m in from_list] == [m.selection for m in from_json]
+
+
+def test_load_reference_cases_uses_each_pin_as_gold(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    gold = _gold()
-    reference = {"institution_id": "synthetic_metro_research_uni", "manifests": {}}
-    contract: dict = {"datasets": {}}
-    files = {
-        "gold": tmp_path / "manifest_map.json",
-        "contract": tmp_path / "enriched_schema_contract.json",
-        "reference": tmp_path / "reference_manifest_map.json",
-    }
-    files["gold"].write_text(json.dumps(gold))
-    files["contract"].write_text(json.dumps(contract))
-    files["reference"].write_text(json.dumps(reference))
-
     import edvise.genai.mapping.eval.dataset as dataset_mod
 
+    coastal = _write_pin(
+        tmp_path / "synthetic_coastal_cc" / "current",
+        institution_id="synthetic_coastal_cc",
+    )
+    metro = _write_pin(
+        tmp_path / "synthetic_metro_research_uni" / "current",
+        institution_id="synthetic_metro_research_uni",
+    )
+    pins = {
+        "synthetic_coastal_cc": coastal,
+        "synthetic_metro_research_uni": metro,
+    }
     monkeypatch.setattr(
         dataset_mod,
-        "_resolve_gold_mapping_manifest_for_eval",
-        lambda target_id: files["gold"],
+        "resolve_sma_few_shot_pin",
+        lambda reference_id, *, catalog: pins[reference_id],
     )
     monkeypatch.setattr(
         dataset_mod,
-        "_resolve_target_schema_contract_for_eval",
-        lambda target_id: files["contract"],
-    )
-    monkeypatch.setattr(
-        dataset_mod,
-        "_resolve_reference_mapping_manifest",
-        lambda reference_id: files["reference"],
-    )
-    monkeypatch.setattr(
-        dataset_mod,
-        "_eval_run_root",
-        lambda target_id: tmp_path / "eval",
+        "select_reference_id",
+        lambda *, institution_id, **_kwargs: SimpleNamespace(
+            reference_id=(
+                "synthetic_metro_research_uni"
+                if institution_id == "synthetic_coastal_cc"
+                else "synthetic_coastal_cc"
+            )
+        ),
     )
 
-    context = load_step2a_eval_context(catalog="dev_sst_02")
-    record = context.evaluation_record()
-    assert record["inputs"] == {
-        "institution_id": "synthetic_coastal_cc",
-        "reference_institution_id": "synthetic_metro_research_uni",
-    }
-    assert record["expectations"]["gold_manifest"]["institution_id"] == (
-        "synthetic_coastal_cc"
+    cases = load_step2a_reference_cases(
+        catalog="dev_sst_02",
+        active_pins=[
+            {"reference_id": "synthetic_coastal_cc"},
+            {"reference_id": "synthetic_metro_research_uni"},
+        ],
     )
-    assert record["expectations"]["schema_contract"] == contract
-    assert context.output_path.endswith(
-        "scratch/synthetic_coastal_cc_mapping_manifest.json"
+    by_target = {case.target_institution_id: case for case in cases}
+    coastal_case = by_target["synthetic_coastal_cc"]
+    assert coastal_case.reference_institution_id == "synthetic_metro_research_uni"
+    assert coastal_case.gold_manifest["institution_id"] == "synthetic_coastal_cc"
+    record = coastal_case.evaluation_record()
+    assert record["inputs"]["institution_id"] == "synthetic_coastal_cc"
+    assert record["expectations"]["schema_contract"] == {"datasets": {}}
+    assert coastal_case.output_path.endswith(
+        "synthetic_coastal_cc/eval_scratch/synthetic_coastal_cc_mapping_manifest.json"
     )
     assert os.environ["EDVISE_EVAL_UC_CATALOG"] == "dev_sst_02"
 
 
-def test_load_context_rejects_reference_institution_mismatch(
+def test_load_reference_cases_rejects_few_shot_institution_mismatch(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     import edvise.genai.mapping.eval.dataset as dataset_mod
 
-    reference = tmp_path / "reference.json"
-    reference.write_text(json.dumps({"institution_id": "other_school"}))
-    gold = tmp_path / "gold.json"
-    gold.write_text(json.dumps(_gold()))
-    contract = tmp_path / "contract.json"
-    contract.write_text("{}")
+    coastal = _write_pin(
+        tmp_path / "synthetic_coastal_cc" / "current",
+        institution_id="synthetic_coastal_cc",
+    )
+    metro = _write_pin(
+        tmp_path / "synthetic_metro_research_uni" / "current",
+        institution_id="other_school",
+    )
+    pins = {
+        "synthetic_coastal_cc": coastal,
+        "synthetic_metro_research_uni": metro,
+    }
     monkeypatch.setattr(
-        dataset_mod, "_resolve_gold_mapping_manifest_for_eval", lambda _id: gold
+        dataset_mod,
+        "resolve_sma_few_shot_pin",
+        lambda reference_id, *, catalog: pins[reference_id],
     )
     monkeypatch.setattr(
-        dataset_mod, "_resolve_target_schema_contract_for_eval", lambda _id: contract
-    )
-    monkeypatch.setattr(
-        dataset_mod, "_resolve_reference_mapping_manifest", lambda _id: reference
+        dataset_mod,
+        "select_reference_id",
+        lambda **_kwargs: SimpleNamespace(reference_id="synthetic_metro_research_uni"),
     )
     with pytest.raises(ValueError, match="institution_id mismatch"):
-        load_step2a_eval_context(catalog="dev_sst_02")
+        load_step2a_reference_cases(
+            catalog="dev_sst_02",
+            active_pins=[
+                {"reference_id": "synthetic_coastal_cc"},
+                {"reference_id": "synthetic_metro_research_uni"},
+            ],
+        )
 
 
 def test_predict_fn_injects_envelope_fields_and_records_latency(
@@ -304,7 +342,7 @@ def test_predict_fn_injects_envelope_fields_and_records_latency(
     context = _context()
     observation = PredictionObservation()
     predict_fn = make_step2a_predict_fn(
-        context=context,
+        cases=[context],
         gateway_model_id="gateway-sonnet",
         pipeline_version="v-test",
         client=object(),
@@ -340,7 +378,7 @@ def test_predict_fn_returns_error_payload_when_gateway_fails(
         },
     )
     predicted = make_step2a_predict_fn(
-        context=_context(),
+        cases=[_context()],
         gateway_model_id="gateway-haiku",
         client=object(),
     )(
@@ -378,7 +416,7 @@ def test_predict_fn_creates_client_without_disabling_tracing(
             "error": "stopped",
         },
     )
-    make_step2a_predict_fn(context=_context(), gateway_model_id="gateway-sonnet")(
+    make_step2a_predict_fn(cases=[_context()], gateway_model_id="gateway-sonnet")(
         institution_id="synthetic_coastal_cc",
         reference_institution_id="synthetic_metro_research_uni",
     )
@@ -395,13 +433,12 @@ class _RunScope:
 
 def test_run_logs_comparison_params_and_diagnostic(
     monkeypatch: pytest.MonkeyPatch,
+    restore_model_env: None,
 ) -> None:
     import edvise.genai.mapping.eval.predict as predict_mod
-    import edvise.genai.mapping.eval.run as run_mod
 
-    monkeypatch.setenv(GATEWAY_MODELS_ENV, json.dumps({"sonnet:5": "gateway-sonnet-5"}))
-    monkeypatch.setattr(
-        run_mod, "load_step2a_eval_context", lambda **_kwargs: _context()
+    monkeypatch.setenv(
+        GATEWAY_MODELS_ENV, json.dumps({"sonnet:4.5": "gateway-sonnet-45"})
     )
     monkeypatch.setattr(
         predict_mod, "build_step2a_batched_prompt", lambda **_kwargs: "prompt"
@@ -423,7 +460,8 @@ def test_run_logs_comparison_params_and_diagnostic(
         },
     )
 
-    logged: dict = {"params": {}, "metrics": {}, "artifacts": {}, "experiment": None}
+    logged: dict = {"params": [], "metrics": {}, "artifacts": {}, "experiment": None}
+    run_counter = {"n": 0}
 
     def evaluate(*, data, predict_fn, scorers):
         row = data[0]
@@ -432,7 +470,8 @@ def test_run_logs_comparison_params_and_diagnostic(
             scorer(outputs=output, expectations=row["expectations"])
             for scorer in scorers
         ]
-        return SimpleNamespace(run_id="run-123")
+        run_counter["n"] += 1
+        return SimpleNamespace(run_id=f"run-{run_counter['n']}")
 
     mlflow = SimpleNamespace(
         genai=SimpleNamespace(
@@ -441,36 +480,57 @@ def test_run_logs_comparison_params_and_diagnostic(
         ),
         set_experiment=lambda name: logged.__setitem__("experiment", name),
         start_run=lambda run_id: _RunScope(),
-        log_params=lambda params: logged["params"].update(params),
+        log_params=lambda params: logged["params"].append(dict(params)),
         log_metric=lambda key, value: logged["metrics"].__setitem__(key, value),
         log_dict=lambda payload, path: logged["artifacts"].__setitem__(path, payload),
     )
 
-    run_id = run_step2a_evaluation(
+    run_ids = run_step2a_evaluation(
         catalog="dev_sst_02",
-        model="sonnet:5",
+        models="sonnet:4.5,sonnet:5",
         experiment_name="/Shared/edvise/genai_mapping/step2a_model_comparison",
+        cases=[_context()],
         mlflow_module=mlflow,
     )
-    assert run_id == "run-123"
+    assert run_ids == ["run-1", "run-2"]
     assert (
         logged["experiment"] == "/Shared/edvise/genai_mapping/step2a_model_comparison"
     )
     assert logged["scores"] == [1.0, 1.0, 1.0]
-    assert logged["params"] == {
+    assert [params["model_version"] for params in logged["params"]] == ["4.5", "5"]
+    # sonnet:4.5 was overridden via EDVISE_EVAL_GATEWAY_MODELS; sonnet:5 used
+    # the hosted foundation-model default.
+    assert logged["params"][0]["gateway_model_id"] == "gateway-sonnet-45"
+    assert logged["params"][1] == {
         "model_family": "sonnet",
         "model_version": "5",
-        "gateway_model_id": "gateway-sonnet-5",
+        "gateway_model_id": "system.ai.claude-sonnet-5",
         "prompt_variant": "batched",
-        "institution_id": "synthetic_coastal_cc",
-        "reference_institution_id": "synthetic_metro_research_uni",
         "catalog": "dev_sst_02",
+        "n_reference_cases": "1",
+        "target_reference_ids": "synthetic_coastal_cc",
+        "few_shot_reference_ids": "synthetic_metro_research_uni",
     }
     assert logged["metrics"] == {"latency_s": 2.5, "response_chars": 40.0}
     artifact = logged["artifacts"]["diagnostics/step2a_field_detail.json"]
     assert artifact["cases"][0]["validation_passed"] is True
     assert len(artifact["cases"][0]["field_scores"]) == 3
     assert artifact["predictions"][0]["latency_s"] == 2.5
+
+
+def _write_pin(current: Path, *, institution_id: str) -> SimpleNamespace:
+    current.mkdir(parents=True)
+    manifest = (
+        _gold()
+        if institution_id == "synthetic_coastal_cc"
+        else {"institution_id": institution_id, "manifests": {}}
+    )
+    (current / "manifest_map.json").write_text(json.dumps(manifest))
+    (current / "enriched_schema_contract.json").write_text(json.dumps({"datasets": {}}))
+    return SimpleNamespace(
+        current_root=current,
+        manifest_map=current / "manifest_map.json",
+    )
 
 
 def _context() -> Step2aEvalContext:

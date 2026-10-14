@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
-"""Evaluate one Step 2a gateway model with ``mlflow.genai.evaluate``.
+"""Compare Step 2a gateway models on the pinned reference library.
+
+Each slot defaults to the hosted ``system.ai.claude-<family>-<version>``
+foundation model (e.g. ``sonnet:4.5`` -> ``system.ai.claude-sonnet-4-5``).
+Override a slot with ``EDVISE_EVAL_GATEWAY_MODELS`` (JSON object keyed by
+slot) or a per-slot ``EDVISE_EVAL_MODEL_<FAMILY>_<VERSION>`` env var if that
+naming doesn't match your workspace.
 
 Example::
 
     python src/edvise/genai/mapping/scripts/edvise_genai_eval_step2a.py \\
       --catalog dev_sst_02 \\
-      --model sonnet:4.5 \\
-      --gateway_model_id databricks-claude-sonnet-4-5
+      --models sonnet:4.5,sonnet:5,haiku:4.5,haiku:5
 """
 
 from __future__ import annotations
@@ -33,14 +38,7 @@ if os.path.isdir(_src_root) and _src_root not in sys.path:
 
 
 def main(argv: list[str] | None = None) -> int:
-    from edvise.genai.mapping.eval.dataset import (
-        DEFAULT_REFERENCE_INSTITUTION_ID,
-        DEFAULT_TARGET_INSTITUTION_ID,
-    )
-    from edvise.genai.mapping.eval.run import (
-        DEFAULT_EXPERIMENT_NAME,
-        run_step2a_evaluation,
-    )
+    from edvise.genai.mapping.eval.run import run_step2a_evaluation
     from edvise.genai.mapping.shared.utilities import (
         disable_openai_autolog_for_gateway,
     )
@@ -51,44 +49,23 @@ def main(argv: list[str] | None = None) -> int:
 
     parser = argparse.ArgumentParser(
         description=(
-            "Score the production Step 2a batched prompt for one Sonnet or Haiku "
-            "version and log the run to MLflow."
+            "Score the production Step 2a prompt for each supplied Sonnet or "
+            "Haiku version against the active reference pins, and log one "
+            "MLflow run per model."
         )
     )
     parser.add_argument(
         "--catalog",
         required=True,
-        help="Unity Catalog name used to resolve gold and reference volumes",
+        help="Unity Catalog that holds the active reference pins",
     )
     parser.add_argument(
-        "--model",
+        "--models",
         required=True,
-        help="Bake-off slot, for example sonnet:4.5 or haiku:5.5",
-    )
-    parser.add_argument(
-        "--gateway_model_id",
-        default="",
-        help="Databricks gateway endpoint id. Overrides the slot's environment id.",
-    )
-    parser.add_argument(
-        "--institution_id",
-        default=DEFAULT_TARGET_INSTITUTION_ID,
-        help="Target institution whose gold manifest is scored",
-    )
-    parser.add_argument(
-        "--reference_institution_id",
-        default=DEFAULT_REFERENCE_INSTITUTION_ID,
-        help="Few-shot reference institution",
-    )
-    parser.add_argument(
-        "--experiment_name",
-        default=DEFAULT_EXPERIMENT_NAME,
-        help="MLflow experiment that collects model-comparison runs",
-    )
-    parser.add_argument(
-        "--pipeline_version",
-        default="eval",
-        help="Release id injected into the predicted manifest envelope",
+        help=(
+            "Comma-separated or JSON array of slots to compare, for example "
+            "sonnet:4.5,sonnet:5,haiku:4.5. Include at least two."
+        ),
     )
     args = parser.parse_args(argv)
 
@@ -96,15 +73,7 @@ def main(argv: list[str] | None = None) -> int:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
-    run_step2a_evaluation(
-        catalog=args.catalog,
-        model=args.model,
-        gateway_model_id=args.gateway_model_id or None,
-        target_institution_id=args.institution_id,
-        reference_institution_id=args.reference_institution_id,
-        experiment_name=args.experiment_name,
-        pipeline_version=args.pipeline_version or "eval",
-    )
+    run_step2a_evaluation(catalog=args.catalog, models=args.models)
     return 0
 
 

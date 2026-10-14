@@ -1,8 +1,12 @@
 """Gateway model slots for Step 2a bake-offs.
 
-Endpoint ids are workspace-specific, so the six Sonnet and Haiku slots are
-registered without hardcoded ids. Supply an id per run or through the
-environment.
+Each slot defaults to Databricks' hosted Foundation Model API id
+``system.ai.claude-<family>-<version>`` (dots in the version become dashes,
+e.g. ``sonnet:4.5`` -> ``system.ai.claude-sonnet-4-5``). ``system.ai`` is a
+Databricks-managed catalog, not the ``<catalog>.genai_mapping.*`` routes this
+repo registers for production, so no workspace catalog is substituted in.
+Override a slot explicitly, via ``EDVISE_EVAL_GATEWAY_MODELS`` JSON, or via a
+per-slot environment variable if that naming doesn't match your workspace.
 """
 
 from __future__ import annotations
@@ -60,6 +64,68 @@ def model_slot_env_var(family: str, version: str) -> str:
     return f"EDVISE_EVAL_MODEL_{family.upper()}_{version.replace('.', '_')}"
 
 
+def default_system_ai_model_id(family: str, version: str) -> str:
+    """Databricks-hosted Foundation Model API id for one slot.
+
+    ``system.ai.claude-<family>-<version>``, e.g. ``sonnet:4.5`` ->
+    ``system.ai.claude-sonnet-4-5``. Dots in the version become dashes
+    because this is an unquoted Unity Catalog identifier.
+    """
+    return f"system.ai.claude-{family}-{version.replace('.', '-')}"
+
+
+def resolve_comparison_models(
+    models: str | list[str],
+) -> list[ResolvedEvalModel]:
+    """Resolve the models one bake-off compares.
+
+    ``models`` is a comma-separated string, a JSON array, or a list of slots
+    such as ``sonnet:4.5``. Every listed slot is scored in the same job,
+    resolved through :func:`resolve_eval_model`'s usual precedence. At least
+    two slots are required so the run compares them.
+    """
+    labels = _parse_model_list(models)
+    if len(labels) < 2:
+        raise ValueError(
+            "A comparison needs at least two model slots. "
+            f"Choose from: {', '.join(supported_model_labels())}."
+        )
+    return [resolve_eval_model(label) for label in labels]
+
+
+def _parse_model_list(raw: str | list[str]) -> list[str]:
+    if isinstance(raw, list):
+        items = raw
+    else:
+        text = raw.strip()
+        if not text:
+            return []
+        if text.startswith("["):
+            try:
+                parsed = json.loads(text)
+            except json.JSONDecodeError as exc:
+                raise ValueError(
+                    f"models list must be JSON or comma-separated: {exc}"
+                ) from exc
+            if not isinstance(parsed, list):
+                raise ValueError("models JSON must be an array of slot strings.")
+            items = parsed
+        else:
+            items = text.split(",")
+    labels: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        if not isinstance(item, str):
+            raise ValueError(f"model slot {item!r} must be a string.")
+        label = item.strip().lower()
+        if not label:
+            continue
+        if label not in seen:
+            seen.add(label)
+            labels.append(label)
+    return labels
+
+
 def resolve_eval_model(
     selection: str,
     *,
@@ -69,7 +135,8 @@ def resolve_eval_model(
 
     Precedence is the explicit id, then ``EDVISE_EVAL_GATEWAY_MODELS`` (a JSON
     object keyed by ``sonnet:4.5``), then the per-slot environment variable,
-    then a non-empty registry default.
+    then a non-empty registry default, then the hosted
+    ``system.ai.claude-<family>-<version>`` foundation model.
     """
     family, version = parse_model_selection(selection)
     label = f"{family}:{version}"
@@ -89,23 +156,32 @@ def resolve_eval_model(
     if seeded and seeded.strip():
         return ResolvedEvalModel(family, version, seeded.strip())
 
-    raise ValueError(
-        f"No gateway model id configured for {label}. Pass --gateway_model_id, "
-        f"set {GATEWAY_MODELS_ENV} to a JSON object, or set "
-        f"{model_slot_env_var(family, version)}."
+    return ResolvedEvalModel(
+        family, version, default_system_ai_model_id(family, version)
     )
+
+
+def _parse_gateway_model_map(raw: str | dict[str, str]) -> dict[str, object]:
+    if isinstance(raw, str):
+        text = raw.strip()
+        if not text:
+            return {}
+        try:
+            parsed = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"gateway model map must be a JSON object: {exc}") from exc
+    else:
+        parsed = raw
+    if not isinstance(parsed, dict):
+        raise ValueError("gateway model map must be a JSON object.")
+    return parsed
 
 
 def _gateway_model_from_env_map(label: str) -> str | None:
     raw = os.environ.get(GATEWAY_MODELS_ENV, "").strip()
     if not raw:
         return None
-    try:
-        parsed = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"{GATEWAY_MODELS_ENV} must be a JSON object: {exc}") from exc
-    if not isinstance(parsed, dict):
-        raise ValueError(f"{GATEWAY_MODELS_ENV} must be a JSON object.")
+    parsed = _parse_gateway_model_map(raw)
     value = parsed.get(label)
     if value is None:
         return None

@@ -27,7 +27,7 @@ class PredictionObservation:
 
 def make_step2a_predict_fn(
     *,
-    context: Step2aEvalContext,
+    cases: list[Step2aEvalContext],
     gateway_model_id: str,
     pipeline_version: str = "eval",
     client: Any | None = None,
@@ -39,15 +39,17 @@ def make_step2a_predict_fn(
     in the same way onboard does before envelope validation. A failed call
     returns an error object so the scorers can record zeros instead of raising.
     """
+    by_institution = {case.target_institution_id: case for case in cases}
     holder: dict[str, Any] = {"client": client}
 
     def predict_fn(
         institution_id: str, reference_institution_id: str
     ) -> dict[str, Any]:
-        if institution_id != context.target_institution_id:
+        context = by_institution.get(institution_id)
+        if context is None:
             raise ValueError(
-                f"Evaluation record institution_id {institution_id!r} does not match "
-                f"loaded context {context.target_institution_id!r}."
+                f"Evaluation record institution_id {institution_id!r} is not one of "
+                f"the loaded reference cases: {sorted(by_institution)}."
             )
         if reference_institution_id != context.reference_institution_id:
             raise ValueError(
