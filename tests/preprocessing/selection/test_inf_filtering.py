@@ -314,6 +314,7 @@ def _checkpoint_row(
         "id": student_id,
         "cohort_term": cohort_term,
         "cohort": cohort,
+        "enrollment_intensity_first_term": intensity,
         "student_term_enrollment_intensity": intensity,
         "academic_term": ckpt_term,
         "academic_year": ckpt_year,
@@ -364,6 +365,77 @@ def test_exclude_training_cohort_keeps_in_window_part_time():
     assert set(result["id"]) == {2, 4}
 
 
+def test_open_window_intensity_from_student_terms_at_cohort_entry():
+    """Without first-term snapshot, use term-1 row from student_terms."""
+    df = pd.DataFrame(
+        [
+            {
+                "student_id": "s1",
+                "cohort_term": "FALL",
+                "cohort": "2023-24",
+                "student_term_enrollment_intensity": "FULL-TIME",
+                "academic_term": "SPRING",
+                "academic_year": "2025-26",
+            }
+        ]
+    )
+    student_terms = pd.DataFrame(
+        [
+            {
+                "student_id": "s1",
+                "cohort_term": "FALL",
+                "cohort": "2023-24",
+                "academic_term": "FALL",
+                "academic_year": "2023-24",
+                "student_term_enrollment_intensity": "PART-TIME",
+            },
+            {
+                "student_id": "s1",
+                "cohort_term": "FALL",
+                "cohort": "2023-24",
+                "academic_term": "SPRING",
+                "academic_year": "2025-26",
+                "student_term_enrollment_intensity": "FULL-TIME",
+            },
+        ]
+    )
+    result = exclude_training_cohort_students(
+        df,
+        training_cohorts=["fall 2023-24"],
+        as_of_term="spring 2025-26",
+        intensity_time_limits=_INTENSITY_LIMITS,
+        num_terms_in_year=2,
+        student_terms=student_terms,
+        student_id_col="student_id",
+    )
+    assert len(result) == 1
+
+
+def test_exclude_training_cohort_uses_first_term_intensity_not_checkpoint():
+    """PT at enrollment keeps the 4.5-year window even if FT at checkpoint."""
+    df = pd.DataFrame(
+        [
+            {
+                **_checkpoint_row(
+                    student_id=1,
+                    cohort_term="FALL",
+                    cohort="2023-24",
+                    intensity="FULL-TIME",
+                ),
+                "enrollment_intensity_first_term": "PART-TIME",
+            },
+        ]
+    )
+    result = exclude_training_cohort_students(
+        df,
+        training_cohorts=["fall 2023-24"],
+        as_of_term="spring 2025-26",
+        intensity_time_limits=_INTENSITY_LIMITS,
+        num_terms_in_year=2,
+    )
+    assert set(result["id"]) == {1}
+
+
 def test_exclude_training_cohort_unknown_intensity_stays_excluded():
     df = pd.DataFrame(
         [
@@ -377,6 +449,7 @@ def test_exclude_training_cohort_unknown_intensity_stays_excluded():
                 "id": 2,
                 "cohort_term": "FALL",
                 "cohort": "2024-25",
+                "enrollment_intensity_first_term": pd.NA,
                 "student_term_enrollment_intensity": pd.NA,
                 "academic_term": "SPRING",
                 "academic_year": "2025-26",
