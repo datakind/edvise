@@ -1,3 +1,8 @@
+## 1.20.0 (2026-10-14)
+- feat(es): protect optional ES demographic status fields as bias vars (#379)
+- fix: align bias assessment groups with model card listing (#385)
+- fix(es,pdp): accept first_term_of_year regardless of letter case (#388)
+
 ## 1.19.0 (2026-10-14)
 - feat: noncore term features (#383)
 - feat(es,pdp): configure whether Summer starts or ends the academic year (#384)
