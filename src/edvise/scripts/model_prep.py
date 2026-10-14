@@ -29,6 +29,10 @@ print("src_path:", src_path)
 print("sys.path:", sys.path)
 
 from edvise.shared.schema_type import project_config_class
+from edvise.utils.academic_terms import (
+    DEFAULT_FIRST_TERM_OF_YEAR,
+    cohort_term_sort_ranks,
+)
 from edvise.dataio.read import read_config, read_parquet
 from edvise.dataio.write import write_parquet
 from edvise.model_prep import cleanup_features as cleanup, training_params
@@ -349,8 +353,16 @@ class ModelPrepTask:
                     .unique()
                     .tolist()
                 )
-                # TODO: align with config-driven cohort labels when added (esp. custom schools)
-                term_order = {"fall": 1, "winter": 2, "spring": 3, "summer": 4}
+                preproc = getattr(self.cfg, "preprocessing", None)
+                features = (
+                    getattr(preproc, "features", None) if preproc is not None else None
+                )
+                first_term = (
+                    features.first_term_of_year
+                    if features is not None
+                    else DEFAULT_FIRST_TERM_OF_YEAR
+                )
+                term_order = cohort_term_sort_ranks(first_term)
 
                 def _cohort_sort_key(x: str) -> tuple[int, int]:
                     parts = x.split()

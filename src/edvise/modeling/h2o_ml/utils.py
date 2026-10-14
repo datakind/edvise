@@ -38,6 +38,14 @@ LOGGER = logging.getLogger(__name__)
 
 PosLabelType = t.Union[bool, str]
 
+# Algorithms expected to export a MOJO. Inference scores model.h2o on the
+# H2O cluster; the MOJO and its genmodel jar are logged as version-independent
+# scoring artifacts, so a future H2O upgrade need not load an older model.h2o.
+MOJO_EXPORT_ALGOS = frozenset({"gbm", "drf", "xgboost", "xrt"})
+
+MOJO_FILENAME = "model.zip"
+GENMODEL_JAR_FILENAME = "h2o-genmodel.jar"
+
 
 def safe_h2o_init(base_port: int = 54321, mem_per_cluster: str = "4G") -> None:
     """
@@ -765,10 +773,24 @@ def log_h2o_model_metadata_for_uc(
         if model_saved_path != final_model_path:
             os.rename(model_saved_path, final_model_path)
 
-        # 2) Try to export MOJO
-        final_mojo_path = _try_export_mojo(h2o_model, tmpdir)
+        # 2) Export the MOJO and its genmodel jar alongside model.h2o.
+        # Nothing scores from them today; they are logged so a model trained
+        # on this H2O version stays scorable after an H2O upgrade.
+        algo = getattr(h2o_model, "algo", None)
+        algo_name = algo if isinstance(algo, str) else None
+        final_mojo_path, genmodel_jar_path = _try_export_mojo(h2o_model, tmpdir)
+        if algo_name in MOJO_EXPORT_ALGOS and (
+            not final_mojo_path or not genmodel_jar_path
+        ):
+            LOGGER.warning(
+                "MOJO export failed for algo=%s; this run has no "
+                "version-independent scoring artifact.",
+                algo_name,
+            )
         if final_mojo_path:
             mlflow.log_artifact(final_mojo_path, artifact_path=artifact_path)
+        if genmodel_jar_path:
+            mlflow.log_artifact(genmodel_jar_path, artifact_path=artifact_path)
 
         # 3) Build MLmodel metadata
         mlmodel = Model(artifact_path=artifact_path, flavors={})
@@ -1053,33 +1075,40 @@ def _to_pandas(hobj: t.Any) -> pd.DataFrame:
     raise TypeError(f"_to_pandas: unsupported object type {type(hobj)}")
 
 
-def _try_export_mojo(h2o_model: ModelBase, tmpdir: str) -> str | None:
+def _try_export_mojo(
+    h2o_model: ModelBase, tmpdir: str
+) -> tuple[str | None, str | None]:
     """
-    Attempt to export a MOJO for the given model. Returns (has_mojo, final_mojo_path).
+    Export a MOJO zip and h2o-genmodel.jar.
+
+    Returns ``(model_zip_path, genmodel_jar_path)``. Either path is None when
+    that file was not produced.
     """
-    final_mojo_path = os.path.join(tmpdir, "model.zip")
+    final_mojo_path = os.path.join(tmpdir, MOJO_FILENAME)
+    final_jar_path = os.path.join(tmpdir, GENMODEL_JAR_FILENAME)
+    algo = getattr(h2o_model, "algo", "?")
     try:
-        # Primary, version-agnostic path: model method
-        mojo_path = h2o_model.download_mojo(path=tmpdir)
-        if mojo_path and os.path.exists(mojo_path):
-            if mojo_path != final_mojo_path:
-                os.replace(mojo_path, final_mojo_path)
-            return final_mojo_path
-        else:
-            logging.warning(
-                "download_mojo returned no path for algo=%s",
-                getattr(h2o_model, "algo", "?"),
+        mojo_path = h2o_model.download_mojo(path=tmpdir, get_genmodel_jar=True)
+        if not mojo_path or not os.path.isfile(str(mojo_path)):
+            LOGGER.warning("download_mojo returned no path for algo=%s", algo)
+            return None, None
+        if os.path.abspath(str(mojo_path)) != os.path.abspath(final_mojo_path):
+            os.replace(str(mojo_path), final_mojo_path)
+        jar_path = final_jar_path if os.path.isfile(final_jar_path) else None
+        if jar_path is None:
+            LOGGER.warning(
+                "MOJO exported but %s is missing for algo=%s",
+                GENMODEL_JAR_FILENAME,
+                algo,
             )
-            return None
+        return final_mojo_path, jar_path
     except AttributeError as e:
-        logging.warning("Model has no download_mojo(): %s", e)
-        return None
+        LOGGER.warning("Model has no download_mojo(): %s", e)
+        return None, None
     except Exception as e:
         # Some algos/params don't support MOJO
-        logging.warning(
-            "MOJO export failed for algo=%s: %s", getattr(h2o_model, "algo", "?"), e
-        )
-        return None
+        LOGGER.warning("MOJO export failed for algo=%s: %s", algo, e)
+        return None, None
 
 
 def _safe_mlflow_log_metric(key, value, step=None):

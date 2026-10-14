@@ -34,6 +34,8 @@ print("Repo root:", repo_root)
 print("src_path:", src_path)
 print("sys.path:", sys.path)
 
+from edvise.configs.es import ESProjectConfig
+from edvise.configs.pdp import PDPProjectConfig
 from edvise.shared.schema_type import is_edvise_schema, project_config_class
 from edvise.dataio.read import read_config
 from edvise.shared.logger import (
@@ -44,6 +46,7 @@ from edvise.shared.logger import (
 from edvise.shared.validation import require, warn_if
 from edvise.targets.invoke import compute_target_from_config
 from edvise.targets.retention_edvise import assign_retention_column
+from edvise.utils.academic_terms import DEFAULT_FIRST_TERM_OF_YEAR
 
 logging.getLogger("py4j").setLevel(logging.WARNING)
 
@@ -75,11 +78,20 @@ class TargetsTask:
                 retention_into_year=getattr(target_cfg, "retention_into_year", 2),
             )
 
+        # Legacy PreprocessingConfig has no features; PDP/ES carry first_term_of_year.
+        first_term_of_year = DEFAULT_FIRST_TERM_OF_YEAR
+        if (
+            isinstance(self.cfg, (PDPProjectConfig, ESProjectConfig))
+            and self.cfg.preprocessing is not None
+        ):
+            first_term_of_year = self.cfg.preprocessing.features.first_term_of_year
+
         return compute_target_from_config(
             target_cfg,
             df,
             df_ckpt,
             student_id_col=self.cfg.student_id_col,
+            first_term_of_year=first_term_of_year,
         )
 
     def run(self) -> None:

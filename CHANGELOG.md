@@ -1,3 +1,11 @@
+## 1.19.0 (2026-10-14)
+- feat: noncore term features (#383)
+- feat(es,pdp): configure whether Summer starts or ends the academic year (#384)
+
+## 1.18.0 (2026-10-13)
+- feat(automl): export H2O MOJO inference files to enable future serving and backwards version compatibility (#361)
+- fix: cap PyArrow below 26 on Databricks jobs (#378)
+
 ## 1.17.2 (2026-10-08)
 - fix(h2o-automl): set unseen enum levels to missing before tree SHAP (#374)
 

@@ -82,3 +82,17 @@ def test_later_checkpoint_keeps_snapshots() -> None:
     )
     for col in _FIRST_TERM_SNAPSHOTS:
         assert col in cleaned.columns
+
+
+def test_core_term_diff_is_masked_until_that_core_term() -> None:
+    """Enrolled-term count must not reveal a later core-term change."""
+    df = pd.DataFrame(
+        {
+            "cumnum_terms_enrolled": [3],
+            "cumnum_core_terms_enrolled": [2],
+            "num_credits_earned_diff_term_2_to_term_3": [12.0],
+            "year_of_enrollment_at_cohort_inst": [1],
+        }
+    )
+    cleaned = PDPCleanup().clean_up_labeled_dataset_cols_and_vals(df)
+    assert pd.isna(cleaned["num_credits_earned_diff_term_2_to_term_3"].iloc[0])
