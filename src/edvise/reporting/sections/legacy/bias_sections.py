@@ -25,8 +25,13 @@ def resolve_student_group_label(card, group_key):
 
 
 def register_bias_sections(card, registry):
-    # Register base sections
-    base_bias_sections.register_bias_sections(card, registry)
+    def group_label_fn(col: str) -> str:
+        return str(card.format.friendly_case(resolve_student_group_label(card, col)))
+
+    # Register base sections (bias_groups_section uses aliases via group_label_fn)
+    base_bias_sections.register_bias_sections(
+        card, registry, group_label_fn=group_label_fn
+    )
 
     bias_levels = ["high", "moderate", "low"]
     group_disparities = {}
@@ -119,35 +124,6 @@ def register_bias_sections(card, registry):
         header = f"{card.format.header_level(5)}{label}\n\n"
         text_block = "\n\n".join(descriptions)
         all_blocks.append(header + text_block + "\n\n" + plot_md)
-
-    @registry.register("bias_groups_section")
-    def bias_groups_section():
-        """
-        Returns bias groups for legacy schools using aliases.
-        """
-        intro = f"{card.format.indent_level(1)}- Our assessment for FNR Parity was conducted across the following student groups.\n"
-
-        try:
-            alias_dict = card.cfg.student_group_aliases
-            assert isinstance(alias_dict, dict), (
-                "student_group_aliases must be a dictionary"
-            )
-
-            group_labels = list(alias_dict.values())
-            nested = [
-                f"{card.format.indent_level(2)}- {card.format.friendly_case(label)}\n"
-                for label in group_labels
-            ]
-            return intro + "".join(nested)
-
-        except (AttributeError, AssertionError, TypeError) as e:
-            LOGGER.warning(
-                f"[bias_groups_section] Failed to extract student groups: {e}"
-            )
-            fallback = (
-                f"{card.format.indent_level(2)}- Unable to extract student groups\n"
-            )
-            return intro + fallback
 
     @registry.register("bias_summary_section")
     def bias_summary_section():
