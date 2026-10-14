@@ -36,6 +36,8 @@ _PRE_MITIGATION_NOTE = (
 _METRICS_NOT_LOGGED = "Post-mitigation metrics were not logged."
 _POST_FLAGS_DIR = "bias_flags/post_mitigation"
 _POST_PLOTS_DIR = "fnr_plots/post_mitigation"
+_POST_FNR_RATES = f"{_POST_PLOTS_DIR}/fnr_rates.csv"
+_FNR_RATES_NOT_LOGGED = "Post-mitigation FNR rates were not logged for this group."
 _POST_GROUP_NOTE = (
     "{target} students are flagged at {group_threshold}. "
     "Everyone else is flagged at {default_threshold}."
@@ -337,15 +339,34 @@ def _describe_disparity(card, subgroups, diff, stat_summary):
     )
 
 
-def _load_flag_descriptions(card, flags_dir):
-    descriptions_by_group = {}
-    for level in ("high", "moderate", "low"):
+def _post_flag_artifact_paths(flags_dir, level):
+    """Canonical flag name, then the prefixed name from earlier postprocessing runs."""
+    prefix = os.path.basename(flags_dir.rstrip("/"))
+    names = [f"{level}_bias_flags.csv"]
+    if prefix:
+        names.append(f"{prefix}_{level}_bias_flags.csv")
+    return [f"{flags_dir}/{name}" for name in names]
+
+
+def _first_existing_artifact(card, artifact_paths):
+    for artifact_path in artifact_paths:
         local_path = utils.download_artifact(
             run_id=card.run_id,
             local_folder=card.assets_folder,
-            artifact_path=f"{flags_dir}/{level}_bias_flags.csv",
+            artifact_path=artifact_path,
         )
-        if not isinstance(local_path, str) or not os.path.isfile(local_path):
+        if isinstance(local_path, str) and os.path.isfile(local_path):
+            return local_path
+    return None
+
+
+def _load_flag_descriptions(card, flags_dir):
+    descriptions_by_group = {}
+    for level in ("high", "moderate", "low"):
+        local_path = _first_existing_artifact(
+            card, _post_flag_artifact_paths(flags_dir, level)
+        )
+        if local_path is None:
             continue
         try:
             frame = pd.read_csv(local_path)
@@ -385,11 +406,51 @@ def _post_group_order(card, mitigation, descriptions_by_group):
     return ordered
 
 
+def _load_post_fnr_rates(card):
+    local_path = _first_existing_artifact(card, [_POST_FNR_RATES])
+    if local_path is None:
+        return {}
+    try:
+        frame = pd.read_csv(local_path)
+    except Exception as exc:
+        LOGGER.warning(
+            "Could not read post-mitigation FNR rates: [%s] %s",
+            type(exc).__name__,
+            exc,
+        )
+        return {}
+    if frame.empty or "group" not in frame.columns or "fnr" not in frame.columns:
+        return {}
+    if "split_name" in frame.columns:
+        frame = frame[frame["split_name"] == "test"]
+    rates_by_group = {}
+    for group, rows in frame.groupby("group", sort=False):
+        ordered = rows.copy()
+        ordered["_fnr"] = pd.to_numeric(ordered["fnr"], errors="coerce")
+        ordered = ordered.dropna(subset=["_fnr"]).sort_values("_fnr", ascending=False)
+        rates_by_group[group] = [
+            (row["subgroup"], float(row["_fnr"])) for _, row in ordered.iterrows()
+        ]
+    return rates_by_group
+
+
+def _format_fnr_rates(card, rates):
+    lines = []
+    for subgroup, fnr in rates:
+        lines.append(
+            f"- {card.format.bold(str(subgroup))} FNR: {card.format.bold(_format_rate(fnr))}"
+        )
+    return "\n".join(lines)
+
+
 def render_post_mitigation_disparities(card, mitigation):
     """Per-group FNR after the dual threshold, including groups with no flag."""
     descriptions_by_group = _load_flag_descriptions(card, _POST_FLAGS_DIR)
+    rates_by_group = _load_post_fnr_rates(card)
     blocks = []
-    for group in _post_group_order(card, mitigation, descriptions_by_group):
+    for group in _post_group_order(
+        card, mitigation, {**descriptions_by_group, **rates_by_group}
+    ):
         label = resolve_student_group_label(card, group)
         normalized_name = group.lower().replace(" ", "_")
         plot_md = _usable_plot(
@@ -402,18 +463,19 @@ def render_post_mitigation_disparities(card, mitigation):
             )
         )
         descriptions = descriptions_by_group.get(group, [])
-        if not descriptions and plot_md is None:
+        rates = rates_by_group.get(group, [])
+        if not descriptions and not rates and plot_md is None:
             continue
-        text = (
-            "\n\n".join(descriptions)
-            if descriptions
-            else card.format.italic(
-                "No statistically significant disparity was found for this group after the dual threshold."
-            )
-        )
+        parts = []
+        if rates:
+            parts.append(_format_fnr_rates(card, rates))
+        elif not descriptions:
+            parts.append(_FNR_RATES_NOT_LOGGED)
+        if descriptions:
+            parts.append("\n\n".join(descriptions))
         header = f"{card.format.header_level(5)}{label}\n\n"
         plot_text = f"\n\n{plot_md}" if plot_md else ""
-        blocks.append(header + text + plot_text)
+        blocks.append(header + "\n\n".join(parts) + plot_text)
     if not blocks:
         return ""
     target = str(mitigation.student_group).strip()

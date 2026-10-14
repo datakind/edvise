@@ -417,7 +417,12 @@ def test_bias_summary_shows_post_mitigation_group_plots(mock_card, tmp_path):
             }
         ]
     ).to_csv(pre_flags, index=False)
-    post_flags = tmp_path / "bias_flags" / "post_mitigation" / "low_bias_flags.csv"
+    post_flags = (
+        tmp_path
+        / "bias_flags"
+        / "post_mitigation"
+        / "post_mitigation_low_bias_flags.csv"
+    )
     post_flags.parent.mkdir(parents=True)
     pd.DataFrame(
         [
@@ -437,6 +442,41 @@ def test_bias_summary_shows_post_mitigation_group_plots(mock_card, tmp_path):
     age_plot.write_bytes(b"png")
     gender_plot = tmp_path / "fnr_plots" / "post_mitigation" / "test_gender_fnr.png"
     gender_plot.write_bytes(b"png")
+    rates = tmp_path / "fnr_plots" / "post_mitigation" / "fnr_rates.csv"
+    pd.DataFrame(
+        [
+            {
+                "group": "age_bias_group",
+                "subgroup": "other",
+                "split_name": "test",
+                "fnr": 0.21621621621621623,
+            },
+            {
+                "group": "age_bias_group",
+                "subgroup": "18-24",
+                "split_name": "test",
+                "fnr": 0.2074074074074074,
+            },
+            {
+                "group": "gender",
+                "subgroup": "Male",
+                "split_name": "test",
+                "fnr": 0.23,
+            },
+            {
+                "group": "gender",
+                "subgroup": "Female",
+                "split_name": "train",
+                "fnr": 0.99,
+            },
+            {
+                "group": "gender",
+                "subgroup": "Female",
+                "split_name": "test",
+                "fnr": 0.195,
+            },
+        ]
+    ).to_csv(rates, index=False)
 
     def _download(**kwargs):
         return str(tmp_path / kwargs["artifact_path"])
@@ -457,13 +497,17 @@ def test_bias_summary_shows_post_mitigation_group_plots(mock_card, tmp_path):
         "18-24 students are flagged at 0.3. Everyone else is flagged at 0.5." in summary
     )
     assert "#####Age Bias Group" in summary
+    assert "**other** FNR: **21.6%**" in summary
+    assert "**18-24** FNR: **20.7%**" in summary
     assert (
         "No statistically significant disparity was found for this group after the dual threshold."
-        in summary
+        not in summary
     )
     assert str(age_plot) in summary
     assert "#####Gender" in summary
-    assert "Female" in summary
+    assert "**Male** FNR: **23.0%**" in summary
+    assert "**Female** FNR: **19.5%**" in summary
+    assert "**99.0%**" not in summary
     assert "12% difference" in summary
     assert str(gender_plot) in summary
     assert "ethnicity" not in summary.lower()

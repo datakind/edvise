@@ -1,4 +1,6 @@
 import logging
+import os
+import tempfile
 import typing as t
 
 import matplotlib.figure
@@ -88,6 +90,7 @@ def evaluate_bias(
         [3] https://search.r-project.org/CRAN/refmans/fairness/html/fnr_parity.html
     """
     model_flags = []
+    fnr_rows: list[dict] = []
 
     for split_name, split_data in df_pred.groupby(split_col):
         for group_col in student_group_cols:
@@ -110,6 +113,9 @@ def evaluate_bias(
                 log_group_metrics_to_mlflow(
                     perf_metrics, f"perf_{split_name}", group_col
                 )
+
+            if artifact_subdir:
+                fnr_rows.extend(_fnr_rate_row(item) for item in fnr_data)
 
             # Detect bias flags
             all_flags = flag_bias(fnr_data)
@@ -155,6 +161,8 @@ def evaluate_bias(
 
     # Log bias flags to mlflow
     log_bias_flags_to_mlflow(model_flags, artifact_subdir=artifact_subdir)
+    if artifact_subdir:
+        log_fnr_rates_to_mlflow(fnr_rows, artifact_subdir=artifact_subdir)
 
 
 def compute_group_bias_metrics(
@@ -598,8 +606,10 @@ def log_bias_flags_to_mlflow(
                 else None
             )
             if df_flag is not None:
-                prefix = f"{artifact_subdir}_" if artifact_subdir else ""
-                bias_tmp_path = f"/tmp/{prefix}{flag_name}_flags.csv"
+                tmp_dir = tempfile.mkdtemp(
+                    prefix=f"{artifact_subdir}_" if artifact_subdir else "bias_flags_"
+                )
+                bias_tmp_path = os.path.join(tmp_dir, f"{flag_name}_flags.csv")
                 df_flag.to_csv(bias_tmp_path, index=False)
                 artifact_path = (
                     f"bias_flags/{artifact_subdir}" if artifact_subdir else "bias_flags"
@@ -607,6 +617,29 @@ def log_bias_flags_to_mlflow(
                 mlflow.log_artifact(
                     local_path=bias_tmp_path, artifact_path=artifact_path
                 )
+
+
+def _fnr_rate_row(item: dict) -> dict:
+    ci = item.get("ci") or (None, None)
+    return {
+        "group": item["group"],
+        "subgroup": item["subgroup"],
+        "split_name": item["split_name"],
+        "fnr": item["fnr"],
+        "ci_lower": ci[0],
+        "ci_upper": ci[1],
+        "number_of_positive_samples": item["number_of_positive_samples"],
+    }
+
+
+def log_fnr_rates_to_mlflow(fnr_rows: list[dict], artifact_subdir: str) -> None:
+    """Log each subgroup's FNR beside the post-mitigation plots."""
+    if not fnr_rows:
+        return
+    tmp_dir = tempfile.mkdtemp(prefix=f"{artifact_subdir}_fnr_")
+    rates_path = os.path.join(tmp_dir, "fnr_rates.csv")
+    pd.DataFrame(fnr_rows).to_csv(rates_path, index=False)
+    mlflow.log_artifact(rates_path, artifact_path=f"fnr_plots/{artifact_subdir}")
 
 
 def log_group_metrics_to_mlflow(
