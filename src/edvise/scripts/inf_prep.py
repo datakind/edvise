@@ -155,9 +155,7 @@ class InferencePrepTask:
             student_terms=student_terms_df,
             student_id_col=student_id_col,
         )
-        log_inference_selection_breakdown(
-            df_selected, cohort_pair_columns(df_selected)
-        )
+        log_inference_selection_breakdown(df_selected, cohort_pair_columns(df_selected))
 
         cleaner = feature_cleanup_for_schema(self.args.schema_type)
         df_preprocessed = cleaner.clean_up_labeled_dataset_cols_and_vals(

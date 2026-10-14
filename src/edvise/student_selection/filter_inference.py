@@ -154,8 +154,14 @@ def filter_inference_cohort(
     )
 
 
+class _InferenceConfigHolder(t.Protocol):
+    """PDP, Edvise, and legacy project configs all expose ``inference``."""
+
+    inference: t.Any
+
+
 def resolve_inference_terms_from_param(
-    cfg: object,
+    cfg: _InferenceConfigHolder,
     *,
     schema_type: str,
     term_filter: str | None,
@@ -172,9 +178,7 @@ def resolve_inference_terms_from_param(
     param = parse_term_filter_param(term_filter)
     if param is not None:
         inference_config_cls = (
-            ESInferenceConfig
-            if is_edvise_schema(schema_type)
-            else PDPInferenceConfig
+            ESInferenceConfig if is_edvise_schema(schema_type) else PDPInferenceConfig
         )
         if cfg.inference is None:
             cfg.inference = inference_config_cls(cohort=param)
@@ -390,12 +394,18 @@ def _intensity_by_term_label(
         return empty
 
     label = _joined_labels(keys, key_term_col, key_year_col)
-    st = lookup[[student_id_col, lookup_term_col, lookup_year_col, intensity_col]].copy()
+    st = lookup[
+        [student_id_col, lookup_term_col, lookup_year_col, intensity_col]
+    ].copy()
     st["_label"] = _joined_labels(st, lookup_term_col, lookup_year_col)
-    merged = keys[[student_id_col]].assign(_label=label.to_numpy()).merge(
-        st.drop_duplicates([student_id_col, "_label"]),
-        on=[student_id_col, "_label"],
-        how="left",
+    merged = (
+        keys[[student_id_col]]
+        .assign(_label=label.to_numpy())
+        .merge(
+            st.drop_duplicates([student_id_col, "_label"]),
+            on=[student_id_col, "_label"],
+            how="left",
+        )
     )
     return merged[intensity_col].reset_index(drop=True)
 
