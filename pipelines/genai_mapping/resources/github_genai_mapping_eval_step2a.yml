@@ -1,5 +1,7 @@
-# Manual Step 2a model comparison. One run scores one gateway model against the
-# Unity Catalog gold manifest and logs three decision metrics to MLflow.
+# Manual Step 2a model comparison. One run scores every supplied model slot
+# against the active reference pins and logs one MLflow run per model. Each
+# slot defaults to the hosted system.ai.claude-<family>-<version> foundation
+# model; override via EDVISE_EVAL_GATEWAY_MODELS if that naming doesn't match.
 #
 # mlflow==3.3.2 is installed only on this job. Its dependency cap is
 # pyarrow<22, so this cluster narrows the shared GenAI pin from pyarrow<26
@@ -9,8 +11,8 @@ resources:
   jobs:
     edvise_genai_mapping_eval_step2a_pipeline:
       name: edvise_genai_mapping_eval_step2a
-      timeout_seconds: 7200
-      max_concurrent_runs: 6
+      timeout_seconds: 14400
+      max_concurrent_runs: 1
       queue:
         enabled: true
 
@@ -22,18 +24,8 @@ resources:
             parameters:
               - --catalog
               - "{{job.parameters.catalog}}"
-              - --model
-              - "{{job.parameters.model}}"
-              - --gateway_model_id
-              - "{{job.parameters.gateway_model_id}}"
-              - --institution_id
-              - "{{job.parameters.institution_id}}"
-              - --reference_institution_id
-              - "{{job.parameters.reference_institution_id}}"
-              - --experiment_name
-              - "{{job.parameters.experiment_name}}"
-              - --pipeline_version
-              - "{{job.parameters.pipeline_version}}"
+              - --models
+              - "{{job.parameters.models}}"
           job_cluster_key: edvise-genai-mapping-eval-step2a-cluster
           libraries:
             - pypi:
@@ -83,18 +75,8 @@ resources:
       parameters:
         - name: catalog
           default: ${var.DB_workspace}
-        - name: model
-          default: sonnet:4.5
-        - name: gateway_model_id
-          default: ""
-        - name: institution_id
-          default: synthetic_coastal_cc
-        - name: reference_institution_id
-          default: synthetic_metro_research_uni
-        - name: experiment_name
-          default: /Shared/edvise/genai_mapping/step2a_model_comparison
-        - name: pipeline_version
-          default: ${var.pipeline_version}
+        - name: models
+          default: sonnet:4.5,sonnet:5,sonnet:5.5,haiku:4.5,haiku:5,haiku:5.5
 
       permissions:
         - group_name: ${var.datakind_group_to_manage_workflow}
