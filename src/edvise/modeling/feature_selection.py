@@ -44,7 +44,7 @@ def select_features(
         by the algorithms
     """
     LOGGER.info("selecting features ...")
-    non_feature_cols = non_feature_cols or []
+    non_feature_cols = [c for c in (non_feature_cols or []) if c in df.columns]
     force_include_cols = force_include_cols or []
     if incomplete_threshold > MAX_INCOMPLETE_THRESHOLD:
         LOGGER.warning(

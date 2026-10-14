@@ -271,3 +271,37 @@ def test_flag_bias(fnr_data, expected_sg1, expected_sg2, expected_flag):
     assert flag["flag"] == expected_flag
 
     monkeypatch.undo()
+
+
+def test_evaluate_bias_skips_missing_student_group_cols(
+    mock_helpers, mock_mlflow, caplog, monkeypatch
+):
+    df = pd.DataFrame(
+        {
+            "split": ["test", "test", "test", "test"],
+            "gender": ["F", "F", "M", "M"],
+            "target": [1, 0, 1, 0],
+            "pred": [1, 0, 0, 1],
+            "pred_prob": [0.9, 0.2, 0.3, 0.8],
+        }
+    )
+    monkeypatch.setattr(bias_detection, "flag_bias", lambda fnr_data: [])
+    monkeypatch.setattr(
+        bias_detection, "aggregate_bias_scores", lambda *args, **kwargs: {}
+    )
+    monkeypatch.setattr(
+        bias_detection, "log_bias_scores_to_mlflow", lambda *args, **kwargs: None
+    )
+
+    with caplog.at_level("WARNING"):
+        bias_detection.evaluate_bias(
+            df,
+            student_group_cols=["gender", "disability_status", "military_status"],
+            pos_label=1,
+            target_col="target",
+            pred_col="pred",
+            pred_prob_col="pred_prob",
+        )
+
+    assert "disability_status" in caplog.text
+    assert "military_status" in caplog.text
