@@ -86,7 +86,10 @@ class ESProjectConfig(pyd.BaseModel):
             "to use for model bias assessment, but *not* as model features. "
             "Defaults include core demographics plus optional status fields; "
             "columns absent from a given institution's data are skipped at "
-            "bias evaluation and never treated as features when present."
+            "bias evaluation. Feature exclusion also always covers "
+            "DEFAULT_ES_STUDENT_GROUP_COLS via non_feature_cols, even when this "
+            "list is shortened. Model cards list groups from bias_test run "
+            "artifacts (what was actually assessed), not this config list alone."
         ),
     )
     pred_col: str = "pred"

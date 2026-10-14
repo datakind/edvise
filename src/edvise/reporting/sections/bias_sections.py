@@ -121,10 +121,28 @@ def register_bias_sections(card, registry):
     @registry.register("bias_groups_section")
     def bias_groups_section():
         """
-        Returns just a filler text that can be used across any platform.
+        List student groups that were actually bias-assessed for this run
+        (from group_metrics/bias_test_* artifacts).
         """
-        intro = f"{card.format.indent_level(1)}- Our assessment for FNR Parity was conducted across several student groups.\n"
-        return intro
+        intro = (
+            f"{card.format.indent_level(1)}- Our assessment for FNR Parity was "
+            "conducted across the following student groups.\n"
+        )
+        group_cols = utils.get_assessed_bias_group_cols(card.run_id)
+        if not group_cols:
+            LOGGER.warning(
+                "No bias_test group_metrics artifacts found; cannot list assessed "
+                "student groups for the model card."
+            )
+            return (
+                intro
+                + f"{card.format.indent_level(2)}- Unable to determine assessed student groups\n"
+            )
+        nested = [
+            f"{card.format.indent_level(2)}- {card.format.friendly_case(col)}\n"
+            for col in group_cols
+        ]
+        return intro + "".join(nested)
 
     @registry.register("bias_summary_section")
     def bias_summary_section():

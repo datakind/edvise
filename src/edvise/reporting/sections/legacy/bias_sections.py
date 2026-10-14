@@ -123,31 +123,26 @@ def register_bias_sections(card, registry):
     @registry.register("bias_groups_section")
     def bias_groups_section():
         """
-        Returns bias groups for legacy schools using aliases.
+        List student groups actually bias-assessed for this run, labeled via
+        student_group_aliases when available.
         """
         intro = f"{card.format.indent_level(1)}- Our assessment for FNR Parity was conducted across the following student groups.\n"
-
-        try:
-            alias_dict = card.cfg.student_group_aliases
-            assert isinstance(alias_dict, dict), (
-                "student_group_aliases must be a dictionary"
-            )
-
-            group_labels = list(alias_dict.values())
-            nested = [
-                f"{card.format.indent_level(2)}- {card.format.friendly_case(label)}\n"
-                for label in group_labels
-            ]
-            return intro + "".join(nested)
-
-        except (AttributeError, AssertionError, TypeError) as e:
+        group_cols = utils.get_assessed_bias_group_cols(card.run_id)
+        if not group_cols:
             LOGGER.warning(
-                f"[bias_groups_section] Failed to extract student groups: {e}"
+                "[bias_groups_section] No bias_test group_metrics artifacts found"
             )
-            fallback = (
-                f"{card.format.indent_level(2)}- Unable to extract student groups\n"
+            return (
+                intro
+                + f"{card.format.indent_level(2)}- Unable to determine assessed student groups\n"
             )
-            return intro + fallback
+
+        nested = [
+            f"{card.format.indent_level(2)}- "
+            f"{card.format.friendly_case(resolve_student_group_label(card, col))}\n"
+            for col in group_cols
+        ]
+        return intro + "".join(nested)
 
     @registry.register("bias_summary_section")
     def bias_summary_section():

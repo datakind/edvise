@@ -32,7 +32,11 @@ def registry():
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def test_bias_groups_section_with_valid_aliases(mock_card, registry):
+@patch(
+    "edvise.reporting.sections.legacy.bias_sections.utils.get_assessed_bias_group_cols",
+    return_value=["firstgenflag", "gender", "ethnicity_ipeds", "demo_race"],
+)
+def test_bias_groups_section_with_valid_aliases(mock_groups, mock_card, registry):
     mock_card.cfg.student_group_aliases = {
         "firstgenflag": "First-Generation Status",
         "gender": "Gender",
@@ -44,7 +48,6 @@ def test_bias_groups_section_with_valid_aliases(mock_card, registry):
 
     rendered = registry.render_all()
     result = rendered["bias_groups_section"]
-    print(result)
 
     assert (
         "- Our assessment for FNR Parity was conducted across the following student groups."
@@ -54,9 +57,16 @@ def test_bias_groups_section_with_valid_aliases(mock_card, registry):
     assert "- Gender" in result
     assert "- Ethnicity" in result
     assert "- Race" in result
+    mock_groups.assert_called_with(mock_card.run_id)
 
 
-def test_bias_groups_section_with_aliases_that_need_friendlycase(mock_card):
+@patch(
+    "edvise.reporting.sections.legacy.bias_sections.utils.get_assessed_bias_group_cols",
+    return_value=["firstgenflag", "disabilityflag"],
+)
+def test_bias_groups_section_with_aliases_that_need_friendlycase(
+    mock_groups, mock_card
+):
     mock_card.cfg.student_group_aliases = {
         "firstgenflag": "first_generation_status",
         "disabilityflag": "disability_status",
@@ -67,15 +77,19 @@ def test_bias_groups_section_with_aliases_that_need_friendlycase(mock_card):
 
     rendered = registry.render_all()
     result = rendered["bias_groups_section"]
-    print(result)
 
     assert "- First Generation Status" in result
     assert "- Disability Status" in result
 
 
-def test_bias_groups_section_with_missing_aliases(mock_card, caplog):
-    mock_card.cfg.student_group_aliases = None
-    mock_card.format.friendly_case.side_effect = lambda x: x.replace("_", " ").title()
+@patch(
+    "edvise.reporting.sections.legacy.bias_sections.utils.get_assessed_bias_group_cols",
+    return_value=[],
+)
+def test_bias_groups_section_with_missing_artifacts(mock_groups, mock_card, caplog):
+    mock_card.cfg.student_group_aliases = {
+        "gender": "Gender",
+    }
 
     registry = SectionRegistry()
     legacy_bias_sections.register_bias_sections(mock_card, registry)
@@ -84,9 +98,10 @@ def test_bias_groups_section_with_missing_aliases(mock_card, caplog):
         rendered = registry.render_all()
 
     result = rendered["bias_groups_section"]
-    assert "- Unable to extract student groups" in result
+    assert "- Unable to determine assessed student groups" in result
     assert any(
-        "Failed to extract student groups" in message for message in caplog.messages
+        "No bias_test group_metrics artifacts found" in message
+        for message in caplog.messages
     )
 
 
