@@ -10,7 +10,7 @@ LOGGER = logging.getLogger(__name__)
 
 
 def build_bias_groups_section(
-    card,
+    card: t.Any,
     label_fn: t.Callable[[str], str] | None = None,
 ) -> str:
     """
@@ -43,10 +43,10 @@ def build_bias_groups_section(
 
 
 def register_bias_sections(
-    card,
-    registry,
+    card: t.Any,
+    registry: t.Any,
     group_label_fn: t.Callable[[str], str] | None = None,
-):
+) -> None:
     """
     Registers the bias section of the model card with FNR group plots and
     subgroup disparity summaries. We focus on test data specifically for our reporting.
@@ -60,8 +60,7 @@ def register_bias_sections(
             omitted, uses card.format.friendly_case.
     """
     bias_levels = ["high", "moderate", "low"]
-    bias_flags = {}
-    group_disparities = {}
+    group_disparities: dict[str, list[str]] = {}
 
     def generate_description(
         group: str, subgroups: str, diff: str, stat_summary: str
@@ -103,7 +102,7 @@ def register_bias_sections(
                 local_folder=card.assets_folder,
                 artifact_path=bias_path,
             )
-            if not os.path.exists(local_path):
+            if not local_path or not os.path.exists(local_path):
                 LOGGER.warning(
                     f"{level} bias flags file does not exist. Bias evaluation likely has not run."
                 )
@@ -137,7 +136,7 @@ def register_bias_sections(
                 f"Could not load {level} bias flags: [{type(e).__name__}] {str(e)}"
             )
 
-    all_blocks = []
+    all_blocks: list[str] = []
 
     for group_name, descriptions in group_disparities.items():
         normalized_name = group_name.lower().replace(" ", "_")
@@ -151,6 +150,10 @@ def register_bias_sections(
                 description=f"False Negative Rate Parity for {group_name} on Test Data",
                 caption=f"FNR Parity for {group_name} on Test Data",
             )
+            if not plot_md:
+                plot_md = (
+                    f"{card.format.bold(f'Unable to retrieve plot for {group_name}')}\n"
+                )
         except Exception as e:
             LOGGER.warning(f"Could not load plot for {group_name}: {str(e)}")
             plot_md = (

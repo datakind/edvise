@@ -15,7 +15,7 @@ _PDP_GROUP_LABELS = {
 
 def register_bias_sections(card, registry):
     def group_label_fn(col: str) -> str:
-        return _PDP_GROUP_LABELS.get(col, card.format.friendly_case(col))
+        return str(_PDP_GROUP_LABELS.get(col, card.format.friendly_case(col)))
 
     base_bias_sections.register_bias_sections(
         card, registry, group_label_fn=group_label_fn

@@ -26,7 +26,7 @@ def resolve_student_group_label(card, group_key):
 
 def register_bias_sections(card, registry):
     def group_label_fn(col: str) -> str:
-        return card.format.friendly_case(resolve_student_group_label(card, col))
+        return str(card.format.friendly_case(resolve_student_group_label(card, col)))
 
     # Register base sections (bias_groups_section uses aliases via group_label_fn)
     base_bias_sections.register_bias_sections(
