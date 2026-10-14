@@ -355,3 +355,56 @@ def test_check_runtime_bundle_dbr_short_env_ok(monkeypatch: pytest.MonkeyPatch) 
     )
     assert ok is True
     assert msg == ""
+
+
+def test_build_launcher_parameter_overrides_forwards_term_filter() -> None:
+    import argparse
+
+    from edvise.runtime.versioned_inference.cli import (
+        add_inference_trigger_args,
+        build_launcher_parameter_overrides,
+    )
+
+    parser = argparse.ArgumentParser()
+    add_inference_trigger_args(parser)
+    args = parser.parse_args(
+        [
+            "--databricks_institution_name",
+            "mccs_kennebec_valley_cc",
+            "--model_name",
+            "retention_into_year_2_associates",
+            "--DB_workspace",
+            "staging_sst_01",
+            "--term_filter",
+            '["fall 2025-26", "spring 2025-26"]',
+            "--launcher_run_id",
+            "63046433822793",
+        ]
+    )
+    overrides = build_launcher_parameter_overrides(args)
+    assert overrides["term_filter"] == '["fall 2025-26", "spring 2025-26"]'
+    assert overrides["db_run_id"] == "63046433822793"
+
+
+def test_build_launcher_parameter_overrides_omits_empty_term_filter() -> None:
+    import argparse
+
+    from edvise.runtime.versioned_inference.cli import (
+        add_inference_trigger_args,
+        build_launcher_parameter_overrides,
+    )
+
+    parser = argparse.ArgumentParser()
+    add_inference_trigger_args(parser)
+    args = parser.parse_args(
+        [
+            "--databricks_institution_name",
+            "miles_cc",
+            "--model_name",
+            "retention",
+            "--DB_workspace",
+            "dev_sst_02",
+        ]
+    )
+    overrides = build_launcher_parameter_overrides(args)
+    assert "term_filter" not in overrides

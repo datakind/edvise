@@ -106,6 +106,34 @@ def replace_values_with_null(
     return df[col].replace(to_replace=to_replace, value=None)
 
 
+def replace_missing_sentinel(series: pd.Series) -> pd.Series:
+    """Replace the string ``MISSING`` (any case, trimmed) with null.
+
+    Returns ``series`` unchanged when it has no such values.
+    """
+    if not (
+        pd.api.types.is_object_dtype(series.dtype)
+        or pd.api.types.is_string_dtype(series.dtype)
+        or isinstance(series.dtype, pd.CategoricalDtype)
+    ):
+        return series
+    hit = series.astype("string").str.strip().str.upper().eq("MISSING").fillna(False)
+    if not bool(hit.any()):
+        return series
+    if isinstance(series.dtype, pd.CategoricalDtype):
+        series = series.astype("object")
+    return series.mask(hit)
+
+
+def replace_missing_sentinel_with_null(df: pd.DataFrame) -> pd.DataFrame:
+    updates = {}
+    for col in df.select_dtypes(include=["object", "string", "category"]).columns:
+        replaced = replace_missing_sentinel(df[col])
+        if replaced is not df[col]:
+            updates[col] = replaced
+    return df.assign(**updates) if updates else df
+
+
 def cast_to_bool_via_int(df: pd.DataFrame, *, col: str) -> pd.Series:
     return (
         df[col]
@@ -557,10 +585,12 @@ def strip_trailing_decimal_strings(df_course: pd.DataFrame) -> pd.DataFrame:
                 r"\.0$", "", regex=True
             )
 
-            truncated = (pre_truncated != df_course[validated]).sum(min_count=1)
+            # fillna(False): NA != NA is NA under nullable string dtypes, and
+            # sum(min_count=1) then returns pd.NA — which breaks `x or 0`.
+            truncated = int((pre_truncated != df_course[validated]).fillna(False).sum())
             LOGGER.info(
                 ' Stripped trailing ".0" in %s rows for column "%s".',
-                int(truncated or 0),
+                truncated,
                 validated,
             )
     return df_course

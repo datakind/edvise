@@ -20,6 +20,21 @@ _ALLOWED_PRIMARY_METRICS = {
     "mean_per_class_error",
 }
 
+# Bias / fairness group columns for ES modeling. Included in student_group_cols
+# (and therefore non_feature_cols) so they are never used as model features when
+# present; optional fields are skipped at bias-eval time if absent from the frame.
+DEFAULT_ES_STUDENT_GROUP_COLS: list[str] = [
+    "learner_age",
+    "race",
+    "ethnicity",
+    "gender",
+    "first_generation_status",
+    "incarcerated_status",
+    "military_status",
+    "employment_status",
+    "disability_status",
+]
+
 
 class ESProjectConfig(pyd.BaseModel):
     """Configuration schema for Edvise (ES) projects."""
@@ -65,16 +80,13 @@ class ESProjectConfig(pyd.BaseModel):
     split_col: t.Optional[str] = "split"
     sample_weight_col: t.Optional[str] = "sample_weight"
     student_group_cols: t.Optional[list[str]] = pyd.Field(
-        default=[
-            "learner_age",
-            "race",
-            "ethnicity",
-            "gender",
-            "first_generation_status",
-        ],
+        default_factory=lambda: list(DEFAULT_ES_STUDENT_GROUP_COLS),
         description=(
             "One or more column names in datasets containing student 'groups' "
-            "to use for model bias assessment, but *not* as model features"
+            "to use for model bias assessment, but *not* as model features. "
+            "Defaults include core demographics plus optional status fields; "
+            "columns absent from a given institution's data are skipped at "
+            "bias evaluation and never treated as features when present."
         ),
     )
     pred_col: str = "pred"
@@ -103,11 +115,18 @@ class ESProjectConfig(pyd.BaseModel):
     @pyd.computed_field  # type: ignore[misc]
     @property
     def non_feature_cols(self) -> list[str]:
+        # Always exclude the default ES bias/status columns when present, even if
+        # an institution config overrides student_group_cols to a shorter list.
+        protected_group_cols = list(
+            dict.fromkeys(
+                [*(self.student_group_cols or []), *DEFAULT_ES_STUDENT_GROUP_COLS]
+            )
+        )
         return (
             [self.student_id_col, self.target_col]
             + ([self.split_col] if self.split_col else [])
             + ([self.sample_weight_col] if self.sample_weight_col else [])
-            + (self.student_group_cols or [])
+            + protected_group_cols
         )
 
     @pyd.field_validator("institution_id", mode="after")
@@ -238,6 +257,18 @@ class FeaturesConfig(pyd.BaseModel):
             "Set of terms that together comprise the 'core' of the academic year, "
             "in contrast with additional, usually shorter terms that may take place "
             "between core terms"
+        ),
+    )
+    first_term_of_year: t.Literal["FALL", "SUMMER"] = pyd.Field(
+        default=constants.DEFAULT_FIRST_TERM_OF_YEAR,
+        description=(
+            "Term that begins the academic year. FALL (default) ranks Summer last "
+            "within YYYY-YY, dates it in the end year (2024-25 SUMMER → summer 2025), "
+            "and treats a summer cohort like the following Fall for retention coverage. "
+            "SUMMER ranks Summer first, dates it in the start year "
+            "(2024-25 SUMMER → summer 2024), and keeps that cohort with Fall of the "
+            "same academic year. The 4-term on-time window that ends in Spring applies "
+            "only when this is FALL."
         ),
     )
     peak_covid_terms: set[tuple[str, str]] = pyd.Field(

@@ -3,6 +3,7 @@ import typing as t
 import pandas as pd
 
 from .. import utils
+from ..utils.academic_terms import summer_is_end_of_academic_year
 from . import shared
 
 
@@ -15,6 +16,7 @@ def compute_target(
     cohort_id_col: str = "cohort_id",
     term_id_col: str = "term_id",
     retention_into_year: int = 2,
+    first_term_of_year: str = "FALL",
 ) -> pd.Series:
     """
     Compute *non* retention target for each distinct student in ``df`` ,
@@ -36,6 +38,8 @@ def compute_target(
         retention_into_year: Academic year that must be covered in ``df`` to label a
             student (2 = second year / default). See
             :func:`shared.get_students_with_retention_year_in_dataset`.
+        first_term_of_year: ``"FALL"`` (default) treats a Summer cohort as the end
+            of YYYY-YY. ``"SUMMER"`` keeps it in the start year with Fall.
 
     References:
         - https://help.studentclearinghouse.org/pdp/knowledge-base/cohort-level-analysis-ready-file-data-dictionary/
@@ -62,6 +66,7 @@ def compute_target(
         cohort_id_col=cohort_id_col,
         term_id_col=term_id_col,
         retention_into_year=retention_into_year,
+        summer_as_end_year=summer_is_end_of_academic_year(first_term_of_year),
     )
     df_labeled_students = (
         df_all_students.assign(target=lambda df: ~df[retention_col].astype("boolean"))

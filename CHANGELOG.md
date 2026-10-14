@@ -1,3 +1,22 @@
+## 1.18.0 (2026-10-13)
+- feat(automl): export H2O MOJO inference files to enable future serving and backwards version compatibility (#361)
+- fix: cap PyArrow below 26 on Databricks jobs (#378)
+
+## 1.17.2 (2026-10-08)
+- fix(h2o-automl): set unseen enum levels to missing before tree SHAP (#374)
+
+## 1.17.1 (2026-10-06)
+- ci: comprehensive features table contract unit test for PDP/ES feature generation & cleanup (#357)
+- fix(genai): prevent closed map_values for spelled season+year conferral dates (#370)
+- fix: handle all-null columns in strip_trailing_decimal_strings (#371)
+
+## 1.17.0 (2026-10-05)
+- fix: keep training config in place during inference archival (#352)
+- feat: update NA logs for columns to include "MISSING" strings (#366)
+- feat: versioned inference shared job cluster (#367)
+- feat: treat MISSING strings as null during cleaning (#368)
+- fix: forward term_filter through PDP versioned inference launcher (#369)
+
 ## 1.16.1 (2026-09-30)
 - fix: follow DB_workspace for NSC SFTP ingestion (#358)
 

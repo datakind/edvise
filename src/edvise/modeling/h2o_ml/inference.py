@@ -26,17 +26,24 @@ from . import calibration
 LOGGER = logging.getLogger(__name__)
 
 
-def prepare_glm_enum_alignment_inputs(
+_TREE_SHAP_ALGOS = {"gbm", "drf", "xgboost", "xrt"}
+
+
+def prepare_enum_alignment_inputs(
     model: H2OEstimator,
     df: pd.DataFrame,
     background_data: t.Optional[pd.DataFrame],
     *,
     cip_like_cols: t.Optional[t.Sequence[str]] = None,
+    unseen: t.Literal["baseline", "missing"] = "baseline",
 ) -> t.Tuple[pd.DataFrame, t.Optional[pd.DataFrame]]:
     """
-    GLM-only preprocessing to avoid H2O domain issues in contributions with background_frame:
+    Preprocessing to avoid H2O domain issues in contributions with background_frame:
       1) Normalize CIP-like columns by stripping trailing '.0' (e.g. '131202.0' -> '131202')
-      2) Recode unseen Enum levels (w.r.t. model training domains) to a baseline category
+      2) Handle Enum levels outside the model training domain:
+         - unseen="baseline" (GLM): recode to an in-domain baseline category
+         - unseen="missing" (tree models): set to missing, matching how trees score
+           unseen levels
 
     Returns:
       (df_proc, bg_proc)
@@ -196,18 +203,60 @@ def prepare_glm_enum_alignment_inputs(
 
         return df_out
 
+    def _set_unseen_to_missing(
+        df_in: t.Optional[pd.DataFrame],
+        label: str,
+    ) -> t.Optional[pd.DataFrame]:
+        """Set Enum values outside the training domain to missing."""
+        if df_in is None:
+            return None
+
+        df_out = df_in.copy()
+
+        for col, train_dom in enum_predictors:
+            if col not in df_out.columns:
+                continue
+
+            train_dom_set = {str(x) for x in train_dom}
+            original_missing = df_out[col].isna()
+            as_str = df_out[col].astype(str)
+            unseen = ~as_str.isin(train_dom_set) & ~original_missing
+            if not unseen.any():
+                continue
+
+            bad_vals = sorted(as_str[unseen].unique())
+            LOGGER.warning(
+                "[%s] Column '%s': %d value(s) outside training domain; "
+                "example unseen values: %s. Setting them to missing.",
+                label,
+                col,
+                int(unseen.sum()),
+                bad_vals[:5],
+            )
+            df_out[col] = df_out[col].astype(object)
+            df_out.loc[unseen, col] = np.nan
+
+        return df_out
+
+    if unseen not in ("baseline", "missing"):
+        raise ValueError("unseen must be 'baseline' or 'missing'")
+
     df_proc = _normalize_cip_like_columns(df, "features")
     bg_proc = _normalize_cip_like_columns(background_data, "background")
 
-    # Baseline selection strategy:
-    # - When recoding features, prefer the background distribution (if present)
-    # - When recoding background, prefer itself
-    df_proc = _recode_unseen_to_baseline(
-        df_proc, "features", baseline_source_df=bg_proc
-    )
-    bg_proc = _recode_unseen_to_baseline(
-        bg_proc, "background", baseline_source_df=bg_proc
-    )
+    if unseen == "missing":
+        df_proc = _set_unseen_to_missing(df_proc, "features")
+        bg_proc = _set_unseen_to_missing(bg_proc, "background")
+    else:
+        # Baseline selection strategy:
+        # - When recoding features, prefer the background distribution (if present)
+        # - When recoding background, prefer itself
+        df_proc = _recode_unseen_to_baseline(
+            df_proc, "features", baseline_source_df=bg_proc
+        )
+        bg_proc = _recode_unseen_to_baseline(
+            bg_proc, "background", baseline_source_df=bg_proc
+        )
 
     return df_proc, bg_proc
 
@@ -439,23 +488,31 @@ def compute_h2o_shap_contributions(
     LOGGER.info("Preparing data for H2O inference...")
 
     algo = getattr(model, "algo", None)
-    is_glm = algo == "glm"
-    LOGGER.info("algo=%s (is_glm=%s)", algo, is_glm)
+    algo_name = algo.lower() if isinstance(algo, str) else None
+    is_glm = algo_name == "glm"
+    is_tree = algo_name in _TREE_SHAP_ALGOS
+    LOGGER.info("algo=%s (is_glm=%s, is_tree=%s)", algo, is_glm, is_tree)
 
     df_proc = df.copy()
     bg_proc = background_data.copy() if background_data is not None else None
 
-    # GLM-only alignment
-    # NOTE: GLMs due to not handle unseen categories well, so we need to impute
+    # Keep enum values inside the training domain before predict_contributions.
+    # GLM has no missing-level path, so unseen levels are recoded to a baseline.
+    # Trees score unseen levels as missing; interventional TreeSHAP crashes if
+    # those levels stay on the frame, because it indexes the expanded contribution
+    # array with the raw factor code.
     if is_glm:
         if background_data is None:
             raise ValueError(
                 "GLM predict_contributions requires background_data/background_frame."
             )
-        else:
-            df_proc, bg_proc = prepare_glm_enum_alignment_inputs(
-                model, df_proc, bg_proc
-            )
+        df_proc, bg_proc = prepare_enum_alignment_inputs(
+            model, df_proc, bg_proc, unseen="baseline"
+        )
+    elif is_tree:
+        df_proc, bg_proc = prepare_enum_alignment_inputs(
+            model, df_proc, bg_proc, unseen="missing"
+        )
 
     # Convert features & background data to H2OFrames
     missing_flags = [c for c in df_proc.columns if c.endswith("_missing_flag")]

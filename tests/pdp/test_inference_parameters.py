@@ -17,6 +17,7 @@ from edvise.runtime.versioned_inference.bundle.from_dab import (
 )
 from edvise.runtime.versioned_inference.parameters import (
     DEFAULT_STABLE_PARAMETER_ALIASES,
+    ParameterSpec,
     build_parameter_contract,
     build_stable_trigger_payload,
     load_parameter_aliases,
@@ -61,6 +62,39 @@ def test_resolve_archived_values_literal_default_and_overrides() -> None:
     assert values["cohort_file_name"] == "cohort.csv"
     assert values["schema_type"] == "pdp"
     assert values["job_type"] == "inference"
+
+
+def test_launcher_term_filter_overrides_empty_archived_default() -> None:
+    """PDP archived inference declares term_filter default ''; launcher must win."""
+    contract = [
+        ParameterSpec(
+            name="term_filter",
+            default="",
+            referenced_by_tasks=["inf_prep"],
+            default_explicit=True,
+        ),
+        ParameterSpec(
+            name="schema_type",
+            default="pdp",
+            referenced_by_tasks=["data_ingestion"],
+            default_explicit=True,
+        ),
+    ]
+    empty = resolve_archived_parameter_values(
+        contract,
+        launcher_overrides={"schema_type": "pdp"},
+    )
+    assert empty["term_filter"] == ""
+
+    term_filter = '["fall 2025-26", "spring 2025-26"]'
+    values = resolve_archived_parameter_values(
+        contract,
+        launcher_overrides={
+            "schema_type": "pdp",
+            "term_filter": term_filter,
+        },
+    )
+    assert values["term_filter"] == term_filter
 
 
 def test_resolve_archived_values_fails_when_required_missing() -> None:

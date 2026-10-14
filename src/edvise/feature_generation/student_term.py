@@ -26,6 +26,35 @@ from .column_names import (
 LOGGER = logging.getLogger(__name__)
 
 
+def resolve_course_dummy_agg_columns(cols: CourseInputColumns) -> list[str]:
+    """
+    Physical course columns eligible for student-term dummy num/frac expansions.
+
+    Resolves :data:`constants.COURSE_DUMMY_AGG_INPUT_ATTRS` against ``cols``, then
+    appends :data:`constants.COURSE_DUMMY_AGG_FIXED_COLUMNS`. Callers should still
+    intersect with ``df.columns`` before aggregating.
+    """
+    resolved: list[str] = []
+    for attr in constants.COURSE_DUMMY_AGG_INPUT_ATTRS:
+        physical = getattr(cols, attr)
+        if physical is not None:
+            resolved.append(physical)
+    resolved.extend(constants.COURSE_DUMMY_AGG_FIXED_COLUMNS)
+    return resolved
+
+
+def course_dummy_features_table_tokens(
+    cols: CourseInputColumns | None = None,
+) -> tuple[str, ...]:
+    """
+    Column tokens that features_table.toml regex families must cover.
+
+    Defaults to PDP physical names (the shared features-table vocabulary). Pass
+    ES ``CourseInputColumns`` to get Edvise physical names for mapping checks.
+    """
+    return tuple(resolve_course_dummy_agg_columns(cols or PDP_COURSE_INPUT_COLUMNS))
+
+
 def _changed_prev_term(
     df: pd.DataFrame,
     *,
@@ -219,18 +248,8 @@ def aggregate_from_course_level_features(
         if summary_aggs:
             dfs.append(df_grped.agg(**summary_aggs))
     if s.dummies:
-        dummy_candidates: list[str | None] = [
-            cols.course_type,
-            cols.delivery_method,
-            cols.math_or_english_gateway,
-            cols.co_requisite_course,
-            cols.course_instructor_employment_status,
-            cols.course_instructor_rank,
-            "course_level",
-            "course_grade",
-        ]
         dummy_agg_cols = [
-            c for c in dummy_candidates if c is not None and c in df.columns
+            c for c in resolve_course_dummy_agg_columns(cols) if c in df.columns
         ]
         if dummy_agg_cols:
             df_dummies = sum_dummy_cols_by_group(

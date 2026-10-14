@@ -384,3 +384,28 @@ class TestHandlingDuplicates:
         result = data_cleaning.handling_duplicates(pdp_sample_df)
         assert isinstance(result, pd.DataFrame)
         assert len(result) == 1
+
+
+class TestStripTrailingDecimalStrings:
+    def test_strips_trailing_point_zero(self):
+        df = pd.DataFrame(
+            {
+                "course_number": ["101.0", "202", pd.NA],
+                "course_cip": ["240101.0", "131210", pd.NA],
+            }
+        )
+        result = data_cleaning.strip_trailing_decimal_strings(df)
+        assert result["course_number"].tolist() == ["101", "202", pd.NA]
+        assert result["course_cip"].tolist() == ["240101", "131210", pd.NA]
+
+    def test_all_null_course_cip_does_not_raise(self):
+        """Regression: all-NA nullable string sum used to hit `pd.NA or 0`."""
+        df = pd.DataFrame(
+            {
+                "course_number": ["101.0", "202.0"],
+                "course_cip": pd.array([pd.NA, pd.NA], dtype="string"),
+            }
+        )
+        result = data_cleaning.strip_trailing_decimal_strings(df)
+        assert result["course_number"].tolist() == ["101", "202"]
+        assert result["course_cip"].isna().all()

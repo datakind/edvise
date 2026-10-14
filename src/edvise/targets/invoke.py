@@ -15,6 +15,7 @@ def compute_target_from_config(
     df_checkpoint: pd.DataFrame,
     *,
     student_id_col: str,
+    first_term_of_year: str = "FALL",
 ) -> pd.Series:
     if target_cfg is None:
         raise ValueError("target config is required (cfg.preprocessing.target).")
@@ -33,6 +34,7 @@ def compute_target_from_config(
     kwargs.pop("name", None)
     kwargs.pop("type_", None)
     kwargs["student_id_cols"] = student_id_col
+    kwargs["first_term_of_year"] = first_term_of_year
     if target_type == "credits_earned":
         kwargs["checkpoint"] = df_checkpoint
 

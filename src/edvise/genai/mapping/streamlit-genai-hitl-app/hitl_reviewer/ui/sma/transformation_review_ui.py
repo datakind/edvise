@@ -275,7 +275,9 @@ def render_sma_transformation_review_cards(
         if oid == "correct":
             st.markdown("**Correct — edit steps (JSON array)**")
             st.caption(
-                "Fix the flagged step(s) (usually `map_values.mapping`) in the proposed chain. "
+                "Fix the flagged step(s) in the proposed chain. For conferral/certificate "
+                "datetimes prefer `spelled_season_year_to_conferral_date` or "
+                "`compact_term_code_to_conferral_date` — not a closed `map_values` year list. "
                 "Required when **Correct** is selected before Save."
             )
             st.text_area(

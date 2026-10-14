@@ -27,6 +27,7 @@ VERSIONED_INFERENCE_LAUNCHER_JOB_PARAMETERS: tuple[str, ...] = (
     "git_url",
     "cohort_file_name",
     "course_file_name",
+    "term_filter",
     "gcp_bucket_name",
     "datakind_notification_email",
     "DK_CC_EMAIL",
@@ -45,6 +46,7 @@ def build_versioned_inference_job_parameters(
     schema_type: str = "pdp",
     cohort_file_name: str = "",
     course_file_name: str = "",
+    term_filter: str = "",
     gcp_bucket_name: str = "",
     datakind_notification_email: str = "",
     dk_cc_email: str = "",
@@ -64,6 +66,8 @@ def build_versioned_inference_job_parameters(
     Use ``inference_parameters_json`` for optional archived-name overrides (e.g. an
     explicit ``db_run_id``). By default the launcher sets ``db_run_id`` to the parent
     launcher job run id (``launcher_run_id`` / ``{{job.run_id}}``).
+    ``term_filter`` is a JSON list string (e.g. ``'["fall 2025-26"]'``) forwarded to
+    child ``inf_prep``.
     """
     params: dict[str, str] = {
         "databricks_institution_name": databricks_institution_name.strip(),
@@ -83,6 +87,9 @@ def build_versioned_inference_job_parameters(
         "service_account_executer": service_account_executer.strip(),
         "datakind_group_to_manage_workflow": datakind_group_to_manage_workflow.strip(),
     }
+    term_filter_value = term_filter.strip()
+    if term_filter_value:
+        params["term_filter"] = term_filter_value
     if inference_parameters_json:
         params["inference_parameters_json"] = json.dumps(inference_parameters_json)
     return params

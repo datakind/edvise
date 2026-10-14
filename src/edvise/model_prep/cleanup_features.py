@@ -142,6 +142,11 @@ class BaseCleanup:
             col_term = int(match.group("num"))
         else:
             raise ValueError(f"Column '{col}' does not end with '_term_NUM'")
+        # Numbered change features count core terms. A student can reach enrolled
+        # term 3 by taking summer without having a third core term, so mask those
+        # columns with the core-term count when it is available.
+        if "_diff_term_" in col and "cumnum_core_terms_enrolled" in df.columns:
+            enrollment_term_col = "cumnum_core_terms_enrolled"
         return df[col].mask(df[enrollment_term_col].lt(col_term), other=pd.NA)
 
 
@@ -247,9 +252,13 @@ class ESCleanup(BaseCleanup):
         "matriculation_date",
         "bachelors_degree_conferral_date",
         "associates_degree_conferral_date",
+        # Schema field names and snake_case variants (digits get underscored).
         "certificate1_date",
         "certificate2_date",
         "certificate3_date",
+        "certificate_1_date",
+        "certificate_2_date",
+        "certificate_3_date",
         "conferred_credential_type",
         "major_at_completion",
         # "outcome" variables / likely sources of data leakage

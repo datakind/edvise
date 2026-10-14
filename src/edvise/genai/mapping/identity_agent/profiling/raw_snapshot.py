@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 
 from edvise.data_audit.custom_cleaning import CleaningConfig
+from edvise.utils.data_cleaning import replace_missing_sentinel
 
 from .constants import (
     SAMPLE_VALUES_TOP_N,
@@ -38,7 +39,7 @@ def _effective_null_series_for_profiling(
     Per-column analogue of :func:`~edvise.data_audit.custom_cleaning.clean_dataset`
     null-token and whitespace steps (before dtype work), for ``null_rate_including_tokens``.
     """
-    s = series.replace(null_tokens, np.nan)
+    s = replace_missing_sentinel(series.replace(null_tokens, np.nan))
     if treat_empty_strings_as_null and (
         pd.api.types.is_object_dtype(s) or pd.api.types.is_string_dtype(s)
     ):

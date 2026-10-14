@@ -87,6 +87,14 @@ def add_inference_trigger_args(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--cohort_file_name", default="")
     parser.add_argument("--course_file_name", default="")
+    parser.add_argument(
+        "--term_filter",
+        default="",
+        help=(
+            "Optional JSON list of term/cohort labels for child inference "
+            '(e.g. \'["fall 2025-26", "spring 2025-26"]\').'
+        ),
+    )
     parser.add_argument("--gcp_bucket_name", default="")
     parser.add_argument("--datakind_notification_email", default="")
     parser.add_argument("--DK_CC_EMAIL", default="")
@@ -123,6 +131,7 @@ def build_launcher_parameter_overrides(args: argparse.Namespace) -> dict[str, st
     for key in (
         "cohort_file_name",
         "course_file_name",
+        "term_filter",
         "gcp_bucket_name",
         "datakind_notification_email",
         "DK_CC_EMAIL",
@@ -199,7 +208,6 @@ def add_es_inference_trigger_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--validated_blob_paths_json", default="")
     parser.add_argument("--config_file_name", default="")
     parser.add_argument("--genai_inputs_toml_path", default="")
-    parser.add_argument("--term_filter", default="")
 
 
 def build_es_launcher_parameter_overrides(args: argparse.Namespace) -> dict[str, str]:
@@ -217,7 +225,6 @@ def build_es_launcher_parameter_overrides(args: argparse.Namespace) -> dict[str,
         "validated_blob_paths_json",
         "config_file_name",
         "genai_inputs_toml_path",
-        "term_filter",
     ):
         val = _optional_arg(getattr(args, key, ""))
         if val is not None:

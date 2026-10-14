@@ -55,7 +55,7 @@ def test_prepare_glm_enum_alignment_strips_cip_dot0_and_recodes_to_bg_mode():
         }
     )
 
-    df_proc, bg_proc = inference.prepare_glm_enum_alignment_inputs(
+    df_proc, bg_proc = inference.prepare_enum_alignment_inputs(
         model=model, df=df, background_data=bg
     )
 
@@ -93,7 +93,7 @@ def test_prepare_glm_enum_alignment_baseline_falls_back_to_df_mode_when_bg_has_n
         }
     )
 
-    df_proc, bg_proc = inference.prepare_glm_enum_alignment_inputs(
+    df_proc, bg_proc = inference.prepare_enum_alignment_inputs(
         model=model, df=df, background_data=bg, cip_like_cols=()
     )
 
@@ -118,7 +118,7 @@ def test_prepare_glm_enum_alignment_final_fallback_to_train_dom_0():
     df = pd.DataFrame({"enrollment_type": ["X", "Y"], "y": [0, 1]})
     bg = pd.DataFrame({"enrollment_type": ["Z"], "y": [0]})
 
-    df_proc, bg_proc = inference.prepare_glm_enum_alignment_inputs(
+    df_proc, bg_proc = inference.prepare_enum_alignment_inputs(
         model=model, df=df, background_data=bg, cip_like_cols=()
     )
 
@@ -138,12 +138,92 @@ def test_prepare_glm_enum_alignment_leaves_in_domain_untouched():
     df = pd.DataFrame({"cohort_term": ["FALL", "SPRING"], "y": [0, 1]})
     bg = pd.DataFrame({"cohort_term": ["FALL"], "y": [0]})
 
-    df_proc, bg_proc = inference.prepare_glm_enum_alignment_inputs(
+    df_proc, bg_proc = inference.prepare_enum_alignment_inputs(
         model=model, df=df, background_data=bg, cip_like_cols=()
     )
 
     assert df_proc["cohort_term"].tolist() == ["FALL", "SPRING"]
     assert bg_proc["cohort_term"].tolist() == ["FALL"]
+
+
+def test_prepare_enum_alignment_sets_unseen_levels_to_missing_for_trees():
+    """
+    Tree SHAP should drop unseen enum levels to missing after CIP '.0' stripping,
+    and leave in-domain values and pre-existing missings alone.
+    """
+    model = _FakeModel(
+        names=["term_program_of_study", "declared_major_at_entry", "y"],
+        column_types=["Enum", "Enum", "Numeric"],
+        domains=[["30104", "131202"], ["Biology BA", "History BA"], None],
+        response_column="y",
+    )
+    df = pd.DataFrame(
+        {
+            "term_program_of_study": ["131202.0", "999999.0", None],
+            "declared_major_at_entry": [
+                "Biology BA",
+                "Undeclared BA, Public Policy CERT",
+                None,
+            ],
+            "y": [0, 1, 0],
+        }
+    )
+    bg = pd.DataFrame(
+        {
+            "term_program_of_study": ["30104", "not-a-cip"],
+            "declared_major_at_entry": ["History BA", "Archaeology (Interdept) BA"],
+            "y": [0, 0],
+        }
+    )
+
+    df_proc, bg_proc = inference.prepare_enum_alignment_inputs(
+        model=model, df=df, background_data=bg, unseen="missing"
+    )
+
+    assert df_proc["term_program_of_study"].tolist()[0] == "131202"
+    assert pd.isna(df_proc["term_program_of_study"].iloc[1])
+    assert pd.isna(df_proc["term_program_of_study"].iloc[2])
+
+    assert df_proc["declared_major_at_entry"].iloc[0] == "Biology BA"
+    assert pd.isna(df_proc["declared_major_at_entry"].iloc[1])
+    assert pd.isna(df_proc["declared_major_at_entry"].iloc[2])
+
+    assert bg_proc["term_program_of_study"].tolist()[0] == "30104"
+    assert pd.isna(bg_proc["term_program_of_study"].iloc[1])
+    assert bg_proc["declared_major_at_entry"].iloc[0] == "History BA"
+    assert pd.isna(bg_proc["declared_major_at_entry"].iloc[1])
+
+
+@pytest.mark.parametrize("algo", ["gbm", "drf", "xgboost", "xrt"])
+@mock.patch("edvise.modeling.h2o_ml.inference.predict_contribs_batched")
+@mock.patch(
+    "edvise.modeling.h2o_ml.inference.get_h2o_used_features",
+    return_value=["declared_major_at_entry"],
+)
+@mock.patch("edvise.modeling.h2o_ml.utils._to_h2o")
+@mock.patch(
+    "edvise.modeling.h2o_ml.inference.prepare_enum_alignment_inputs",
+    side_effect=lambda model, df, background_data, **kwargs: (df, background_data),
+)
+def test_tree_shap_sets_unseen_enums_to_missing(
+    mock_prepare, mock_to_h2o, _mock_used, mock_predict, algo
+):
+    hf = mock.MagicMock()
+    hf.__getitem__.return_value = mock.MagicMock()
+    mock_to_h2o.return_value = hf
+    mock_predict.return_value = pd.DataFrame({"declared_major_at_entry": [0.1]})
+
+    model = mock.MagicMock()
+    model.algo = algo
+    df = pd.DataFrame({"declared_major_at_entry": ["Biology BA"]})
+    bg = pd.DataFrame({"declared_major_at_entry": ["History BA"]})
+
+    inference.compute_h2o_shap_contributions(
+        model=model, df=df, background_data=bg, return_features=False
+    )
+
+    mock_prepare.assert_called_once()
+    assert mock_prepare.call_args.kwargs["unseen"] == "missing"
 
 
 # Existing SHAP grouping test

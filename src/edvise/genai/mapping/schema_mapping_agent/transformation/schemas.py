@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import re
 from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 
 from pydantic import Field, field_validator, model_validator
@@ -20,11 +21,12 @@ from ..manifest.schemas import (
     _omit_field_blocks_from_class_source,
 )
 
-# Step 2b: compact term → conferral utilities parse YYYY + suffix from the pipelined Series.
-# extract_year strips the suffix first, so it must not run earlier in the same chain.
-_COMPACT_TERM_CODE_CONFERRAL_FUNCTIONS = frozenset(
+# Step 2b: single-Series conferral parsers need the full year+season token.
+# extract_year strips the season first, so it must not run earlier in the same chain.
+_TOKEN_PRESERVING_CONFERRAL_FUNCTIONS = frozenset(
     {
         "compact_term_code_to_conferral_date",
+        "spelled_season_year_to_conferral_date",
     }
 )
 
@@ -42,44 +44,114 @@ RAW_EDVISE_FIELDS_FORBIDDING_MAP_VALUES: frozenset[str] = frozenset(
     }
 )
 
+# Completion datetimes: open-ended term encodings must use utilities / hooks, not closed maps.
+CONFERRAL_DATETIME_FIELDS_FORBIDDING_MAP_VALUES: frozenset[str] = frozenset(
+    {
+        "bachelors_degree_conferral_date",
+        "associates_degree_conferral_date",
+        "certificate1_date",
+        "certificate2_date",
+        "certificate3_date",
+    }
+)
 
-def _reject_map_values_on_source_preserving_fields(
+# Detect map_values keys that are generative Season/YYYY tokens (future years would null out).
+_SPELLED_SEASON_YEAR_MAP_KEY_RE = re.compile(
+    r"^(?:"
+    r"\d{4}\s*[-/\s]\s*(?:Spring|Summer|Fall|Winter)"
+    r"|"
+    r"(?:Spring|Summer|Fall|Winter)\s*[-/\s]\s*\d{4}"
+    r")$",
+    re.IGNORECASE,
+)
+
+
+def _reject_map_values_on_forbidden_fields(
     steps: List[Any],
     *,
     target_field: str,
     context: str,
 ) -> None:
-    if target_field not in RAW_EDVISE_FIELDS_FORBIDDING_MAP_VALUES:
+    has_map_values = any(
+        getattr(step, "function_name", None) == "map_values" for step in steps
+    )
+    if not has_map_values:
         return
-    for step in steps:
-        if getattr(step, "function_name", None) == "map_values":
-            raise ValueError(
-                f"{context}: `map_values` is not allowed on target_field={target_field!r} "
-                "(preserve institution source values). Use steps such as strip_whitespace, "
-                "cast_string, or an empty unmappable plan — not value remapping."
-            )
+    if target_field in RAW_EDVISE_FIELDS_FORBIDDING_MAP_VALUES:
+        raise ValueError(
+            f"{context}: `map_values` is not allowed on target_field={target_field!r} "
+            "(preserve institution source values). Use steps such as strip_whitespace, "
+            "cast_string, or an empty unmappable plan — not value remapping."
+        )
+    if target_field in CONFERRAL_DATETIME_FIELDS_FORBIDDING_MAP_VALUES:
+        raise ValueError(
+            f"{context}: `map_values` is not allowed on target_field={target_field!r}. "
+            "Use spelled_season_year_to_conferral_date for spelled season+year tokens "
+            "(e.g. '2019 Spring', 'Fall 2023'), compact_term_code_to_conferral_date for "
+            "contiguous codes (e.g. 2025SP), coerce_datetime for true calendar dates, "
+            "or hook_required for opaque encodings — not a closed year/season lookup."
+        )
 
 
-def _reject_extract_year_before_compact_term_conferral(
+def _reject_extract_year_before_token_conferral(
     steps: List[Any],
     *,
     context: str,
 ) -> None:
     for i, step in enumerate(steps):
         fn = getattr(step, "function_name", None)
-        if fn not in _COMPACT_TERM_CODE_CONFERRAL_FUNCTIONS:
+        if fn not in _TOKEN_PRESERVING_CONFERRAL_FUNCTIONS:
             continue
         for prev in steps[:i]:
             if getattr(prev, "function_name", None) == "extract_year":
                 raise ValueError(
                     f"{context}: invalid step order — `extract_year` cannot appear before "
-                    f"`compact_term_code_to_conferral_date`. That parser needs the full "
-                    f"token (e.g. 2025SP) on the pipelined Series. "
-                    f"Typically: strip_whitespace → compact_term_code_to_conferral_date only; "
+                    f"`{fn}`. That parser needs the full year+season token on the "
+                    f"pipelined Series. Typically: strip_whitespace → {fn}; "
                     f"or for academic_year_and_canonical_season_to_conferral_date, run "
-                    f"map_values on the full token before extract_year if the year arm "
-                    f"requires it."
+                    f"cleaning on the year arm before extract_year if needed."
                 )
+
+
+def _reject_closed_spelled_season_map_values_before_conferral(
+    steps: List[Any],
+    *,
+    context: str,
+) -> None:
+    """Reject finite Season/YYYY map_values that feed a single-Series conferral parser."""
+    for i, step in enumerate(steps):
+        if getattr(step, "function_name", None) != "map_values":
+            continue
+        later = {getattr(s, "function_name", None) for s in steps[i + 1 :]}
+        if not later & _TOKEN_PRESERVING_CONFERRAL_FUNCTIONS:
+            continue
+        mapping = getattr(step, "mapping", None) or {}
+        spelled_keys = [
+            str(k)
+            for k in mapping
+            if _SPELLED_SEASON_YEAR_MAP_KEY_RE.match(str(k).strip())
+        ]
+        if len(spelled_keys) < 2:
+            continue
+        raise ValueError(
+            f"{context}: closed `map_values` of spelled season+year tokens "
+            f"(e.g. {spelled_keys[0]!r}) before a conferral parser is not allowed — "
+            "unlisted future years become null. Use "
+            "`spelled_season_year_to_conferral_date` instead."
+        )
+
+
+def _validate_transformation_steps(
+    steps: List[Any],
+    *,
+    target_field: str,
+    context: str,
+) -> None:
+    _reject_extract_year_before_token_conferral(steps, context=context)
+    _reject_map_values_on_forbidden_fields(
+        steps, target_field=target_field, context=context
+    )
+    _reject_closed_spelled_season_map_values_before_conferral(steps, context=context)
 
 
 class CastNullableIntStep(StrictBaseModel):
@@ -310,6 +382,12 @@ class CompactTermCodeToConferralDateStep(StrictBaseModel):
     rationale: Optional[str] = None
 
 
+class SpelledSeasonYearToConferralDateStep(StrictBaseModel):
+    function_name: Literal["spelled_season_year_to_conferral_date"]
+    column: str
+    rationale: Optional[str] = None
+
+
 TransformationStep = Annotated[
     Union[
         CastNullableIntStep,
@@ -342,6 +420,7 @@ TransformationStep = Annotated[
         TermComponentsToDatetimeStep,
         AcademicYearAndCanonicalSeasonToConferralDateStep,
         CompactTermCodeToConferralDateStep,
+        SpelledSeasonYearToConferralDateStep,
     ],
     Field(discriminator="function_name"),
 ]
@@ -559,11 +638,7 @@ class FieldTransformationPlan(StrictBaseModel):
                 raise ValueError(
                     "hitl_options must be omitted (null) unless review_required is True"
                 )
-        _reject_extract_year_before_compact_term_conferral(
-            self.steps,
-            context=f"target_field={self.target_field!r}",
-        )
-        _reject_map_values_on_source_preserving_fields(
+        _validate_transformation_steps(
             self.steps,
             target_field=self.target_field,
             context=f"target_field={self.target_field!r}",
@@ -658,14 +733,10 @@ class TransformationHITLItem(StrictBaseModel):
         return self
 
     @model_validator(mode="after")
-    def _extract_year_not_before_compact_term_conferral(
+    def _validate_steps(
         self,
     ) -> "TransformationHITLItem":
-        _reject_extract_year_before_compact_term_conferral(
-            self.steps,
-            context=f"TransformationHITLItem item_id={self.item_id!r}",
-        )
-        _reject_map_values_on_source_preserving_fields(
+        _validate_transformation_steps(
             self.steps,
             target_field=self.target_field,
             context=f"TransformationHITLItem item_id={self.item_id!r}",
@@ -889,6 +960,7 @@ def get_transformation_map_schema_context() -> str:
         TermComponentsToDatetimeStep,
         AcademicYearAndCanonicalSeasonToConferralDateStep,
         CompactTermCodeToConferralDateStep,
+        SpelledSeasonYearToConferralDateStep,
         FieldTransformationPlan,
         FlaggedStep,
         TransformationHITLOption,

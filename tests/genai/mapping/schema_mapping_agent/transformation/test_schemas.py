@@ -16,6 +16,7 @@ from edvise.genai.mapping.schema_mapping_agent.transformation.schemas import (
     FieldTransformationPlan,
     FlaggedStep,
     MapValuesStep,
+    SpelledSeasonYearToConferralDateStep,
     TermComponentsToDatetimeStep,
     TransformationHITLItem,
     TransformationHITLOption,
@@ -87,6 +88,18 @@ def test_transformation_step_compact_term_code_to_conferral_date():
         }
     )
     assert step.function_name == "compact_term_code_to_conferral_date"
+
+
+def test_transformation_step_spelled_season_year_to_conferral_date():
+    adapter = TypeAdapter(TransformationStep)
+    step = adapter.validate_python(
+        {
+            "function_name": "spelled_season_year_to_conferral_date",
+            "column": "degree_term",
+        }
+    )
+    assert isinstance(step, SpelledSeasonYearToConferralDateStep)
+    assert step.function_name == "spelled_season_year_to_conferral_date"
 
 
 def test_field_plan_rejects_extract_year_before_compact_term_conferral():
@@ -217,6 +230,88 @@ def test_field_plan_rejects_map_values_on_term_degree():
                         "function_name": "map_values",
                         "column": "lvl",
                         "mapping": {"UG": "Undergraduate"},
+                    },
+                ],
+            }
+        )
+
+
+@pytest.mark.parametrize(
+    "target_field",
+    [
+        "bachelors_degree_conferral_date",
+        "associates_degree_conferral_date",
+        "certificate1_date",
+        "certificate2_date",
+        "certificate3_date",
+    ],
+)
+def test_field_plan_rejects_map_values_on_conferral_datetime_fields(target_field):
+    with pytest.raises(ValidationError, match="map_values"):
+        FieldTransformationPlan.model_validate(
+            {
+                "target_field": target_field,
+                "output_dtype": "datetime64[ns]",
+                "confidence": 0.9,
+                "steps": [
+                    {
+                        "function_name": "map_values",
+                        "column": "degree_term",
+                        "mapping": {"2019 Spring": "2019SP", "2024 Spring": "2024SP"},
+                        "default": None,
+                    },
+                    {
+                        "function_name": "compact_term_code_to_conferral_date",
+                        "column": "degree_term",
+                    },
+                ],
+            }
+        )
+
+
+def test_field_plan_allows_spelled_season_year_on_conferral_date():
+    plan = FieldTransformationPlan.model_validate(
+        {
+            "target_field": "bachelors_degree_conferral_date",
+            "output_dtype": "datetime64[ns]",
+            "confidence": 0.9,
+            "steps": [
+                {"function_name": "strip_whitespace", "column": "degree_term"},
+                {
+                    "function_name": "spelled_season_year_to_conferral_date",
+                    "column": "degree_term",
+                },
+            ],
+        }
+    )
+    assert [s.function_name for s in plan.steps] == [
+        "strip_whitespace",
+        "spelled_season_year_to_conferral_date",
+    ]
+
+
+def test_field_plan_rejects_closed_spelled_season_map_before_conferral_parser():
+    """Defense-in-depth when target_field is not in the conferral forbid list."""
+    with pytest.raises(ValidationError, match="spelled_season_year_to_conferral_date"):
+        FieldTransformationPlan.model_validate(
+            {
+                "target_field": "some_proxy_date",
+                "output_dtype": "datetime64[ns]",
+                "confidence": 0.9,
+                "steps": [
+                    {
+                        "function_name": "map_values",
+                        "column": "term",
+                        "mapping": {
+                            "2019 Spring": "2019SP",
+                            "2020 Fall": "2020FA",
+                            "2024 Spring": "2024SP",
+                        },
+                        "default": None,
+                    },
+                    {
+                        "function_name": "compact_term_code_to_conferral_date",
+                        "column": "term",
                     },
                 ],
             }
@@ -355,8 +450,8 @@ def test_field_transformation_plan_review_required_requires_hitl_fields():
         ),
     ]
     FieldTransformationPlan(
-        target_field="bachelors_degree_conferral_date",
-        output_dtype="datetime64[ns]",
+        target_field="academic_term",
+        output_dtype="category",
         confidence=0.65,
         review_required=True,
         steps=[

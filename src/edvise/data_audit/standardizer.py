@@ -8,6 +8,7 @@ from edvise.utils.drop_columns_safely import drop_columns_safely
 from edvise.data_audit.es_cohort_credential_years import add_es_credential_year_columns
 from edvise.utils.data_cleaning import (
     drop_course_rows_missing_identifiers,
+    replace_missing_sentinel_with_null,
     replace_na_firstgen_and_pell,
     strip_trailing_decimal_strings,
 )
@@ -103,7 +104,10 @@ class PDPCohortStandardizer:
             "first_year_to_certificate_at_other_inst": (None, "Int8"),
         }
         return drop_and_fill_columns(
-            df, cols_to_drop, col_val_dtypes, after_drop=replace_na_firstgen_and_pell
+            replace_missing_sentinel_with_null(df),
+            cols_to_drop,
+            col_val_dtypes,
+            after_drop=replace_na_firstgen_and_pell,
         )
 
 
@@ -115,6 +119,7 @@ class PDPCourseStandardizer:
         Args:
             df: As output by :func:`dataio.read_raw_pdp_course_data_from_file()` .
         """
+        df = replace_missing_sentinel_with_null(df)
         df = strip_trailing_decimal_strings(df)
         df = drop_course_rows_missing_identifiers(df)
         cols_to_drop = [
@@ -145,11 +150,11 @@ class ESCourseStandardizer:
     """Edvise course rows: no extra standardization until school-specific steps exist."""
 
     def standardize(self, df: pd.DataFrame) -> pd.DataFrame:
-        return df
+        return replace_missing_sentinel_with_null(df)
 
 
 class ESCohortStandardizer:
     """Edvise learner (cohort) rows: PDP-style credential year columns from matriculation + award dates."""
 
     def standardize(self, df: pd.DataFrame) -> pd.DataFrame:
-        return add_es_credential_year_columns(df)
+        return add_es_credential_year_columns(replace_missing_sentinel_with_null(df))
