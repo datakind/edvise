@@ -45,7 +45,10 @@ _AGE_BIN = re.compile(r"^(\d+)\s*-\s*(\d+)$")
 _REFERENCE_OTHER = "other"
 _POST_ADJUSTMENT_NOTE = "These results use the group-specific threshold described under Fairness Adjustment."
 _ALL_OTHER_STUDENTS = "all other students"
-_SUPPORT_LABEL_NOTE = "Advisors see this dual-threshold decision via Support Label when the pipeline writes one."
+_SUPPORT_LABEL_NOTE = (
+    "In the advisor output file, the Support Label appears alongside the "
+    "Support Score and reflects this fairness adjustment."
+)
 
 
 def resolve_student_group_label(card, group_key):
