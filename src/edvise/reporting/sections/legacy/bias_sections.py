@@ -1,6 +1,7 @@
 import os
 import logging
 import re
+import typing as t
 
 import pandas as pd
 
@@ -100,14 +101,16 @@ def configured_bias_mitigation(card):
     return card.cfg.modeling.bias_mitigation
 
 
-def mitigation_group_col(mitigation) -> str | None:
+def mitigation_group_col(mitigation: t.Any) -> str | None:
     col = getattr(mitigation, "student_group_col", None)
     if isinstance(col, str) and col.strip():
         return col.strip()
     return None
 
 
-def reference_age_display_label(target_group: str, age_bins) -> str | None:
+def reference_age_display_label(
+    target_group: str, age_bins: t.Iterable[t.Any]
+) -> str | None:
     """Name the complement of an age span, e.g. 18-24 with bins through 65-99 → 25-99.
 
     The one-student fine age bin ``Other`` is not this complement and is ignored.
@@ -142,7 +145,9 @@ def relabel_comparison(subgroups: str, display_label: str | None) -> str:
     )
 
 
-def apply_reference_age_label(df, group_col: str, target_group: str, age_bins):
+def apply_reference_age_label(
+    df: pd.DataFrame, group_col: str, target_group: str, age_bins: t.Iterable[t.Any]
+) -> pd.DataFrame:
     """Display-only rename of the mitigation column's ``other`` bucket."""
     label = reference_age_display_label(target_group, age_bins)
     if label is None or group_col not in df.columns:
@@ -425,7 +430,7 @@ def _first_existing_artifact(card, artifact_paths):
     return None
 
 
-def _age_bins_from_rates(card) -> list[str]:
+def _age_bins_from_rates(card: t.Any) -> list[str]:
     local_path = _first_existing_artifact(card, [_POST_FNR_RATES])
     if local_path is None:
         return []
