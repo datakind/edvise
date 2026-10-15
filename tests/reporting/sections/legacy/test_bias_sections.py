@@ -227,10 +227,11 @@ def test_bias_summary_with_mitigation_includes_logged_fnr(
     assert "####Fairness Adjustment" in summary
     assert "- Student group: **Age Group**" in summary
     assert "`agegroup`" not in summary
-    assert "- Students with their own threshold: **25 and over**" in summary
-    assert "- Threshold for these students: **0.35**" in summary
+    assert "- Subgroup with a fairness-adjusted threshold: **25 and over**" in summary
+    assert "- Threshold for this subgroup: **0.35**" in summary
     assert "- Threshold for all other students: **0.5**" in summary
     assert "Every student gets the same Support Score." in summary
+    assert "for **25 and over** students and **0.5** for all other students" in summary
     assert "underpredicts for **12.0%** of 25 and over students" in summary
     assert "compared with **20.0%** of all other students" in summary
     assert "a gap of **8.0 percentage points**" in summary
@@ -530,8 +531,8 @@ def test_bias_summary_shows_post_mitigation_group_plots(mock_card, tmp_path):
     assert "20% difference" in summary
     assert "Disparities After the Fairness Adjustment" in summary
     assert (
-        "Students in 18-24 are identified at a threshold of 0.3. "
-        "Students in 25-99 use 0.5." in summary
+        "18-24 students are identified at a threshold of 0.3. "
+        "25-99 students are identified at a threshold of 0.5." in summary
     )
     assert "#####Age Bias Group" in summary
     assert "**_25-99_**" in summary

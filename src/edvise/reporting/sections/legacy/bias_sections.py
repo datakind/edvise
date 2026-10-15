@@ -44,8 +44,8 @@ _POST_FNR_RATES = f"{_POST_PLOTS_DIR}/fnr_rates.csv"
 _AGE_BIN = re.compile(r"^(\d+)\s*-\s*(\d+)$")
 _REFERENCE_OTHER = "other"
 _POST_GROUP_NOTE = (
-    "Students in {target} are identified at a threshold of {group_threshold}. "
-    "{reference} use {default_threshold}."
+    "{target} students are identified at a threshold of {group_threshold}. "
+    "{reference} are identified at a threshold of {default_threshold}."
 )
 _ALL_OTHER_STUDENTS = "all other students"
 _SUPPORT_LABEL_NOTE = "Advisors see this dual-threshold decision via Support Label when the pipeline writes one."
@@ -178,9 +178,9 @@ def group_column_label(card, mitigation):
 
 
 def reference_students_phrase(display_label):
-    """Name the students outside the adjusted group, using the age span when known."""
+    """Name the students outside the adjusted subgroup, using the age span when known."""
     if display_label:
-        return f"students in {display_label}"
+        return f"{display_label} students"
     return _ALL_OTHER_STUDENTS
 
 
@@ -351,16 +351,16 @@ def render_post_mitigation_section(card, mitigation, display_label=None):
         f"{card.format.header_level(4)}Fairness Adjustment\n",
         (
             "This model uses a group-specific threshold so that underprediction is "
-            f"more even across the groups within {group_label}. "
+            f"more even across the subgroups of {group_label}. "
             "Every student gets the same Support Score. What differs is the score at "
             "which a student is identified as likely to need support: "
-            f"{bold(_format_threshold(target_threshold))} for students in "
-            f"{bold(target_group)} and {bold(_format_threshold(default_threshold))} "
+            f"{bold(_format_threshold(target_threshold))} for "
+            f"{bold(target_group)} students and {bold(_format_threshold(default_threshold))} "
             f"for {reference}.\n"
         ),
         f"- Student group: {bold(group_label)}",
-        f"- Students with their own threshold: {bold(target_group)}",
-        f"- Threshold for these students: {bold(_format_threshold(target_threshold))}",
+        f"- Subgroup with a fairness-adjusted threshold: {bold(target_group)}",
+        f"- Threshold for this subgroup: {bold(_format_threshold(target_threshold))}",
         (f"- Threshold for {reference}: {bold(_format_threshold(default_threshold))}"),
         "",
     ]
