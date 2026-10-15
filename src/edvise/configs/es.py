@@ -86,7 +86,10 @@ class ESProjectConfig(pyd.BaseModel):
             "to use for model bias assessment, but *not* as model features. "
             "Defaults include core demographics plus optional status fields; "
             "columns absent from a given institution's data are skipped at "
-            "bias evaluation and never treated as features when present."
+            "bias evaluation. Feature exclusion also always covers "
+            "DEFAULT_ES_STUDENT_GROUP_COLS via non_feature_cols, even when this "
+            "list is shortened. Model cards list groups from bias_test run "
+            "artifacts (what was actually assessed), not this config list alone."
         ),
     )
     pred_col: str = "pred"
@@ -268,9 +271,17 @@ class FeaturesConfig(pyd.BaseModel):
             "SUMMER ranks Summer first, dates it in the start year "
             "(2024-25 SUMMER → summer 2024), and keeps that cohort with Fall of the "
             "same academic year. The 4-term on-time window that ends in Spring applies "
-            "only when this is FALL."
+            "only when this is FALL. Case is ignored; the value is stored as FALL or SUMMER."
         ),
     )
+
+    @pyd.field_validator("first_term_of_year", mode="before")
+    @classmethod
+    def normalize_first_term_of_year(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip().upper()
+        return value
+
     peak_covid_terms: set[tuple[str, str]] = pyd.Field(
         default=constants.DEFAULT_PEAK_COVID_TERMS,
         description=(
