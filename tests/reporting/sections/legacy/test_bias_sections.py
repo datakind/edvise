@@ -191,9 +191,13 @@ def _render_legacy_bias(mock_card):
     return registry.render_all()
 
 
+@patch(
+    "edvise.reporting.utils.utils.list_paths_in_directory",
+    return_value=[],
+)
 @patch("edvise.reporting.utils.utils.download_artifact")
 def test_bias_summary_with_mitigation_includes_logged_fnr(
-    mock_download_artifact, mock_card, tmp_path
+    mock_download_artifact, _mock_list_paths, mock_card, tmp_path
 ):
     mock_card.cfg.student_group_aliases = {"agegroup": "Age Group"}
     mock_card.cfg.modeling.bias_mitigation = SimpleNamespace(
@@ -234,6 +238,11 @@ def test_bias_summary_with_mitigation_includes_logged_fnr(
     assert "underpredicts for **12.0%** of 25 and over students" in summary
     assert "compared with **20.0%** of all other students" in summary
     assert "a gap of **8.0 percentage points**" in summary
+    assert (
+        "_The comparison before the adjustment, at one threshold of 0.5, "
+        "is not in the threshold search results._" in summary
+    )
+    assert "Before the adjustment, with one threshold of **0.5**" not in summary
     assert "**Tradeoff.**" in summary
     assert "are not available for this model" not in summary
     assert (
@@ -281,6 +290,7 @@ def test_bias_summary_with_mitigation_config_only_when_metrics_missing(
     assert "**0.5**" in summary
     assert "Results after the fairness adjustment are not available" in summary
     assert "Effect on results" not in summary
+    assert "threshold search results" not in summary
     assert (
         "In the advisor output file, the Support Label appears alongside the "
         "Support Score and reflects this fairness adjustment." in summary
@@ -338,17 +348,18 @@ def test_bias_summary_reads_fnr_from_threshold_artifact(
     artifact_name = "bias_mitigation/bias_mitigation_thresholds_oc7qn6v_.csv"
     frame = pd.DataFrame(
         {
-            "group": ["18-24", "18-24", "18-24"],
-            "threshold": [0.2, 0.3, 0.4],
-            "reference_fnr": [0.21621621621621623] * 3,
-            "group_fnr": [0.05, 0.2074074074074074, 0.29074074074074074],
+            "group": ["18-24", "18-24", "18-24", "18-24"],
+            "threshold": [0.2, 0.3, 0.4, 0.5],
+            "reference_fnr": [0.21621621621621623] * 4,
+            "group_fnr": [0.05, 0.2074074074074074, 0.29074074074074074, 0.42],
             "fnr_abs_gap": [
                 0.16621621621621624,
                 0.008808808808808827,
                 0.07452452452452452,
+                0.20378378378378377,
             ],
-            "within_tolerance": [False, True, False],
-            "balanced_accuracy": [0.64, 0.69, 0.74],
+            "within_tolerance": [False, True, False, False],
+            "balanced_accuracy": [0.64, 0.69, 0.74, 0.60],
         }
     )
     artifact_path = tmp_path / artifact_name
@@ -366,8 +377,30 @@ def test_bias_summary_reads_fnr_from_threshold_artifact(
     assert "**20.7%**" in summary
     assert "**21.6%**" in summary
     assert "**0.9 percentage points**" in summary
+    assert "Before the adjustment, with one threshold of **0.5**" in summary
+    assert "underpredicts for **42.0%** of 18-24 students" in summary
+    assert "a gap of **20.4 percentage points**" in summary
+    assert summary.index("Before the adjustment") < summary.index(
+        "After the adjustment"
+    )
+    assert "is not in the threshold search results" not in summary
     assert "are not available for this model" not in summary
     mock_list_paths.assert_any_call("run123", "bias_mitigation")
+
+
+def test_default_threshold_row_does_not_fall_back_to_the_chosen_threshold():
+    frame = pd.DataFrame(
+        {
+            "threshold": [0.3],
+            "group_fnr": [0.2074074074074074],
+            "reference_fnr": [0.21621621621621623],
+            "fnr_abs_gap": [0.008808808808808827],
+        }
+    )
+
+    assert legacy_bias_sections._matching_threshold_row(frame, 0.5) is None
+    chosen = legacy_bias_sections._select_threshold_row(frame, 0.3)
+    assert float(chosen["threshold"]) == 0.3
 
 
 @patch(

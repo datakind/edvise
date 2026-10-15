@@ -38,6 +38,10 @@ _PRE_ADJUSTMENT_NOTE = (
 _ADJUSTMENT_RESULTS_UNAVAILABLE = (
     "Results after the fairness adjustment are not available for this model."
 )
+_BEFORE_COMPARISON_UNAVAILABLE = (
+    "The comparison before the adjustment, at one threshold of {default_threshold}, "
+    "is not in the threshold search results."
+)
 _POST_FLAGS_DIR = "bias_flags/post_mitigation"
 _POST_PLOTS_DIR = "fnr_plots/post_mitigation"
 _POST_FNR_RATES = f"{_POST_PLOTS_DIR}/fnr_rates.csv"
@@ -255,16 +259,28 @@ def _as_bool(value):
     return False
 
 
-def _select_threshold_row(frame, target_threshold):
-    """Row for the configured threshold, otherwise the search's chosen row."""
+def _matching_threshold_row(frame, target_threshold):
+    """Row whose threshold matches exactly. No fallback to another searched threshold."""
     required = {"threshold", "group_fnr", "reference_fnr", "fnr_abs_gap"}
-    if frame.empty or not required.issubset(frame.columns):
+    if frame is None or frame.empty or not required.issubset(frame.columns):
         return None
     work = frame.copy()
     work["_threshold"] = pd.to_numeric(work["threshold"], errors="coerce")
     matched = work[(work["_threshold"] - float(target_threshold)).abs() <= 1e-4]
-    if not matched.empty:
-        return matched.iloc[0]
+    if matched.empty:
+        return None
+    return matched.iloc[0]
+
+
+def _select_threshold_row(frame, target_threshold):
+    """Row for the configured threshold, otherwise the search's chosen row."""
+    required = {"threshold", "group_fnr", "reference_fnr", "fnr_abs_gap"}
+    if frame is None or frame.empty or not required.issubset(frame.columns):
+        return None
+    matched = _matching_threshold_row(frame, target_threshold)
+    if matched is not None:
+        return matched
+    work = frame.copy()
     if "within_tolerance" in work.columns:
         eligible = work[work["within_tolerance"].map(_as_bool)]
         if not eligible.empty:
@@ -284,11 +300,11 @@ def _select_threshold_row(frame, target_threshold):
     return work.sort_values("_gap", ascending=True, na_position="last").iloc[0]
 
 
-def artifact_bias_mitigation_values(card, mitigation):
-    """Read the chosen threshold row from the bias_mitigation search CSV."""
+def _threshold_search_frame(card):
+    """Latest bias-mitigation threshold search CSV, or None when it cannot be read."""
     run_id = getattr(card, "run_id", None)
     if not run_id:
-        return {}
+        return None
     paths = utils.list_paths_in_directory(run_id, _BIAS_MITIGATION_ARTIFACT_DIR)
     csv_paths = sorted(
         path
@@ -297,7 +313,7 @@ def artifact_bias_mitigation_values(card, mitigation):
         and path.endswith(".csv")
     )
     if not csv_paths:
-        return {}
+        return None
     local_path = utils.download_artifact(
         run_id=run_id,
         local_folder=getattr(card, "assets_folder", None),
@@ -308,9 +324,9 @@ def artifact_bias_mitigation_values(card, mitigation):
             "Bias mitigation threshold artifact was listed but could not be read: %s",
             csv_paths[-1],
         )
-        return {}
+        return None
     try:
-        frame = pd.read_csv(local_path)
+        return pd.read_csv(local_path)
     except Exception as exc:
         LOGGER.warning(
             "Could not read bias mitigation threshold artifact %s: [%s] %s",
@@ -318,12 +334,16 @@ def artifact_bias_mitigation_values(card, mitigation):
             type(exc).__name__,
             exc,
         )
-        return {}
-    row = _select_threshold_row(frame, float(mitigation.custom_threshold))
+        return None
+
+
+def _fnr_values_from_row(row):
     if row is None:
         return {}
     found = {}
     for column, key in _ARTIFACT_COLUMNS.items():
+        if column not in row.index:
+            continue
         number = _coerce_float(row[column])
         if number is None:
             LOGGER.warning(
@@ -334,6 +354,56 @@ def artifact_bias_mitigation_values(card, mitigation):
     return found
 
 
+def artifact_bias_mitigation_values(card, mitigation):
+    """Read the chosen threshold row from the bias_mitigation search CSV."""
+    frame = _threshold_search_frame(card)
+    if frame is None:
+        return {}
+    return _fnr_values_from_row(
+        _select_threshold_row(frame, float(mitigation.custom_threshold))
+    )
+
+
+def _fnr_gap_sentence(bold, values, target_group, reference):
+    gap_points = f"{values['bias_mitigation_fnr_abs_gap'] * 100:.1f}"
+    return (
+        f"the model underpredicts for {bold(_format_rate(values['bias_mitigation_group_fnr']))} "
+        f"of {target_group} students who need support, compared with "
+        f"{bold(_format_rate(values['bias_mitigation_reference_fnr']))} of "
+        f"{reference}, a gap of {bold(gap_points + ' percentage points')}."
+    )
+
+
+def _effect_on_results(
+    card, logged, baseline, target_group, reference, default_threshold
+):
+    """Before-adjustment gap at the single threshold, then the gap after it.
+
+    ``baseline`` is None when the adjusted threshold is already the single
+    threshold. An empty mapping means the search has no row at that threshold.
+    """
+    bold = card.format.bold
+    after = (
+        f"{bold('Effect on results.')} After the adjustment, "
+        f"{_fnr_gap_sentence(bold, logged, target_group, reference)}"
+    )
+    if baseline is None:
+        return after
+    if not all(key in baseline for key in _FNR_COMPARISON_KEYS):
+        missing = card.format.italic(
+            _BEFORE_COMPARISON_UNAVAILABLE.format(
+                default_threshold=_format_threshold(default_threshold)
+            )
+        )
+        return f"{missing}\n\n{after}"
+    return (
+        f"{bold('Effect on results.')} Before the adjustment, with one threshold of "
+        f"{bold(_format_threshold(default_threshold))}, "
+        f"{_fnr_gap_sentence(bold, baseline, target_group, reference)} "
+        f"After the adjustment, {_fnr_gap_sentence(bold, logged, target_group, reference)}"
+    )
+
+
 def render_post_mitigation_section(card, mitigation, display_label=None):
     """Explain the group-specific threshold and any logged FNR comparison."""
     target_group = str(mitigation.student_group).strip()
@@ -341,8 +411,12 @@ def render_post_mitigation_section(card, mitigation, display_label=None):
     default_threshold = default_positive_threshold(card)
     reference = reference_students_phrase(display_label)
     logged = logged_bias_mitigation_values(card)
+    frame = None
     if not all(key in logged for key in _FNR_COMPARISON_KEYS):
-        for key, value in artifact_bias_mitigation_values(card, mitigation).items():
+        frame = _threshold_search_frame(card)
+        for key, value in _fnr_values_from_row(
+            _select_threshold_row(frame, target_threshold)
+        ).items():
             logged.setdefault(key, value)
 
     bold = card.format.bold
@@ -361,13 +435,22 @@ def render_post_mitigation_section(card, mitigation, display_label=None):
     ]
 
     if all(key in logged for key in _FNR_COMPARISON_KEYS):
-        gap_points = f"{logged['bias_mitigation_fnr_abs_gap'] * 100:.1f}"
+        baseline = None
+        if abs(target_threshold - default_threshold) > 1e-4:
+            if frame is None:
+                frame = _threshold_search_frame(card)
+            baseline = _fnr_values_from_row(
+                _matching_threshold_row(frame, default_threshold)
+            )
         lines.append(
-            f"{bold('Effect on results.')} After the adjustment, the model "
-            f"underpredicts for {bold(_format_rate(logged['bias_mitigation_group_fnr']))} "
-            f"of {target_group} students who need support, compared with "
-            f"{bold(_format_rate(logged['bias_mitigation_reference_fnr']))} of "
-            f"{reference}, a gap of {bold(gap_points + ' percentage points')}."
+            _effect_on_results(
+                card,
+                logged,
+                baseline,
+                target_group,
+                reference,
+                default_threshold,
+            )
         )
     else:
         lines.append(card.format.italic(_ADJUSTMENT_RESULTS_UNAVAILABLE))
