@@ -223,7 +223,8 @@ def test_bias_summary_with_mitigation_includes_logged_fnr(
     assert "These results use one threshold (0.5) for all students." in summary
     assert "####Disparities by Student Group" not in summary
     assert "Age Group" in summary
-    assert "12% difference" in summary
+    assert "12% difference" not in summary
+    assert "No statistically significant disparities were found" in summary
     assert "####Fairness Adjustment" in summary
     assert "across the subgroups of Age Group" in summary
     assert "`agegroup`" not in summary
@@ -270,9 +271,8 @@ def test_bias_summary_with_mitigation_config_only_when_metrics_missing(
     summary = _render_legacy_bias(mock_card)["bias_summary_section"]
 
     assert "####Disparities Before the Fairness Adjustment" in summary
-    assert "No statistically significant disparities were found" in summary
-    assert "#####Gender" not in summary
-    assert "12% difference" not in summary
+    assert "#####Gender" in summary
+    assert "12% difference" in summary
     assert "####Fairness Adjustment" in summary
     assert "across the subgroups of Pell Status" in summary
     assert "`pell_flag`" not in summary
@@ -314,7 +314,7 @@ def test_bias_summary_documents_rule_when_mlflow_read_fails(
     assert "**0.5**" in summary
     assert "across the subgroups of Student Group" in summary
     assert "Results after the fairness adjustment are not available" in summary
-    assert "12% difference" in summary
+    assert "12% difference" not in summary
 
 
 @patch("edvise.reporting.utils.utils.list_paths_in_directory")
@@ -403,7 +403,7 @@ def test_group_column_omits_generic_alias_for_custom_column(
 
 def test_bias_summary_shows_post_mitigation_group_plots(mock_card, tmp_path):
     mock_card.assets_folder = str(tmp_path)
-    mock_card.cfg.student_group_cols = ["gender", "ethnicity"]
+    mock_card.cfg.student_group_cols = ["gender", "ethnicity", "age_group"]
     mock_card.cfg.student_group_aliases = {
         "age_bias_group": "Age Bias Group",
         "gender": "Gender",
@@ -425,12 +425,19 @@ def test_bias_summary_shows_post_mitigation_group_plots(mock_card, tmp_path):
     pd.DataFrame(
         [
             {
+                "group": "age_group",
+                "split_name": "test",
+                "subgroups": "20-21 vs 50-64",
+                "fnr_percentage_difference": 0.23,
+                "type": "a significant difference",
+            },
+            {
                 "group": "age_bias_group",
                 "split_name": "test",
-                "subgroups": "18-24 vs 25+",
+                "subgroups": "18-24 vs other",
                 "fnr_percentage_difference": 0.2,
                 "type": "a significant difference",
-            }
+            },
         ]
     ).to_csv(pre_flags, index=False)
     post_flags = (
@@ -526,7 +533,9 @@ def test_bias_summary_shows_post_mitigation_group_plots(mock_card, tmp_path):
         summary = _render_legacy_bias(mock_card)["bias_summary_section"]
 
     assert "Disparities Before the Fairness Adjustment" in summary
-    assert "20% difference" in summary
+    assert "#####Age" in summary
+    assert "23% difference" in summary
+    assert "20% difference" not in summary
     assert "Disparities After the Fairness Adjustment" in summary
     assert "for **18-24** students and **0.5** for 25-99 students" in summary
     assert (
@@ -539,18 +548,14 @@ def test_bias_summary_shows_post_mitigation_group_plots(mock_card, tmp_path):
     assert summary.index("Disparities Before the Fairness Adjustment") < summary.index(
         "Disparities After the Fairness Adjustment"
     )
-    assert "#####Age Bias Group" in summary
-    assert "**_25-99_**" in summary
+    assert "#####Age Bias Group" not in summary
+    assert "**_25-99_**" not in summary
     assert "other" not in summary.lower()
     assert "**_Other_**" not in summary
     assert "FNR:" not in summary
-    assert (
-        "No statistically significant disparity was found for this group after the fairness adjustment."
-        not in summary
-    )
-    assert str(age_plot) in summary
+    assert str(age_plot) not in summary
     assert "#####Gender" in summary
-    assert "6% difference" in summary
+    assert "6% difference" not in summary
     assert "12% difference" in summary
     assert str(gender_plot) in summary
     assert "ethnicity" not in summary.lower()

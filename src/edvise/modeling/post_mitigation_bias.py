@@ -13,7 +13,6 @@ from edvise.modeling import bias_detection
 LOGGER = logging.getLogger(__name__)
 
 POST_MITIGATION_ARTIFACT_SUBDIR = "post_mitigation"
-PRE_DISPLAY_ARTIFACT_SUBDIR = "pre_mitigation_display"
 
 
 def assign_dual_threshold_predictions(
@@ -34,24 +33,6 @@ def assign_dual_threshold_predictions(
         (scores >= float(default_threshold)) & ~is_target
     )
     return out
-
-
-def _classification_threshold(cfg: t.Any) -> float:
-    modeling_cfg = getattr(cfg, "modeling", None)
-    training = getattr(modeling_cfg, "training", None) if modeling_cfg else None
-    value = getattr(training, "classification_threshold", None) if training else None
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return 0.5
-    return float(value)
-
-
-def _age_bin_values(df: pd.DataFrame, columns: list[str], skip_col: str) -> list[str]:
-    values: list[str] = []
-    for col in columns:
-        if col == skip_col or col not in df.columns:
-            continue
-        values.extend(df[col].dropna().astype("string").str.strip().unique().tolist())
-    return values
 
 
 def _default_threshold(cfg: t.Any) -> float:
@@ -120,18 +101,7 @@ def log_post_mitigation_group_bias(cfg: t.Any) -> None:
         pred_col=cfg.pred_col,
         pred_prob_col=cfg.pred_prob_col,
     )
-    candidate_cols = _group_columns(cfg, group_col)
-    from edvise.reporting.sections.legacy.bias_sections import (
-        apply_reference_age_label,
-        reference_age_display_label,
-    )
-
-    age_bins = _age_bin_values(scored, candidate_cols, group_col)
-    display_label = reference_age_display_label(mitigation.student_group, age_bins)
-    if display_label is not None:
-        scored = apply_reference_age_label(
-            scored, group_col, mitigation.student_group, age_bins
-        )
+    candidate_cols = [col for col in _group_columns(cfg, group_col) if col != group_col]
     group_cols = [col for col in candidate_cols if col in scored.columns]
     missing = [col for col in candidate_cols if col not in scored.columns]
     for col in missing:
@@ -161,28 +131,6 @@ def log_post_mitigation_group_bias(cfg: t.Any) -> None:
             log_run_metrics=False,
             plot_all_groups=True,
             threshold_label="dual threshold",
-        )
-        if display_label is None or group_col not in scored.columns:
-            return
-        training_threshold = _classification_threshold(cfg)
-        pre_display = scored.copy()
-        pre_display[cfg.pred_col] = (
-            pd.to_numeric(pre_display[cfg.pred_prob_col], errors="coerce")
-            >= training_threshold
-        )
-        bias_detection.evaluate_bias(
-            pre_display,
-            student_group_cols=[group_col],
-            pos_label=pos_label,
-            split_col=split_col,
-            target_col=cfg.target_col,
-            pred_col=cfg.pred_col,
-            pred_prob_col=cfg.pred_prob_col,
-            sample_weight_col=sample_weight_col,
-            classification_threshold=training_threshold,
-            artifact_subdir=PRE_DISPLAY_ARTIFACT_SUBDIR,
-            log_run_metrics=False,
-            plot_all_groups=True,
         )
 
     if active is None:

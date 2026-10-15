@@ -40,7 +40,6 @@ _ADJUSTMENT_RESULTS_UNAVAILABLE = (
 )
 _POST_FLAGS_DIR = "bias_flags/post_mitigation"
 _POST_PLOTS_DIR = "fnr_plots/post_mitigation"
-_PRE_DISPLAY_PLOTS_DIR = "fnr_plots/pre_mitigation_display"
 _POST_FNR_RATES = f"{_POST_PLOTS_DIR}/fnr_rates.csv"
 _AGE_BIN = re.compile(r"^(\d+)\s*-\s*(\d+)$")
 _REFERENCE_OTHER = "other"
@@ -486,14 +485,12 @@ def _load_flag_descriptions(card, flags_dir, mitigation_col=None, display_label=
 
 
 def _post_group_order(card, mitigation, descriptions_by_group):
+    """Groups to chart after the adjustment, omitting the collapsed bucket column."""
     ordered = []
-    mitigation_col = getattr(mitigation, "student_group_col", None)
-    configured = []
-    if isinstance(mitigation_col, str) and mitigation_col.strip():
-        configured.append(mitigation_col.strip())
-    configured.extend(getattr(card.cfg, "student_group_cols", None) or [])
+    skip = mitigation_group_col(mitigation)
+    configured = getattr(card.cfg, "student_group_cols", None) or []
     for group in [*configured, *descriptions_by_group]:
-        if isinstance(group, str) and group and group not in ordered:
+        if isinstance(group, str) and group and group != skip and group not in ordered:
             ordered.append(group)
     return ordered
 
@@ -557,16 +554,14 @@ def register_bias_sections(card, registry):
             mitigation = configured_bias_mitigation(card)
             if mitigation is None:
                 return fn()
-            intro = (
-                f"{card.format.indent_level(1)}- Our assessment for FNR Parity was "
-                "conducted across the following student groups.\n"
-            )
-            note = f"{card.format.indent_level(1)}- {_pre_adjustment_note(card)}\n"
+            text = fn()
             col = mitigation_group_col(mitigation)
-            if col is None:
-                return intro + note
-            label = group_label_fn(col)
-            return intro + note + f"{card.format.indent_level(2)}- {label}\n"
+            if col:
+                bucket_line = f"{card.format.indent_level(2)}- {group_label_fn(col)}\n"
+                text = text.replace(bucket_line, "")
+            note = f"{card.format.indent_level(1)}- {_pre_adjustment_note(card)}\n"
+            intro, _, rest = text.partition("\n")
+            return f"{intro}\n{note}{rest}"
 
         registry._sections[index] = (key, _with_pre_mitigation_note)
         break
@@ -632,14 +627,11 @@ def register_bias_sections(card, registry):
 
             for _, row in df.iterrows():
                 group = row["group"]
-                if mitigation_col is not None and group != mitigation_col:
+                if mitigation_col is not None and group == mitigation_col:
                     continue
-                subgroups = row["subgroups"]
-                if display_label and group == mitigation_col:
-                    subgroups = relabel_comparison(subgroups, display_label)
                 desc = generate_description(
                     group,
-                    subgroups,
+                    row["subgroups"],
                     row["fnr_percentage_difference"],
                     row["type"],
                 )
@@ -657,34 +649,18 @@ def register_bias_sections(card, registry):
         label = resolve_student_group_label(card, group_name)
         normalized_name = group_name.lower().replace(" ", "_")
 
-        plot_md = None
-        if mitigation_col is not None and group_name == mitigation_col:
-            plot_md = _usable_plot(
-                utils.download_artifact(
-                    run_id=card.run_id,
-                    local_folder=card.assets_folder,
-                    artifact_path=(
-                        f"{_PRE_DISPLAY_PLOTS_DIR}/test_{normalized_name}_fnr.png"
-                    ),
-                    description=f"False Negative Parity Rate for {label} on Test Data",
-                    caption=f"FNR Parity for {label} on Test Data",
-                )
+        plot_artifact_path = f"fnr_plots/test_{normalized_name}_fnr.png"
+        try:
+            plot_md = utils.download_artifact(
+                run_id=card.run_id,
+                local_folder=card.assets_folder,
+                artifact_path=plot_artifact_path,
+                description=f"False Negative Parity Rate for {label} on Test Data",
+                caption=f"FNR Parity for {label} on Test Data",
             )
-        if plot_md is None:
-            plot_artifact_path = f"fnr_plots/test_{normalized_name}_fnr.png"
-            try:
-                plot_md = utils.download_artifact(
-                    run_id=card.run_id,
-                    local_folder=card.assets_folder,
-                    artifact_path=plot_artifact_path,
-                    description=f"False Negative Parity Rate for {label} on Test Data",
-                    caption=f"FNR Parity for {label} on Test Data",
-                )
-            except Exception as e:
-                LOGGER.warning(f"Could not load plot for {group_name}: {str(e)}")
-                plot_md = (
-                    f"{card.format.bold(f'Unable to retrieve plot for {label}')}\n"
-                )
+        except Exception as e:
+            LOGGER.warning(f"Could not load plot for {group_name}: {str(e)}")
+            plot_md = f"{card.format.bold(f'Unable to retrieve plot for {label}')}\n"
 
         header = f"{card.format.header_level(5)}{label}\n\n"
         text_block = "\n\n".join(descriptions)
