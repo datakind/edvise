@@ -1,5 +1,7 @@
 import os
 import logging
+import re
+
 import pandas as pd
 
 from .. import bias_sections as base_bias_sections
@@ -36,8 +38,10 @@ _PRE_MITIGATION_NOTE = (
 _METRICS_NOT_LOGGED = "Post-mitigation metrics were not logged."
 _POST_FLAGS_DIR = "bias_flags/post_mitigation"
 _POST_PLOTS_DIR = "fnr_plots/post_mitigation"
+_PRE_DISPLAY_PLOTS_DIR = "fnr_plots/pre_mitigation_display"
 _POST_FNR_RATES = f"{_POST_PLOTS_DIR}/fnr_rates.csv"
-_FNR_RATES_NOT_LOGGED = "Post-mitigation FNR rates were not logged for this group."
+_AGE_BIN = re.compile(r"^(\d+)\s*-\s*(\d+)$")
+_REFERENCE_OTHER = "other"
 _POST_GROUP_NOTE = (
     "{target} students are flagged at {group_threshold}. "
     "Everyone else is flagged at {default_threshold}."
@@ -95,6 +99,59 @@ def configured_bias_mitigation(card):
     if not bias_mitigation_is_configured(getattr(card, "cfg", None)):
         return None
     return card.cfg.modeling.bias_mitigation
+
+
+def mitigation_group_col(mitigation) -> str | None:
+    col = getattr(mitigation, "student_group_col", None)
+    if isinstance(col, str) and col.strip():
+        return col.strip()
+    return None
+
+
+def reference_age_display_label(target_group: str, age_bins) -> str | None:
+    """Name the complement of an age span, e.g. 18-24 with bins through 65-99 → 25-99.
+
+    The one-student fine age bin ``Other`` is not this complement and is ignored.
+    """
+    match = _AGE_BIN.fullmatch(str(target_group).strip())
+    if match is None:
+        return None
+    target_end = int(match.group(2))
+    latest = None
+    for raw in age_bins:
+        text = str(raw).strip()
+        if text.lower() == _REFERENCE_OTHER:
+            continue
+        bin_match = _AGE_BIN.fullmatch(text)
+        if bin_match is None:
+            continue
+        hi = int(bin_match.group(2))
+        if hi <= target_end:
+            continue
+        latest = hi if latest is None else max(latest, hi)
+    if latest is None:
+        return None
+    return f"{target_end + 1}-{latest}"
+
+
+def relabel_comparison(subgroups: str, display_label: str | None) -> str:
+    if not display_label:
+        return str(subgroups)
+    parts = [part.strip() for part in str(subgroups).split("vs")]
+    return " vs ".join(
+        display_label if part == _REFERENCE_OTHER else part for part in parts
+    )
+
+
+def apply_reference_age_label(df, group_col: str, target_group: str, age_bins):
+    """Display-only rename of the mitigation column's ``other`` bucket."""
+    label = reference_age_display_label(target_group, age_bins)
+    if label is None or group_col not in df.columns:
+        return df
+    out = df.copy()
+    values = out[group_col].astype("string").str.strip()
+    out[group_col] = values.mask(values.eq(_REFERENCE_OTHER), label)
+    return out
 
 
 def default_positive_threshold(card):
@@ -360,7 +417,25 @@ def _first_existing_artifact(card, artifact_paths):
     return None
 
 
-def _load_flag_descriptions(card, flags_dir):
+def _age_bins_from_rates(card) -> list[str]:
+    local_path = _first_existing_artifact(card, [_POST_FNR_RATES])
+    if local_path is None:
+        return []
+    try:
+        frame = pd.read_csv(local_path)
+    except Exception as exc:
+        LOGGER.warning(
+            "Could not read post-mitigation FNR rates: [%s] %s",
+            type(exc).__name__,
+            exc,
+        )
+        return []
+    if frame.empty or "subgroup" not in frame.columns:
+        return []
+    return [str(value) for value in frame["subgroup"].dropna().tolist()]
+
+
+def _load_flag_descriptions(card, flags_dir, mitigation_col=None, display_label=None):
     descriptions_by_group = {}
     for level in ("high", "moderate", "low"):
         local_path = _first_existing_artifact(
@@ -382,10 +457,14 @@ def _load_flag_descriptions(card, flags_dir):
             continue
         frame = frame[frame["split_name"] == "test"]
         for _, row in frame.iterrows():
-            descriptions_by_group.setdefault(row["group"], []).append(
+            group = row["group"]
+            subgroups = row["subgroups"]
+            if display_label and group == mitigation_col:
+                subgroups = relabel_comparison(subgroups, display_label)
+            descriptions_by_group.setdefault(group, []).append(
                 _describe_disparity(
                     card,
-                    row["subgroups"],
+                    subgroups,
                     row["fnr_percentage_difference"],
                     row["type"],
                 )
@@ -406,51 +485,20 @@ def _post_group_order(card, mitigation, descriptions_by_group):
     return ordered
 
 
-def _load_post_fnr_rates(card):
-    local_path = _first_existing_artifact(card, [_POST_FNR_RATES])
-    if local_path is None:
-        return {}
-    try:
-        frame = pd.read_csv(local_path)
-    except Exception as exc:
-        LOGGER.warning(
-            "Could not read post-mitigation FNR rates: [%s] %s",
-            type(exc).__name__,
-            exc,
-        )
-        return {}
-    if frame.empty or "group" not in frame.columns or "fnr" not in frame.columns:
-        return {}
-    if "split_name" in frame.columns:
-        frame = frame[frame["split_name"] == "test"]
-    rates_by_group = {}
-    for group, rows in frame.groupby("group", sort=False):
-        ordered = rows.copy()
-        ordered["_fnr"] = pd.to_numeric(ordered["fnr"], errors="coerce")
-        ordered = ordered.dropna(subset=["_fnr"]).sort_values("_fnr", ascending=False)
-        rates_by_group[group] = [
-            (row["subgroup"], float(row["_fnr"])) for _, row in ordered.iterrows()
-        ]
-    return rates_by_group
-
-
-def _format_fnr_rates(card, rates):
-    lines = []
-    for subgroup, fnr in rates:
-        lines.append(
-            f"- {card.format.bold(str(subgroup))} FNR: {card.format.bold(_format_rate(fnr))}"
-        )
-    return "\n".join(lines)
-
-
 def render_post_mitigation_disparities(card, mitigation):
-    """Per-group FNR after the dual threshold, including groups with no flag."""
-    descriptions_by_group = _load_flag_descriptions(card, _POST_FLAGS_DIR)
-    rates_by_group = _load_post_fnr_rates(card)
+    """Plots for every group after the dual threshold, with a disparity sentence only when flagged."""
+    mitigation_col = mitigation_group_col(mitigation)
+    display_label = reference_age_display_label(
+        str(mitigation.student_group), _age_bins_from_rates(card)
+    )
+    descriptions_by_group = _load_flag_descriptions(
+        card,
+        _POST_FLAGS_DIR,
+        mitigation_col=mitigation_col,
+        display_label=display_label,
+    )
     blocks = []
-    for group in _post_group_order(
-        card, mitigation, {**descriptions_by_group, **rates_by_group}
-    ):
+    for group in _post_group_order(card, mitigation, descriptions_by_group):
         label = resolve_student_group_label(card, group)
         normalized_name = group.lower().replace(" ", "_")
         plot_md = _usable_plot(
@@ -463,19 +511,15 @@ def render_post_mitigation_disparities(card, mitigation):
             )
         )
         descriptions = descriptions_by_group.get(group, [])
-        rates = rates_by_group.get(group, [])
-        if not descriptions and not rates and plot_md is None:
+        if not descriptions and plot_md is None:
             continue
-        parts = []
-        if rates:
-            parts.append(_format_fnr_rates(card, rates))
-        elif not descriptions:
-            parts.append(_FNR_RATES_NOT_LOGGED)
-        if descriptions:
-            parts.append("\n\n".join(descriptions))
         header = f"{card.format.header_level(5)}{label}\n\n"
+        text = "\n\n".join(descriptions)
         plot_text = f"\n\n{plot_md}" if plot_md else ""
-        blocks.append(header + "\n\n".join(parts) + plot_text)
+        if text:
+            blocks.append(header + text + plot_text)
+        else:
+            blocks.append(header + (plot_md or ""))
     if not blocks:
         return ""
     target = str(mitigation.student_group).strip()
@@ -503,16 +547,32 @@ def register_bias_sections(card, registry):
             continue
 
         def _with_pre_mitigation_note(fn=fn):
-            text = fn()
-            if configured_bias_mitigation(card) is None:
-                return text
+            mitigation = configured_bias_mitigation(card)
+            if mitigation is None:
+                return fn()
+            intro = (
+                f"{card.format.indent_level(1)}- Our assessment for FNR Parity was "
+                "conducted across the following student groups.\n"
+            )
             note = f"{card.format.indent_level(1)}- {_PRE_MITIGATION_NOTE}\n"
-            intro, _, rest = text.partition("\n")
-            return f"{intro}\n{note}{rest}"
+            col = mitigation_group_col(mitigation)
+            if col is None:
+                return intro + note
+            label = group_label_fn(col)
+            return intro + note + f"{card.format.indent_level(2)}- {label}\n"
 
         registry._sections[index] = (key, _with_pre_mitigation_note)
         break
 
+    mitigation = configured_bias_mitigation(card)
+    mitigation_col = mitigation_group_col(mitigation) if mitigation else None
+    display_label = (
+        reference_age_display_label(
+            str(mitigation.student_group), _age_bins_from_rates(card)
+        )
+        if mitigation is not None
+        else None
+    )
     bias_levels = ["high", "moderate", "low"]
     group_disparities = {}
 
@@ -565,9 +625,14 @@ def register_bias_sections(card, registry):
 
             for _, row in df.iterrows():
                 group = row["group"]
+                if mitigation_col is not None and group != mitigation_col:
+                    continue
+                subgroups = row["subgroups"]
+                if display_label and group == mitigation_col:
+                    subgroups = relabel_comparison(subgroups, display_label)
                 desc = generate_description(
                     group,
-                    row["subgroups"],
+                    subgroups,
                     row["fnr_percentage_difference"],
                     row["type"],
                 )
@@ -585,19 +650,34 @@ def register_bias_sections(card, registry):
         label = resolve_student_group_label(card, group_name)
         normalized_name = group_name.lower().replace(" ", "_")
 
-        plot_artifact_path = f"fnr_plots/test_{normalized_name}_fnr.png"
-
-        try:
-            plot_md = utils.download_artifact(
-                run_id=card.run_id,
-                local_folder=card.assets_folder,
-                artifact_path=plot_artifact_path,
-                description=f"False Negative Parity Rate for {label} on Test Data",
-                caption=f"FNR Parity for {label} on Test Data",
+        plot_md = None
+        if mitigation_col is not None and group_name == mitigation_col:
+            plot_md = _usable_plot(
+                utils.download_artifact(
+                    run_id=card.run_id,
+                    local_folder=card.assets_folder,
+                    artifact_path=(
+                        f"{_PRE_DISPLAY_PLOTS_DIR}/test_{normalized_name}_fnr.png"
+                    ),
+                    description=f"False Negative Parity Rate for {label} on Test Data",
+                    caption=f"FNR Parity for {label} on Test Data",
+                )
             )
-        except Exception as e:
-            LOGGER.warning(f"Could not load plot for {group_name}: {str(e)}")
-            plot_md = f"{card.format.bold(f'Unable to retrieve plot for {label}')}\n"
+        if plot_md is None:
+            plot_artifact_path = f"fnr_plots/test_{normalized_name}_fnr.png"
+            try:
+                plot_md = utils.download_artifact(
+                    run_id=card.run_id,
+                    local_folder=card.assets_folder,
+                    artifact_path=plot_artifact_path,
+                    description=f"False Negative Parity Rate for {label} on Test Data",
+                    caption=f"FNR Parity for {label} on Test Data",
+                )
+            except Exception as e:
+                LOGGER.warning(f"Could not load plot for {group_name}: {str(e)}")
+                plot_md = (
+                    f"{card.format.bold(f'Unable to retrieve plot for {label}')}\n"
+                )
 
         header = f"{card.format.header_level(5)}{label}\n\n"
         text_block = "\n\n".join(descriptions)

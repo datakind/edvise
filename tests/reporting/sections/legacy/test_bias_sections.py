@@ -271,8 +271,9 @@ def test_bias_summary_with_mitigation_config_only_when_metrics_missing(
     summary = _render_legacy_bias(mock_card)["bias_summary_section"]
 
     assert "####Pre-Mitigation Disparities by Student Group" in summary
-    assert "Gender" in summary
-    assert "12% difference" in summary
+    assert "No statistically significant disparities were found" in summary
+    assert "#####Gender" not in summary
+    assert "12% difference" not in summary
     assert "####Post-Mitigation Dual Threshold" in summary
     assert "**Pell Status** (`pell_flag`)" in summary
     assert "**recipient**" in summary
@@ -447,7 +448,14 @@ def test_bias_summary_shows_post_mitigation_group_plots(mock_card, tmp_path):
                 "subgroups": "Female vs Male",
                 "fnr_percentage_difference": 0.12,
                 "type": "a significant difference",
-            }
+            },
+            {
+                "group": "age_bias_group",
+                "split_name": "test",
+                "subgroups": "other vs 18-24",
+                "fnr_percentage_difference": 0.06,
+                "type": "overlapping confidence intervals with a p-value of 0.027",
+            },
         ]
     ).to_csv(post_flags, index=False)
     age_plot = (
@@ -490,6 +498,18 @@ def test_bias_summary_shows_post_mitigation_group_plots(mock_card, tmp_path):
                 "split_name": "test",
                 "fnr": 0.195,
             },
+            {
+                "group": "age_group",
+                "subgroup": "65-99",
+                "split_name": "test",
+                "fnr": 0.098,
+            },
+            {
+                "group": "age_group",
+                "subgroup": "Other",
+                "split_name": "test",
+                "fnr": 0.0,
+            },
         ]
     ).to_csv(rates, index=False)
 
@@ -512,18 +532,40 @@ def test_bias_summary_shows_post_mitigation_group_plots(mock_card, tmp_path):
         "18-24 students are flagged at 0.3. Everyone else is flagged at 0.5." in summary
     )
     assert "#####Age Bias Group" in summary
-    assert "**other** FNR: **21.6%**" in summary
-    assert "**18-24** FNR: **20.7%**" in summary
+    assert "**_25-99_**" in summary
+    assert "other" not in summary.lower()
+    assert "**_Other_**" not in summary
+    assert "FNR:" not in summary
     assert (
         "No statistically significant disparity was found for this group after the dual threshold."
         not in summary
     )
     assert str(age_plot) in summary
     assert "#####Gender" in summary
-    assert "**Male** FNR: **23.0%**" in summary
-    assert "**Female** FNR: **19.5%**" in summary
-    assert "**99.0%**" not in summary
+    assert "6% difference" in summary
     assert "12% difference" in summary
     assert str(gender_plot) in summary
     assert "ethnicity" not in summary.lower()
     assert "Post-mitigation metrics were not logged." in summary
+
+
+def test_reference_age_display_label_uses_latest_bin_and_keeps_fine_other():
+    label = legacy_bias_sections.reference_age_display_label(
+        "18-24", ["18-19", "22-24", "65-99", "Other", "other"]
+    )
+    assert label == "25-99"
+    assert (
+        legacy_bias_sections.reference_age_display_label("freshmen", ["65-99"]) is None
+    )
+
+    frame = pd.DataFrame(
+        {
+            "age_bias_group": ["18-24", "other"],
+            "age_group": ["20-21", "Other"],
+        }
+    )
+    labeled = legacy_bias_sections.apply_reference_age_label(
+        frame, "age_bias_group", "18-24", ["20-21", "65-99", "Other"]
+    )
+    assert labeled["age_bias_group"].tolist() == ["18-24", "25-99"]
+    assert labeled["age_group"].tolist() == ["20-21", "Other"]
