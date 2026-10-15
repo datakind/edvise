@@ -31,11 +31,12 @@ _ARTIFACT_COLUMNS = {
     "reference_fnr": "bias_mitigation_reference_fnr",
     "fnr_abs_gap": "bias_mitigation_fnr_abs_gap",
 }
-_PRE_MITIGATION_NOTE = (
-    "This is the pre-mitigation training audit at the default threshold, "
-    "using one threshold for every student."
+_PRE_ADJUSTMENT_NOTE = (
+    "These results use one threshold ({default_threshold}) for all students."
 )
-_METRICS_NOT_LOGGED = "Post-mitigation metrics were not logged."
+_ADJUSTMENT_RESULTS_UNAVAILABLE = (
+    "Results after the fairness adjustment are not available for this model."
+)
 _POST_FLAGS_DIR = "bias_flags/post_mitigation"
 _POST_PLOTS_DIR = "fnr_plots/post_mitigation"
 _PRE_DISPLAY_PLOTS_DIR = "fnr_plots/pre_mitigation_display"
@@ -43,9 +44,10 @@ _POST_FNR_RATES = f"{_POST_PLOTS_DIR}/fnr_rates.csv"
 _AGE_BIN = re.compile(r"^(\d+)\s*-\s*(\d+)$")
 _REFERENCE_OTHER = "other"
 _POST_GROUP_NOTE = (
-    "{target} students are flagged at {group_threshold}. "
-    "Everyone else is flagged at {default_threshold}."
+    "Students in {target} are identified at a threshold of {group_threshold}. "
+    "{reference} use {default_threshold}."
 )
+_ALL_OTHER_STUDENTS = "all other students"
 _SUPPORT_LABEL_NOTE = "Advisors see this dual-threshold decision via Support Label when the pipeline writes one."
 
 
@@ -165,17 +167,25 @@ def default_positive_threshold(card):
     return value
 
 
-def group_column_phrase(card, mitigation):
-    """Group column plus a display alias when one is configured."""
+def group_column_label(card, mitigation):
+    """Reader-facing name of the group column: the configured alias, else a friendly name."""
     col = getattr(mitigation, "student_group_col", None)
     if not isinstance(col, str) or not col.strip():
         col = _DEFAULT_GROUP_COL
     else:
         col = col.strip()
-    alias = _group_column_alias(card, mitigation, col)
-    if alias:
-        return f"{card.format.bold(alias)} (`{col}`)"
-    return f"`{col}`"
+    return _group_column_alias(card, mitigation, col) or card.format.friendly_case(col)
+
+
+def reference_students_phrase(display_label):
+    """Name the students outside the adjusted group, using the age span when known."""
+    if display_label:
+        return f"students in {display_label}"
+    return _ALL_OTHER_STUDENTS
+
+
+def _sentence_case(text):
+    return text[:1].upper() + text[1:]
 
 
 def _group_column_alias(card, mitigation, col):
@@ -227,6 +237,12 @@ def logged_bias_mitigation_values(card):
             continue
         found[key] = number
     return found
+
+
+def _pre_adjustment_note(card):
+    return _PRE_ADJUSTMENT_NOTE.format(
+        default_threshold=_format_threshold(default_positive_threshold(card))
+    )
 
 
 def _as_bool(value):
@@ -318,55 +334,59 @@ def artifact_bias_mitigation_values(card, mitigation):
     return found
 
 
-def render_post_mitigation_section(card, mitigation):
-    """Document the configured dual-threshold rule and any logged FNR comparison."""
+def render_post_mitigation_section(card, mitigation, display_label=None):
+    """Explain the group-specific threshold and any logged FNR comparison."""
     target_group = str(mitigation.student_group).strip()
     target_threshold = float(mitigation.custom_threshold)
     default_threshold = default_positive_threshold(card)
+    reference = reference_students_phrase(display_label)
     logged = logged_bias_mitigation_values(card)
     if not all(key in logged for key in _FNR_COMPARISON_KEYS):
         for key, value in artifact_bias_mitigation_values(card, mitigation).items():
             logged.setdefault(key, value)
 
+    bold = card.format.bold
+    group_label = group_column_label(card, mitigation)
     lines = [
-        f"{card.format.header_level(4)}Post-Mitigation Dual Threshold\n",
+        f"{card.format.header_level(4)}Fairness Adjustment\n",
         (
-            "Advisor output applies a dual threshold after training. "
-            "Support scores stay the same.\n"
+            "This model uses a group-specific threshold so that underprediction is "
+            f"more even across the groups within {group_label}. "
+            "Every student gets the same Support Score. What differs is the score at "
+            "which a student is identified as likely to need support: "
+            f"{bold(_format_threshold(target_threshold))} for students in "
+            f"{bold(target_group)} and {bold(_format_threshold(default_threshold))} "
+            f"for {reference}.\n"
         ),
-        f"- Group column: {group_column_phrase(card, mitigation)}",
-        f"- Target group: {card.format.bold(target_group)}",
-        f"- Target threshold: {card.format.bold(_format_threshold(target_threshold))}",
-        (
-            "- Default threshold: "
-            f"{card.format.bold(_format_threshold(default_threshold))}"
-        ),
+        f"- Student group: {bold(group_label)}",
+        f"- Students with their own threshold: {bold(target_group)}",
+        f"- Threshold for these students: {bold(_format_threshold(target_threshold))}",
+        (f"- Threshold for {reference}: {bold(_format_threshold(default_threshold))}"),
         "",
     ]
 
     if all(key in logged for key in _FNR_COMPARISON_KEYS):
+        gap_points = f"{logged['bias_mitigation_fnr_abs_gap'] * 100:.1f}"
         lines.append(
-            "Post-mitigation FNR comparison for the target group versus everyone else:\n"
-        )
-        if "bias_mitigation_custom_threshold" in logged:
-            lines.append(
-                "- Logged target threshold: "
-                f"{card.format.bold(_format_threshold(logged['bias_mitigation_custom_threshold']))}"
-            )
-        lines.append(
-            "- Target group FNR: "
-            f"{card.format.bold(_format_rate(logged['bias_mitigation_group_fnr']))}"
-        )
-        lines.append(
-            "- Everyone else FNR: "
-            f"{card.format.bold(_format_rate(logged['bias_mitigation_reference_fnr']))}"
-        )
-        lines.append(
-            "- Absolute FNR gap: "
-            f"{card.format.bold(_format_rate(logged['bias_mitigation_fnr_abs_gap']))}"
+            f"{bold('Effect on results.')} After the adjustment, the model "
+            f"underpredicts for {bold(_format_rate(logged['bias_mitigation_group_fnr']))} "
+            f"of {target_group} students who need support, compared with "
+            f"{bold(_format_rate(logged['bias_mitigation_reference_fnr']))} of "
+            f"{reference}, a gap of {bold(gap_points + ' percentage points')}."
         )
     else:
-        lines.append(_METRICS_NOT_LOGGED)
+        lines.append(card.format.italic(_ADJUSTMENT_RESULTS_UNAVAILABLE))
+
+    if target_threshold < default_threshold:
+        lines.extend(
+            [
+                "",
+                f"{bold('Tradeoff.')} A lower threshold reduces underprediction for "
+                "this group but can increase overprediction: some "
+                f"{target_group} students will be identified as likely to need "
+                "support who ultimately do not.",
+            ]
+        )
 
     lines.extend(["", _SUPPORT_LABEL_NOTE])
     return "\n".join(lines)
@@ -486,7 +506,7 @@ def _post_group_order(card, mitigation, descriptions_by_group):
 
 
 def render_post_mitigation_disparities(card, mitigation):
-    """Plots for every group after the dual threshold, with a disparity sentence only when flagged."""
+    """Plots for every group after the fairness adjustment, with a disparity sentence only when flagged."""
     mitigation_col = mitigation_group_col(mitigation)
     display_label = reference_age_display_label(
         str(mitigation.student_group), _age_bins_from_rates(card)
@@ -506,8 +526,8 @@ def render_post_mitigation_disparities(card, mitigation):
                 run_id=card.run_id,
                 local_folder=card.assets_folder,
                 artifact_path=f"{_POST_PLOTS_DIR}/test_{normalized_name}_fnr.png",
-                description=f"False Negative Parity Rate for {label} after the dual threshold",
-                caption=f"FNR Parity for {label} after the dual threshold",
+                description=f"False Negative Parity Rate for {label} after the fairness adjustment",
+                caption=f"FNR Parity for {label} after the fairness adjustment",
             )
         )
         descriptions = descriptions_by_group.get(group, [])
@@ -526,10 +546,11 @@ def render_post_mitigation_disparities(card, mitigation):
     note = _POST_GROUP_NOTE.format(
         target=target,
         group_threshold=_format_threshold(mitigation.custom_threshold),
+        reference=_sentence_case(reference_students_phrase(display_label)),
         default_threshold=_format_threshold(default_positive_threshold(card)),
     )
     return (
-        f"\n{card.format.header_level(4)}Post-Mitigation Disparities by Student Group\n\n"
+        f"\n{card.format.header_level(4)}Disparities After the Fairness Adjustment\n\n"
         f"{note}\n\n" + "\n\n".join(blocks)
     )
 
@@ -554,7 +575,7 @@ def register_bias_sections(card, registry):
                 f"{card.format.indent_level(1)}- Our assessment for FNR Parity was "
                 "conducted across the following student groups.\n"
             )
-            note = f"{card.format.indent_level(1)}- {_PRE_MITIGATION_NOTE}\n"
+            note = f"{card.format.indent_level(1)}- {_pre_adjustment_note(card)}\n"
             col = mitigation_group_col(mitigation)
             if col is None:
                 return intro + note
@@ -703,8 +724,8 @@ def register_bias_sections(card, registry):
                 "Documenting the configured dual-threshold rule without a pre-mitigation disparity list."
             )
             pre_mitigation = (
-                f"\n{card.format.header_level(4)}Pre-Mitigation Disparities by Student Group\n\n"
-                f"{_PRE_MITIGATION_NOTE}\n\n"
+                f"\n{card.format.header_level(4)}Disparities Before the Fairness Adjustment\n\n"
+                f"{_pre_adjustment_note(card)}\n\n"
                 f"{no_disparities}"
             )
             return (
@@ -712,7 +733,7 @@ def register_bias_sections(card, registry):
                 + "\n\n"
                 + render_post_mitigation_disparities(card, mitigation)
                 + "\n\n"
-                + render_post_mitigation_section(card, mitigation)
+                + render_post_mitigation_section(card, mitigation, display_label)
             )
 
         if mitigation is None:
@@ -722,8 +743,8 @@ def register_bias_sections(card, registry):
             return section_header + "\n\n".join(all_blocks)
 
         section_header = (
-            f"\n{card.format.header_level(4)}Pre-Mitigation Disparities by Student Group\n\n"
-            f"{_PRE_MITIGATION_NOTE}\n\n"
+            f"\n{card.format.header_level(4)}Disparities Before the Fairness Adjustment\n\n"
+            f"{_pre_adjustment_note(card)}\n\n"
         )
         return (
             section_header
@@ -731,5 +752,5 @@ def register_bias_sections(card, registry):
             + "\n\n"
             + render_post_mitigation_disparities(card, mitigation)
             + "\n\n"
-            + render_post_mitigation_section(card, mitigation)
+            + render_post_mitigation_section(card, mitigation, display_label)
         )

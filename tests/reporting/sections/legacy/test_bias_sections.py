@@ -61,7 +61,7 @@ def test_bias_groups_section_with_valid_aliases(mock_groups, mock_card, registry
     assert "- Gender" in result
     assert "- Ethnicity" in result
     assert "- Race" in result
-    assert "pre-mitigation" not in result
+    assert "one threshold" not in result
     assert "Support Label" not in result
     mock_groups.assert_called_with(mock_card.run_id)
 
@@ -158,10 +158,9 @@ def test_bias_summary_section_uses_aliases(mock_download_artifact, mock_card, tm
     assert "First-Generation" in result
     assert "12% difference" in result
     assert "####Disparities by Student Group" in result
-    assert "Pre-Mitigation" not in result
-    assert "Post-Mitigation" not in result
+    assert "Fairness Adjustment" not in result
     assert "Support Label" not in result
-    assert "Post-mitigation metrics were not logged." not in result
+    assert "are not available for this model" not in result
 
 
 def _attach_bias_flags(mock_card, tmp_path, group):
@@ -220,27 +219,28 @@ def test_bias_summary_with_mitigation_includes_logged_fnr(
     summary = rendered["bias_summary_section"]
     groups = rendered["bias_groups_section"]
 
-    assert "####Pre-Mitigation Disparities by Student Group" in summary
-    assert "pre-mitigation training audit at the default threshold" in summary
+    assert "####Disparities Before the Fairness Adjustment" in summary
+    assert "These results use one threshold (0.5) for all students." in summary
     assert "####Disparities by Student Group" not in summary
     assert "Age Group" in summary
     assert "12% difference" in summary
-    assert "####Post-Mitigation Dual Threshold" in summary
-    assert "**Age Group** (`agegroup`)" in summary
-    assert "**25 and over**" in summary
-    assert "**0.35**" in summary
-    assert "**0.5**" in summary
-    assert "Support scores stay the same." in summary
-    assert "target group versus everyone else" in summary
-    assert "**12.0%**" in summary
-    assert "**20.0%**" in summary
-    assert "**8.0%**" in summary
-    assert "Post-mitigation metrics were not logged." not in summary
+    assert "####Fairness Adjustment" in summary
+    assert "- Student group: **Age Group**" in summary
+    assert "`agegroup`" not in summary
+    assert "- Students with their own threshold: **25 and over**" in summary
+    assert "- Threshold for these students: **0.35**" in summary
+    assert "- Threshold for all other students: **0.5**" in summary
+    assert "Every student gets the same Support Score." in summary
+    assert "underpredicts for **12.0%** of 25 and over students" in summary
+    assert "compared with **20.0%** of all other students" in summary
+    assert "a gap of **8.0 percentage points**" in summary
+    assert "**Tradeoff.**" in summary
+    assert "are not available for this model" not in summary
     assert (
         "Advisors see this dual-threshold decision via Support Label when the pipeline writes one."
         in summary
     )
-    assert "pre-mitigation training audit at the default threshold" in groups
+    assert "These results use one threshold (0.5) for all students." in groups
     mock_card.client.get_run.assert_called_once_with("run123")
 
 
@@ -270,17 +270,18 @@ def test_bias_summary_with_mitigation_config_only_when_metrics_missing(
 
     summary = _render_legacy_bias(mock_card)["bias_summary_section"]
 
-    assert "####Pre-Mitigation Disparities by Student Group" in summary
+    assert "####Disparities Before the Fairness Adjustment" in summary
     assert "No statistically significant disparities were found" in summary
     assert "#####Gender" not in summary
     assert "12% difference" not in summary
-    assert "####Post-Mitigation Dual Threshold" in summary
-    assert "**Pell Status** (`pell_flag`)" in summary
+    assert "####Fairness Adjustment" in summary
+    assert "- Student group: **Pell Status**" in summary
+    assert "`pell_flag`" not in summary
     assert "**recipient**" in summary
     assert "**0.4**" in summary
     assert "**0.5**" in summary
-    assert "Post-mitigation metrics were not logged." in summary
-    assert "Target group FNR" not in summary
+    assert "Results after the fairness adjustment are not available" in summary
+    assert "Effect on results" not in summary
     assert (
         "Advisors see this dual-threshold decision via Support Label when the pipeline writes one."
         in summary
@@ -312,8 +313,8 @@ def test_bias_summary_documents_rule_when_mlflow_read_fails(
     assert "**freshmen**" in summary
     assert "**0.45**" in summary
     assert "**0.5**" in summary
-    assert "**Student Group** (`student_group`)" in summary
-    assert "Post-mitigation metrics were not logged." in summary
+    assert "- Student group: **Student Group**" in summary
+    assert "Results after the fairness adjustment are not available" in summary
     assert "12% difference" in summary
 
 
@@ -365,8 +366,8 @@ def test_bias_summary_reads_fnr_from_threshold_artifact(
     assert "**0.3**" in summary
     assert "**20.7%**" in summary
     assert "**21.6%**" in summary
-    assert "**0.9%**" in summary
-    assert "Post-mitigation metrics were not logged." not in summary
+    assert "**0.9 percentage points**" in summary
+    assert "are not available for this model" not in summary
     mock_list_paths.assert_any_call("run123", "bias_mitigation")
 
 
@@ -393,12 +394,12 @@ def test_group_column_omits_generic_alias_for_custom_column(
 
     summary = _render_legacy_bias(mock_card)["bias_summary_section"]
 
-    assert "`agegroup`" in summary
+    assert "- Student group: **Agegroup**" in summary
     assert "**Student Group**" not in summary
     assert "**0.55**" in summary
     assert "**0.3**" in summary
-    assert "Post-mitigation metrics were not logged." in summary
-    assert "Post-Mitigation Disparities by Student Group" not in summary
+    assert "Results after the fairness adjustment are not available" in summary
+    assert "Disparities After the Fairness Adjustment" not in summary
 
 
 def test_bias_summary_shows_post_mitigation_group_plots(mock_card, tmp_path):
@@ -525,11 +526,12 @@ def test_bias_summary_shows_post_mitigation_group_plots(mock_card, tmp_path):
     ):
         summary = _render_legacy_bias(mock_card)["bias_summary_section"]
 
-    assert "Pre-Mitigation Disparities by Student Group" in summary
+    assert "Disparities Before the Fairness Adjustment" in summary
     assert "20% difference" in summary
-    assert "Post-Mitigation Disparities by Student Group" in summary
+    assert "Disparities After the Fairness Adjustment" in summary
     assert (
-        "18-24 students are flagged at 0.3. Everyone else is flagged at 0.5." in summary
+        "Students in 18-24 are identified at a threshold of 0.3. "
+        "Students in 25-99 use 0.5." in summary
     )
     assert "#####Age Bias Group" in summary
     assert "**_25-99_**" in summary
@@ -537,7 +539,7 @@ def test_bias_summary_shows_post_mitigation_group_plots(mock_card, tmp_path):
     assert "**_Other_**" not in summary
     assert "FNR:" not in summary
     assert (
-        "No statistically significant disparity was found for this group after the dual threshold."
+        "No statistically significant disparity was found for this group after the fairness adjustment."
         not in summary
     )
     assert str(age_plot) in summary
@@ -546,7 +548,7 @@ def test_bias_summary_shows_post_mitigation_group_plots(mock_card, tmp_path):
     assert "12% difference" in summary
     assert str(gender_plot) in summary
     assert "ethnicity" not in summary.lower()
-    assert "Post-mitigation metrics were not logged." in summary
+    assert "Results after the fairness adjustment are not available" in summary
 
 
 def test_reference_age_display_label_uses_latest_bin_and_keeps_fine_other():
