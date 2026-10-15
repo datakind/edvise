@@ -3,6 +3,8 @@ import logging
 import os
 import sys
 
+import pandas as pd
+
 # Go up 3 levels from the current file's directory to reach repo root
 script_dir = os.getcwd()
 repo_root = os.path.abspath(os.path.join(script_dir, "..", "..", ".."))
@@ -105,7 +107,7 @@ class InferencePrepTask:
         )
 
         student_id_col = self.cfg.student_id_col
-        selected_ids = selected_students.index.to_series(name=student_id_col)
+        selected_ids = pd.Series(selected_students.index, name=student_id_col)
         total_selected = selected_ids.shape[0]
         df_labeled = checkpoint_df.merge(selected_ids, how="inner", on=student_id_col)
         n_checkpoint_ok = df_labeled[student_id_col].nunique()
