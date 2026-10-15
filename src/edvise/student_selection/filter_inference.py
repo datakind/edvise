@@ -4,7 +4,10 @@ import typing as t
 
 import pandas as pd
 
-from edvise.feature_generation.constants import DEFAULT_SEASON_ORDER_MAP
+from edvise.feature_generation.constants import (
+    DEFAULT_CORE_TERMS,
+    DEFAULT_SEASON_ORDER_MAP,
+)
 from edvise.shared.utils import cohort_pair_columns
 from edvise.utils.data_cleaning import convert_intensity_time_limits
 from edvise.utils.types import IntensityTimeLimitsType
@@ -12,14 +15,6 @@ from edvise.utils.types import IntensityTimeLimitsType
 _ACADEMIC_TERM_COLS = ("academic_term", "academic_year")
 _TERM_INTENSITY_COL = "student_term_enrollment_intensity"
 _FIRST_TERM_INTENSITY_COL = "enrollment_intensity_first_term"
-
-# Seasons that count in one academic year. Sequence comes from calendar year
-# plus DEFAULT_SEASON_ORDER_MAP: spring 2024-25 is Spring 2025, before Fall 2025.
-_SEASONS_FOR_TERMS = {
-    2: ("fall", "spring"),
-    3: ("fall", "winter", "spring"),
-    4: ("fall", "winter", "spring", "summer"),
-}
 
 
 def parse_term_filter_param(value: t.Optional[str]) -> t.Optional[list[str]]:
@@ -326,14 +321,24 @@ def _calendar_year(season: str, academic_year_start: int) -> int:
 
 
 def _season_position(num_terms_in_year: int) -> dict[str, int]:
-    seasons = _SEASONS_FOR_TERMS.get(num_terms_in_year, _SEASONS_FOR_TERMS[4])
+    """0-based rank of each season inside one academic year.
+
+    ``DEFAULT_SEASON_ORDER_MAP`` numbers a calendar year from spring. Pairing it
+    with calendar year puts spring 2024-25 (Spring 2025) before fall 2025-26.
+    Two-term years keep the core terms. Three-term years drop the trailing summer.
+    """
     ordered = sorted(
-        seasons,
+        DEFAULT_SEASON_ORDER_MAP,
         key=lambda season: (
             _calendar_year(season, 0),
             DEFAULT_SEASON_ORDER_MAP[season],
         ),
     )
+    if num_terms_in_year == 2:
+        core = {term.lower() for term in DEFAULT_CORE_TERMS}
+        ordered = [season for season in ordered if season in core]
+    elif num_terms_in_year == 3:
+        ordered = ordered[:3]
     return {season: index for index, season in enumerate(ordered)}
 
 
