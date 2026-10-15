@@ -62,3 +62,19 @@ def test_register_bias_sections_no_data(mock_download, mock_card):
         "No statistically significant disparities were found"
         in rendered["bias_summary_section"]
     )
+
+
+@patch(
+    "edvise.reporting.sections.bias_sections.utils.get_assessed_bias_group_cols",
+    return_value=["gender", "student_age"],
+)
+def test_bias_groups_section_lists_assessed_groups(mock_groups, mock_card):
+    registry = SectionRegistry()
+    register_bias_sections(mock_card, registry)
+    rendered = registry.render_all()
+
+    result = rendered["bias_groups_section"]
+    assert "Gender" in result
+    assert "Student Age" in result
+    assert "following student groups" in result
+    mock_groups.assert_called_once_with("123")

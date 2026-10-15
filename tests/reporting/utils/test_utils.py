@@ -63,6 +63,32 @@ def test_list_paths_in_directory_failure_returns_empty(mock_list):
     assert result == []
 
 
+def test_assessed_bias_groups_from_artifact_paths():
+    paths = [
+        "group_metrics/bias_test_gender_metrics.csv",
+        "group_metrics/perf_test_gender_metrics.csv",
+        "group_metrics/bias_test_disability_status_metrics.csv",
+        "group_metrics/bias_train_race_metrics.csv",
+        "group_metrics/bias_test_gender_metrics.csv",  # duplicate
+    ]
+    assert utils.assessed_bias_groups_from_artifact_paths(paths) == [
+        "gender",
+        "disability_status",
+    ]
+
+
+@patch(
+    "edvise.reporting.utils.utils.list_paths_in_directory",
+    return_value=[
+        "group_metrics/bias_test_race_metrics.csv",
+        "group_metrics/perf_test_race_metrics.csv",
+    ],
+)
+def test_get_assessed_bias_group_cols(mock_list):
+    assert utils.get_assessed_bias_group_cols("run123") == ["race"]
+    mock_list.assert_called_once_with(run_id="run123", directory="group_metrics")
+
+
 @patch("edvise.reporting.utils.utils.MlflowClient")
 def test_safe_count_runs_success(mock_mlflow_client):
     run_page_1 = [MagicMock(), MagicMock()]

@@ -46,13 +46,23 @@ def register_attribute_sections(card, registry):
                 )
             description = f"This model predicts the likelihood of {outcome} based on student, course, and academic data."
         else:
-            limits = card.cfg.preprocessing.selection.intensity_time_limits
+            # Selection limits are optional; graduation/credits_earned require
+            # target.intensity_time_limits, so fall back when selection omits them.
+            limits = card.cfg.preprocessing.selection.intensity_time_limits or getattr(
+                card.cfg.preprocessing.target, "intensity_time_limits", None
+            )
 
             if outcome_type == "graduation":
                 outcome = "not graduating on time"
             elif outcome_type == "credits_earned":
                 credit_thresh = card.cfg.preprocessing.target.min_num_credits
                 outcome = f"not earning {credit_thresh} credits"
+
+            if not limits:
+                LOGGER.warning(
+                    "Unable to determine timeframe of outcome for students. Please specify in model card or in config.toml."
+                )
+                return f"{card.format.bold('Timeframe for Outcome Variable Not Found')}"
 
             normalized_limits = {
                 k.strip().upper().replace(" ", "-"): v for k, v in limits.items()

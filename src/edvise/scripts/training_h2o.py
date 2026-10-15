@@ -31,6 +31,7 @@ from edvise import configs, modeling, dataio
 from edvise.shared.schema_type import project_config_class
 from edvise.modeling.h2o_ml import utils as h2o_utils
 from edvise.reporting.model_card.base import ModelCard
+from edvise.reporting.model_card.h2o_es import H2OESModelCard
 from edvise.reporting.model_card.h2o_pdp import H2OPDPModelCard
 from edvise.reporting.model_card.h2o_legacy import H2OLegacyModelCard
 
@@ -84,7 +85,7 @@ def resolve_spec(args: argparse.Namespace) -> SchemaSpec:
         return SchemaSpec(
             schema_type="edvise",
             cfg_schema=configs.es.ESProjectConfig,
-            model_card_cls=H2OPDPModelCard,
+            model_card_cls=H2OESModelCard,
             features_table_path="shared/assets/features_table.toml",
         )
 
@@ -460,20 +461,12 @@ class TrainingTask:
         return experiment_id
 
     def evaluate_models(self, df_modeling: pd.DataFrame, experiment_id: str) -> None:
-        # Bias groups = configured student_group_cols (ES also protects the full
-        # DEFAULT_ES_STUDENT_GROUP_COLS set via non_feature_cols). Only assess
-        # columns present in this institution's modeling frame.
-        meta_cols = {
-            self.cfg.student_id_col,
-            self.cfg.target_col,
-            self.cfg.split_col,
-            self.cfg.sample_weight_col,
-        }
-        student_group_cols = [
-            c
-            for c in self.cfg.non_feature_cols
-            if c not in meta_cols and c in df_modeling.columns
-        ]
+        # Bias groups = configured student_group_cols present in the modeling
+        # frame. Feature exclusion stays separate: non_feature_cols (ES unions
+        # DEFAULT_ES_STUDENT_GROUP_COLS) so protected status fields never become
+        # features even when omitted from student_group_cols. Missing configured
+        # groups are skipped inside evaluate_bias.
+        student_group_cols = list(self.cfg.student_group_cols or [])
 
         if self.cfg.split_col is not None:
             present_non_features = [
