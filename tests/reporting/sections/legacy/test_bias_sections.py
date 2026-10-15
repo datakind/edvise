@@ -236,7 +236,7 @@ def test_bias_summary_with_mitigation_includes_logged_fnr(
     assert "**Tradeoff.**" in summary
     assert "are not available for this model" not in summary
     assert (
-        "Advisors see this dual-threshold decision via Support Label when the pipeline writes one."
+        "Advisors see the effect of this fairness adjustment in the Support Label column of the output file."
         in summary
     )
     assert "These results use one threshold (0.5) for all students." in groups
@@ -282,7 +282,7 @@ def test_bias_summary_with_mitigation_config_only_when_metrics_missing(
     assert "Results after the fairness adjustment are not available" in summary
     assert "Effect on results" not in summary
     assert (
-        "Advisors see this dual-threshold decision via Support Label when the pipeline writes one."
+        "Advisors see the effect of this fairness adjustment in the Support Label column of the output file."
         in summary
     )
 
