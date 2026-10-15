@@ -225,11 +225,9 @@ def test_bias_summary_with_mitigation_includes_logged_fnr(
     assert "Age Group" in summary
     assert "12% difference" in summary
     assert "####Fairness Adjustment" in summary
-    assert "- Student group: **Age Group**" in summary
+    assert "across the subgroups of Age Group" in summary
     assert "`agegroup`" not in summary
-    assert "- Subgroup with a fairness-adjusted threshold: **25 and over**" in summary
-    assert "- Threshold for this subgroup: **0.35**" in summary
-    assert "- Threshold for all other students: **0.5**" in summary
+    assert "- Threshold for" not in summary
     assert "Every student gets the same Support Score." in summary
     assert "for **25 and over** students and **0.5** for all other students" in summary
     assert "underpredicts for **12.0%** of 25 and over students" in summary
@@ -276,7 +274,7 @@ def test_bias_summary_with_mitigation_config_only_when_metrics_missing(
     assert "#####Gender" not in summary
     assert "12% difference" not in summary
     assert "####Fairness Adjustment" in summary
-    assert "- Student group: **Pell Status**" in summary
+    assert "across the subgroups of Pell Status" in summary
     assert "`pell_flag`" not in summary
     assert "**recipient**" in summary
     assert "**0.4**" in summary
@@ -314,7 +312,7 @@ def test_bias_summary_documents_rule_when_mlflow_read_fails(
     assert "**freshmen**" in summary
     assert "**0.45**" in summary
     assert "**0.5**" in summary
-    assert "- Student group: **Student Group**" in summary
+    assert "across the subgroups of Student Group" in summary
     assert "Results after the fairness adjustment are not available" in summary
     assert "12% difference" in summary
 
@@ -395,7 +393,7 @@ def test_group_column_omits_generic_alias_for_custom_column(
 
     summary = _render_legacy_bias(mock_card)["bias_summary_section"]
 
-    assert "- Student group: **Agegroup**" in summary
+    assert "across the subgroups of Agegroup" in summary
     assert "**Student Group**" not in summary
     assert "**0.55**" in summary
     assert "**0.3**" in summary
@@ -530,9 +528,16 @@ def test_bias_summary_shows_post_mitigation_group_plots(mock_card, tmp_path):
     assert "Disparities Before the Fairness Adjustment" in summary
     assert "20% difference" in summary
     assert "Disparities After the Fairness Adjustment" in summary
+    assert "for **18-24** students and **0.5** for 25-99 students" in summary
     assert (
-        "18-24 students are identified at a threshold of 0.3. "
-        "25-99 students are identified at a threshold of 0.5." in summary
+        "These results use the group-specific threshold described under "
+        "Fairness Adjustment." in summary
+    )
+    assert summary.index("####Fairness Adjustment") < summary.index(
+        "Disparities Before the Fairness Adjustment"
+    )
+    assert summary.index("Disparities Before the Fairness Adjustment") < summary.index(
+        "Disparities After the Fairness Adjustment"
     )
     assert "#####Age Bias Group" in summary
     assert "**_25-99_**" in summary

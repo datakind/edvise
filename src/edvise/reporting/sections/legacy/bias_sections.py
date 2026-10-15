@@ -43,10 +43,7 @@ _PRE_DISPLAY_PLOTS_DIR = "fnr_plots/pre_mitigation_display"
 _POST_FNR_RATES = f"{_POST_PLOTS_DIR}/fnr_rates.csv"
 _AGE_BIN = re.compile(r"^(\d+)\s*-\s*(\d+)$")
 _REFERENCE_OTHER = "other"
-_POST_GROUP_NOTE = (
-    "{target} students are identified at a threshold of {group_threshold}. "
-    "{reference} are identified at a threshold of {default_threshold}."
-)
+_POST_ADJUSTMENT_NOTE = "These results use the group-specific threshold described under Fairness Adjustment."
 _ALL_OTHER_STUDENTS = "all other students"
 _SUPPORT_LABEL_NOTE = "Advisors see this dual-threshold decision via Support Label when the pipeline writes one."
 
@@ -182,10 +179,6 @@ def reference_students_phrase(display_label):
     if display_label:
         return f"{display_label} students"
     return _ALL_OTHER_STUDENTS
-
-
-def _sentence_case(text):
-    return text[:1].upper() + text[1:]
 
 
 def _group_column_alias(card, mitigation, col):
@@ -358,11 +351,6 @@ def render_post_mitigation_section(card, mitigation, display_label=None):
             f"{bold(target_group)} students and {bold(_format_threshold(default_threshold))} "
             f"for {reference}.\n"
         ),
-        f"- Student group: {bold(group_label)}",
-        f"- Subgroup with a fairness-adjusted threshold: {bold(target_group)}",
-        f"- Threshold for this subgroup: {bold(_format_threshold(target_threshold))}",
-        (f"- Threshold for {reference}: {bold(_format_threshold(default_threshold))}"),
-        "",
     ]
 
     if all(key in logged for key in _FNR_COMPARISON_KEYS):
@@ -542,16 +530,9 @@ def render_post_mitigation_disparities(card, mitigation):
             blocks.append(header + (plot_md or ""))
     if not blocks:
         return ""
-    target = str(mitigation.student_group).strip()
-    note = _POST_GROUP_NOTE.format(
-        target=target,
-        group_threshold=_format_threshold(mitigation.custom_threshold),
-        reference=_sentence_case(reference_students_phrase(display_label)),
-        default_threshold=_format_threshold(default_positive_threshold(card)),
-    )
     return (
         f"\n{card.format.header_level(4)}Disparities After the Fairness Adjustment\n\n"
-        f"{note}\n\n" + "\n\n".join(blocks)
+        f"{_POST_ADJUSTMENT_NOTE}\n\n" + "\n\n".join(blocks)
     )
 
 
@@ -729,11 +710,11 @@ def register_bias_sections(card, registry):
                 f"{no_disparities}"
             )
             return (
-                pre_mitigation
+                render_post_mitigation_section(card, mitigation, display_label)
+                + "\n\n"
+                + pre_mitigation
                 + "\n\n"
                 + render_post_mitigation_disparities(card, mitigation)
-                + "\n\n"
-                + render_post_mitigation_section(card, mitigation, display_label)
             )
 
         if mitigation is None:
@@ -747,10 +728,10 @@ def register_bias_sections(card, registry):
             f"{_pre_adjustment_note(card)}\n\n"
         )
         return (
-            section_header
+            render_post_mitigation_section(card, mitigation, display_label)
+            + "\n\n"
+            + section_header
             + "\n\n".join(all_blocks)
             + "\n\n"
             + render_post_mitigation_disparities(card, mitigation)
-            + "\n\n"
-            + render_post_mitigation_section(card, mitigation, display_label)
         )
