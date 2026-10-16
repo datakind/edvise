@@ -26,7 +26,7 @@ def select_features(
 ) -> pd.DataFrame:
     """
     Select features by dropping incomplete features, low variance features,
-    and variables with high correlations to others.
+    identical features, and variables with high correlations to others.
 
     Args:
         df: dataframe of features to select
@@ -69,8 +69,13 @@ def select_features(
         # since features with low but non-zero variance may still be predictive
         .pipe(drop_low_variance_features, threshold=low_variance_threshold)
     )
-    sel_incl_feature_cols = list(set(df_selected.columns.tolist() + force_include_cols))
-    df_selected = df.loc[:, sel_incl_feature_cols]
+    # Preserve original column order. Duplicate removal keeps the earliest twin,
+    # so a set() here would make that choice depend on hash randomization.
+    selected_names = set(df_selected.columns.tolist() + force_include_cols)
+    ordered_names = [col for col in df.columns if col in selected_names]
+    if set(ordered_names) != selected_names:
+        df.loc[:, list(selected_names)]
+    df_selected = df.loc[:, ordered_names]
     if collinear_threshold is not None:
         # multi-collinearity: it may not interfere with the model's performance
         # but it does negatively affect the interpretation of the predictors
@@ -79,6 +84,11 @@ def select_features(
                 raise ValueError(
                     f"force include column '{col}' was dropped during prior feature selection steps!"
                 )
+        # Literal copies make VIF infinite. Remove them before the VIF loop.
+        df_selected = drop_duplicate_features(
+            df_selected,
+            force_include_cols=force_include_cols,
+        )
         df_selected = drop_collinear_features_iteratively(
             df_selected,
             threshold=collinear_threshold,
@@ -175,6 +185,99 @@ def drop_low_variance_features(
         return df
 
 
+def drop_duplicate_features(
+    df: pd.DataFrame,
+    *,
+    force_include_cols: t.Optional[Collection[str]] = None,
+) -> pd.DataFrame:
+    """
+    Drop features that are identical to another feature.
+
+    Numeric and boolean columns are compared together, so a boolean column that
+    repeats a 0/1 numeric column is removed. Categorical columns are compared
+    together. When a duplicate group includes a force-included column, that
+    column is kept.
+
+    Args:
+        df
+        force_include_cols: Columns to keep when they match another column.
+            If several force-included columns match each other, the earliest one
+            in ``df`` is kept.
+
+    Returns:
+        ``df`` without duplicate feature columns.
+    """
+    forced = list(force_include_cols or [])
+    numeric_bool_cols = df.select_dtypes(include=["number", "boolean"]).columns.tolist()
+    categorical_cols = df.select_dtypes(
+        include=["string", "category", "object"]
+    ).columns.tolist()
+    drop_cols = _columns_to_drop_as_duplicates(
+        df, numeric_bool_cols, forced, as_float=True
+    )
+    drop_cols.extend(
+        _columns_to_drop_as_duplicates(df, categorical_cols, forced, as_float=False)
+    )
+    if not drop_cols:
+        LOGGER.info("no duplicate features found")
+        return df
+
+    LOGGER.info("dropping %s duplicate features: %s", len(drop_cols), drop_cols)
+    return df.drop(columns=drop_cols)
+
+
+def _columns_to_drop_as_duplicates(
+    df: pd.DataFrame,
+    columns: list[str],
+    force_include_cols: Collection[str],
+    *,
+    as_float: bool,
+) -> list[str]:
+    """Return later twins, keeping a force-included column when one is in the group."""
+    if len(columns) < 2:
+        return []
+
+    # Lazy import: inference jobs load this module but do not select features.
+    from feature_engine.selection import DropDuplicateFeatures
+
+    forced = set(force_include_cols)
+    # DropDuplicateFeatures keeps the first column in each identical group.
+    ordered = [col for col in columns if col in forced] + [
+        col for col in columns if col not in forced
+    ]
+    # Shared dtype so boolean/numeric twins, and category/string twins, hash equal.
+    probe = df.loc[:, ordered].astype("float64" if as_float else "string")
+    selector = DropDuplicateFeatures(missing_values="ignore")
+    selector.fit(probe)
+
+    order_index = {col: idx for idx, col in enumerate(ordered)}
+    for group in selector.duplicated_feature_sets_:
+        members = sorted(group, key=lambda col: order_index[col])
+        _log_duplicate_feature_group(members, forced)
+
+    return [col for col in df.columns if col in selector.features_to_drop_]
+
+
+def _log_duplicate_feature_group(members: list[str], forced: Collection[str]) -> None:
+    if len(members) <= 1:
+        return
+    keep_col = members[0]
+    dropped = members[1:]
+    force_included = [col for col in members if col in forced]
+    if len(force_included) == 1:
+        LOGGER.info(
+            "Duplicate columns found: kept force-included '%s', dropped: %s",
+            keep_col,
+            dropped,
+        )
+    elif len(force_included) > 1:
+        LOGGER.warning(
+            "Duplicate force-included columns found: keeping '%s', dropping: %s",
+            keep_col,
+            [col for col in force_included if col != keep_col],
+        )
+
+
 def drop_collinear_features_iteratively(
     df: pd.DataFrame,
     *,
@@ -247,46 +350,6 @@ def drop_collinear_features_iteratively(
         assert isinstance(df_bool_imputed, pd.DataFrame)
 
         df_features = pd.concat([df_features, df_bool_imputed], axis=1)
-
-        # Identify duplicated columns (perfect duplicates)
-        duplicated_mask = df_features.T.duplicated(keep=False)
-        duplicated_cols = df_features.columns[duplicated_mask].tolist()
-
-        if duplicated_cols:
-            grouped = df_features[duplicated_cols].T.groupby(
-                lambda x: tuple(df_features[x].values), sort=False
-            )
-            for _, group in grouped:
-                dup_cols = list(group.index)
-                if len(dup_cols) <= 1:
-                    continue
-
-            # Prefer to keep force-included columns
-            force_included = [col for col in dup_cols if col in force_include_cols]
-            if force_included:
-                keep_col = force_included[0]
-            else:
-                keep_col = dup_cols[0]
-
-            drop_cols = [col for col in dup_cols if col != keep_col]
-
-            if len(force_included) == 1 and len(dup_cols) > 1:
-                LOGGER.info(
-                    "Duplicate columns found: kept force-included '%s', dropped: %s",
-                    keep_col,
-                    drop_cols,
-                )
-
-            if len(force_included) > 1:
-                LOGGER.warning(
-                    "Duplicate force-included columns found: keeping '%s', dropping: %s",
-                    keep_col,
-                    [col for col in force_included if col != keep_col],
-                )
-
-            df_features = df_features.drop(columns=drop_cols)
-            df = df.drop(columns=drop_cols, errors="ignore")
-            n_features_dropped_so_far += len(drop_cols)
 
     # calculate initial VIFs for features that aren't force-included
     uncentered_vif_dict = {

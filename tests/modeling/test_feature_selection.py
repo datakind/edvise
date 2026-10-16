@@ -112,7 +112,7 @@ def test_drop_collinear_features_iteratively():
     assert returned_df.shape[0] == related_features.shape[0]
 
 
-def test_booleans_drop_collinear_features_iteratively():
+def test_drop_duplicate_features_bool_matches_numeric_twin():
     related_features = pd.DataFrame(
         {
             "A": [2, 12, 6.5, 4, 3.5],
@@ -120,11 +120,86 @@ def test_booleans_drop_collinear_features_iteratively():
             "numeric": [1, 0, 1, 0, 1],
         }
     )
-    returned_df = fs.drop_collinear_features_iteratively(
-        related_features, force_include_cols=[]
-    )
-    assert returned_df.columns.tolist() == ["A", "numeric"]
+    returned_df = fs.drop_duplicate_features(related_features, force_include_cols=[])
+    assert returned_df.columns.tolist() == ["A", "bool"]
     assert returned_df.shape[0] == related_features.shape[0]
+
+
+def test_drop_duplicate_features_drops_every_twin_set():
+    """Every identical pair is removed, including numeric-only frames and categoricals."""
+    features = pd.DataFrame(
+        {
+            "a": [1, 2, 3, 4],
+            "a_copy": [1, 2, 3, 4],
+            "b": [8, 1, 3, 5],
+            "b_copy": [8, 1, 3, 5],
+            "color": pd.Series(["red", "blue", "red", "green"], dtype="category"),
+            "color_copy": pd.Series(["red", "blue", "red", "green"], dtype="string"),
+        }
+    )
+    returned_df = fs.drop_duplicate_features(features)
+    assert returned_df.columns.tolist() == ["a", "b", "color"]
+
+
+def test_drop_duplicate_features_distinguishes_null_positions():
+    features = pd.DataFrame(
+        {
+            "a": [1.0, np.nan, 3.0],
+            "same": [1.0, np.nan, 3.0],
+            "different": [1.0, 2.0, 3.0],
+        }
+    )
+    returned_df = fs.drop_duplicate_features(features)
+    assert returned_df.columns.tolist() == ["a", "different"]
+
+
+def test_drop_duplicate_features_prefers_force_include_over_earlier_twin():
+    features = pd.DataFrame(
+        {"copy": [1, 2, 3], "original": [1, 2, 3], "other": [3, 1, 2]}
+    )
+    returned_df = fs.drop_duplicate_features(features, force_include_cols=["original"])
+    assert returned_df.columns.tolist() == ["original", "other"]
+
+
+def test_drop_duplicate_features_warns_when_force_includes_match(caplog):
+    features = pd.DataFrame(
+        {
+            "keep_me": [1, 2, 3, 4],
+            "also_forced": [1, 2, 3, 4],
+            "other": [4, 1, 3, 2],
+        }
+    )
+    with caplog.at_level("WARNING"):
+        returned_df = fs.drop_duplicate_features(
+            features, force_include_cols=["also_forced", "keep_me"]
+        )
+    assert returned_df.columns.tolist() == ["keep_me", "other"]
+    assert any(
+        "Duplicate force-included columns" in message for message in caplog.messages
+    )
+
+
+def test_select_features_drops_identical_columns_before_vif():
+    """Identical numerics are removed even when the frame has no boolean column.
+
+    A copy that reached VIF would be dropped together with its twin, because both
+    have infinite VIF. Keeping the earlier column shows the duplicate step ran first.
+    """
+    features = pd.DataFrame(
+        {
+            "a": [1, 2, 3, 4, 5],
+            "a_copy": [1, 2, 3, 4, 5],
+            "b": [5, 1, 4, 2, 3],
+            "b_copy": [5, 1, 4, 2, 3],
+            "c": [0, 1, 0, 1, 0],
+        }
+    )
+    returned_df = fs.select_features(
+        features,
+        force_include_cols=["b_copy"],
+        collinear_threshold=1e12,
+    )
+    assert returned_df.columns.tolist() == ["a", "b_copy", "c"]
 
 
 def test_drop_collinear_features_iteratively_force_include():
