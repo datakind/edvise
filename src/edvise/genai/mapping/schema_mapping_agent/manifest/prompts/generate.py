@@ -1490,11 +1490,3 @@ def build_step2a_batched_prompt(
         compact_manifest_schema=compact_manifest_schema,
     )
     return assemble_step2a_batched_prompt_from_sections(sections)
-
-
-# ── Convenience helpers ────────────────────────────────────────────────────────
-
-
-def load_json(path: str) -> dict[str, Any]:
-    with open(path) as f:
-        return cast(dict[str, Any], json.load(f))

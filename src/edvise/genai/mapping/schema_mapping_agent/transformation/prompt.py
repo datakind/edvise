@@ -5,7 +5,7 @@ Builds the prompt for generating a transformation map from a mapping manifest + 
 
 import inspect
 import json
-from typing import Any, cast
+from typing import Any
 
 from edvise.genai.mapping.shared.hitl.confidence import (
     PIPELINE_HITL_CONFIDENCE_THRESHOLD,
@@ -744,11 +744,3 @@ def audit_step2b_prompt(
         institution_id=institution_id,
         log=log,
     )
-
-
-# ── Convenience loader ─────────────────────────────────────────────────────────
-
-
-def load_json(path: str) -> dict[str, Any]:
-    with open(path) as f:
-        return cast(dict[str, Any], json.load(f))
