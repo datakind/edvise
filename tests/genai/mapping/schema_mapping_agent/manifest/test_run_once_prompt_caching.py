@@ -21,17 +21,17 @@ _SHORT_SYSTEM = "short system prompt"
 
 
 class _FakeDelta:
-    def __init__(self, content: str) -> None:
+    def __init__(self, content: Any) -> None:
         self.content = content
 
 
 class _FakeChunkChoice:
-    def __init__(self, content: str) -> None:
+    def __init__(self, content: Any) -> None:
         self.delta = _FakeDelta(content)
 
 
 class _FakeChunk:
-    def __init__(self, content: str, usage: Any = None) -> None:
+    def __init__(self, content: Any, usage: Any = None) -> None:
         self.choices = [_FakeChunkChoice(content)] if content else []
         self.usage = usage
 
@@ -238,6 +238,67 @@ def test_sma_llm_complete_run_once_logs_cache_usage_for_cached_call(
         and "cache_read_input_tokens=5678" in record.getMessage()
         for record in caplog.records
     )
+
+
+def test_run_once_keeps_text_blocks_and_drops_reasoning(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        "edvise.genai.mapping.schema_mapping_agent.manifest.eval.ChatCompletionChunk",
+        _FakeChunk,
+    )
+    chunks = [
+        _FakeChunk(
+            [
+                {
+                    "type": "reasoning",
+                    "summary": [{"type": "summary_text", "text": "", "signature": ""}],
+                }
+            ]
+        ),
+        _FakeChunk(
+            [
+                {"type": "text", "text": '{"ok": '},
+                {"type": "output_text", "text": "true}"},
+            ]
+        ),
+    ]
+    client = _FakeClient()
+    client.chat.completions.create = lambda **_kwargs: _FakeStreamOfChunks(chunks)  # type: ignore[method-assign]
+
+    result = run_once("system.ai.claude-sonnet-5", "prompt", client)
+    assert result["success"] is True
+    assert result["response"] == '{"ok": true}'
+    assert result["reasoning"] == [
+        {
+            "type": "reasoning",
+            "summary": [{"type": "summary_text", "text": "", "signature": ""}],
+        }
+    ]
+    assert capsys.readouterr().out == ""
+
+
+def test_run_once_returns_model_refusal_as_a_failed_call(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "edvise.genai.mapping.schema_mapping_agent.manifest.eval.ChatCompletionChunk",
+        _FakeChunk,
+    )
+    chunks = [
+        _FakeChunk(
+            [
+                {"type": "thinking", "thinking": "checked the grain first"},
+                {"type": "refusal", "refusal": "cannot map this"},
+            ]
+        )
+    ]
+    client = _FakeClient()
+    client.chat.completions.create = lambda **_kwargs: _FakeStreamOfChunks(chunks)  # type: ignore[method-assign]
+
+    result = run_once("system.ai.claude-sonnet-5-5", "prompt", client)
+    assert result["success"] is False
+    assert result["response"] is None
+    assert "cannot map this" in result["error"]
+    assert result["reasoning"] == [
+        {"type": "thinking", "thinking": "checked the grain first"}
+    ]
 
 
 def test_sma_llm_complete_run_once_does_not_log_for_step2a_style_call(

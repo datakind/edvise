@@ -111,6 +111,107 @@ MODELS_WITH_PREFILL = {
     "claude-haiku-test-genai-data-cleaning",
 }
 
+# Sonnet 5 streams a reasoning block ahead of the manifest. It is not JSON.
+_SKIPPED_STREAM_BLOCK_TYPES = frozenset({"reasoning", "thinking", "redacted_thinking"})
+
+
+def _split_stream_content(
+    content: Any,
+) -> tuple[str, list[dict[str, Any]], str | None]:
+    """Split one streamed ``delta.content`` into manifest text and reasoning.
+
+    Sonnet 4.5 sends a string. Sonnet 5 and 5.5 send a list of blocks and
+    lead with reasoning. Reasoning, thinking, and redacted thinking are kept
+    as their own records so they are not parsed as the manifest. A refusal
+    fails the call.
+    """
+    if content is None or content == "":
+        return "", [], None
+    if isinstance(content, str):
+        return content, [], None
+    blocks = content if isinstance(content, list) else [content]
+    text_parts: list[str] = []
+    reasoning: list[dict[str, Any]] = []
+    for block in blocks:
+        text, record, refusal = _split_stream_block(block)
+        if refusal:
+            return "".join(text_parts), reasoning, refusal
+        if record is not None:
+            reasoning.append(record)
+        elif text:
+            text_parts.append(text)
+    return "".join(text_parts), reasoning, None
+
+
+def _split_stream_block(
+    block: Any,
+) -> tuple[str, dict[str, Any] | None, str | None]:
+    if isinstance(block, str):
+        return block, None, None
+    block_type, text, refusal = _stream_block_fields(block)
+    if block_type == "refusal" or refusal:
+        message = refusal or (text if isinstance(text, str) and text else "")
+        return "", None, message or "The model refused the request."
+    if block_type in _SKIPPED_STREAM_BLOCK_TYPES:
+        return "", _json_block(block, block_type), None
+    if isinstance(text, str):
+        return text, None, None
+    if block_type not in {None, "text", "output_text"}:
+        logger.debug("Skipping streamed content block type %s", block_type)
+    return "", None, None
+
+
+def _json_block(block: Any, block_type: str | None) -> dict[str, Any]:
+    """JSON-safe copy of a reasoning, thinking, or redacted-thinking block."""
+    if isinstance(block, dict):
+        record = {str(key): _json_value(value) for key, value in block.items()}
+    elif hasattr(block, "model_dump"):
+        dumped = block.model_dump()
+        record = (
+            {str(key): _json_value(value) for key, value in dumped.items()}
+            if isinstance(dumped, dict)
+            else {"type": block_type, "value": _json_value(dumped)}
+        )
+    else:
+        record = {
+            "type": block_type,
+            "text": _json_value(getattr(block, "text", None)),
+            "thinking": _json_value(getattr(block, "thinking", None)),
+            "summary": _json_value(getattr(block, "summary", None)),
+            "data": _json_value(getattr(block, "data", None)),
+            "signature": _json_value(getattr(block, "signature", None)),
+        }
+        record = {key: value for key, value in record.items() if value is not None}
+    if block_type and "type" not in record:
+        record["type"] = block_type
+    return record
+
+
+def _json_value(value: Any) -> Any:
+    if value is None or isinstance(value, str | int | float | bool):
+        return value
+    if isinstance(value, dict):
+        return {str(key): _json_value(item) for key, item in value.items()}
+    if isinstance(value, list | tuple):
+        return [_json_value(item) for item in value]
+    if hasattr(value, "model_dump"):
+        return _json_value(value.model_dump())
+    return str(value)
+
+
+def _stream_block_fields(block: Any) -> tuple[str | None, Any, str | None]:
+    if isinstance(block, dict):
+        block_type = block.get("type")
+        text = block.get("text")
+        refusal = block.get("refusal")
+    else:
+        block_type = getattr(block, "type", None)
+        text = getattr(block, "text", None)
+        refusal = getattr(block, "refusal", None)
+    type_name = str(block_type) if block_type is not None else None
+    refusal_text = refusal if isinstance(refusal, str) and refusal.strip() else None
+    return type_name, text, refusal_text
+
 
 # ── inference ─────────────────────────────────────────────────────────────────
 def run_once(
@@ -137,6 +238,7 @@ def run_once(
     )
 
     start = time.perf_counter()
+    reasoning: list[dict[str, Any]] = []
     try:
         full_text = ""
         final_usage: Any = None
@@ -168,10 +270,14 @@ def run_once(
                     final_usage = chunk_usage
                 if not chunk.choices or len(chunk.choices) == 0:
                     continue
-                delta = chunk.choices[0].delta.content or ""
-                if delta:
-                    print(delta, end="", flush=True)
-                    full_text += delta
+                text, blocks, refusal = _split_stream_content(
+                    chunk.choices[0].delta.content
+                )
+                reasoning.extend(blocks)
+                if refusal:
+                    raise ValueError(refusal)
+                if text:
+                    full_text += text
             except (IndexError, AttributeError) as e:
                 # Skip chunks with malformed structure - this can happen with some models
                 logger.debug(f"Skipping malformed chunk: {e}")
@@ -200,6 +306,7 @@ def run_once(
             "latency_s": round(latency_s, 3),
             "response_chars": len(raw),
             "response": raw,
+            "reasoning": reasoning,
             "error": None,
         }
     except Exception as e:
@@ -254,6 +361,7 @@ def run_once(
             "latency_s": round(latency_s, 3),
             "response_chars": None,
             "response": None,
+            "reasoning": reasoning,
             "error": error_details,
         }
 

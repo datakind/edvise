@@ -336,6 +336,7 @@ def test_predict_fn_injects_envelope_fields_and_records_latency(
             "response": json.dumps({"manifests": {}}),
             "latency_s": 1.25,
             "response_chars": 18,
+            "reasoning": [{"type": "reasoning", "summary": []}],
             "error": None,
         },
     )
@@ -356,6 +357,7 @@ def test_predict_fn_injects_envelope_fields_and_records_latency(
     assert predicted["pipeline_version"] == "v-test"
     assert observation.calls[0]["latency_s"] == 1.25
     assert observation.calls[0]["response_chars"] == 18
+    assert observation.calls[0]["reasoning"] == [{"type": "reasoning", "summary": []}]
 
 
 def test_predict_fn_returns_error_payload_when_gateway_fails(

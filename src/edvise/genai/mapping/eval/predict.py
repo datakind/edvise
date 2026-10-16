@@ -79,6 +79,7 @@ def make_step2a_predict_fn(
                     "latency_s": result.get("latency_s"),
                     "response_chars": result.get("response_chars"),
                     "error": result.get("error"),
+                    "reasoning": result.get("reasoning") or [],
                 }
             )
         if not result.get("success"):
