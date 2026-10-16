@@ -598,7 +598,7 @@ def is_retryable_openai_gateway_error(exc: BaseException) -> bool:
 
 def gateway_run_once_error_text_is_retryable(error_text: str) -> bool:
     """
-    Best-effort match for :func:`~edvise.genai.mapping.schema_mapping_agent.manifest.eval.run_once`
+    Best-effort match for :func:`~edvise.genai.mapping.eval.gateway.run_once`
     failure strings (``HTTP 403: ...``) when exceptions are swallowed into a dict.
     """
     if not error_text:

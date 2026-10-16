@@ -9,7 +9,7 @@ from typing import Any
 from edvise.data_audit.schemas.raw_edvise_course import RawEdviseCourseDataSchema
 from edvise.data_audit.schemas.raw_edvise_student import RawEdviseStudentDataSchema
 from edvise.genai.mapping.eval.dataset import Step2aEvalContext
-from edvise.genai.mapping.schema_mapping_agent.manifest.eval import run_once
+from edvise.genai.mapping.eval.gateway import run_once
 from edvise.genai.mapping.schema_mapping_agent.manifest.prompts import (
     build_step2a_batched_prompt,
 )

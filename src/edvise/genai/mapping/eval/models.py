@@ -12,8 +12,11 @@ per-slot environment variable if that naming doesn't match your workspace.
 from __future__ import annotations
 
 import json
+import logging
 import os
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 SUPPORTED_STEP2A_MODELS: dict[tuple[str, str], str | None] = {
     ("sonnet", "4.5"): None,
@@ -188,3 +191,65 @@ def _gateway_model_from_env_map(label: str) -> str | None:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{GATEWAY_MODELS_ENV}[{label!r}] must be a gateway model id.")
     return value.strip()
+
+
+# Notebook evaluators for Step 2a and Step 2b share this list. Mutate it in place
+# (``MODELS[:] = [...]``) so both importers see the same object.
+_DEFAULT_EVAL_MODELS: tuple[str, ...] = (
+    "claude-opus-test-genai-ai-data-cleaning",
+    "claude-sonnet-test-genai-ai-data-cleaning",
+    "claude-haiku-test-genai-data-cleaning",
+)
+
+MODEL_BASE_SLUG = {
+    "claude-opus-test-genai-ai-data-cleaning": "opus",
+    "claude-sonnet-test-genai-ai-data-cleaning": "sonnet",
+    "claude-haiku-test-genai-data-cleaning": "haiku",
+}
+
+MODELS: list[str] = list(_DEFAULT_EVAL_MODELS)
+
+# Folder tag for Step 2b artifact directories, for example ``sonnet_2b_1shot``.
+SHOT_TAG = "1shot"
+
+
+def apply_eval_models_from_env() -> None:
+    """If ``EDVISE_EVAL_MODELS`` is set, replace ``MODELS`` in place.
+
+    Comma-separated entries; each entry is a short slug (``opus``, ``sonnet``, ``haiku``)
+    or a full gateway model id from ``_DEFAULT_EVAL_MODELS``. Order is preserved;
+    duplicates are dropped.
+    """
+    raw = os.environ.get("EDVISE_EVAL_MODELS", "").strip()
+    if not raw:
+        return
+    slug_to_model = {MODEL_BASE_SLUG[model]: model for model in _DEFAULT_EVAL_MODELS}
+    id_lower_to_model = {model.lower(): model for model in _DEFAULT_EVAL_MODELS}
+    allowed = set(_DEFAULT_EVAL_MODELS)
+    resolved: list[str] = []
+    seen: set[str] = set()
+    for part in raw.split(","):
+        token = part.strip()
+        if not token:
+            continue
+        key = token.lower()
+        if key in slug_to_model:
+            model_id = slug_to_model[key]
+        elif token in allowed:
+            model_id = token
+        elif key in id_lower_to_model:
+            model_id = id_lower_to_model[key]
+        else:
+            slugs = ", ".join(sorted(slug_to_model))
+            raise ValueError(
+                f"EDVISE_EVAL_MODELS: unknown entry {token!r}. "
+                f"Use comma-separated slugs ({slugs}) or a full gateway model id "
+                "from the eval defaults."
+            )
+        if model_id not in seen:
+            seen.add(model_id)
+            resolved.append(model_id)
+    if not resolved:
+        raise ValueError("EDVISE_EVAL_MODELS produced an empty model list.")
+    MODELS[:] = resolved
+    logger.info("EDVISE_EVAL_MODELS active → %s", MODELS)

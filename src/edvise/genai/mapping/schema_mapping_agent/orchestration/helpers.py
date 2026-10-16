@@ -160,7 +160,7 @@ def _run_once(
     log_cache_usage: bool = False,
 ) -> dict[str, Any]:
     """
-    Call :func:`~edvise.genai.mapping.schema_mapping_agent.manifest.eval.run_once` with
+    Call :func:`~edvise.genai.mapping.eval.gateway.run_once` with
     retries for transient gateway / transport failures (same policy as IA ``llm_complete``).
 
     ``prompt`` may be a plain string or a list of content blocks (see
@@ -170,7 +170,7 @@ def _run_once(
     from edvise.genai.mapping.shared.databricks_ai_gateway import (
         gateway_run_once_error_text_is_retryable,
     )
-    from edvise.genai.mapping.schema_mapping_agent.manifest.eval import run_once
+    from edvise.genai.mapping.eval.gateway import run_once
 
     max_attempts = 5
     initial_backoff_s = 2.0
