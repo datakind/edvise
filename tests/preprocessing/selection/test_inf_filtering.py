@@ -377,7 +377,8 @@ def test_open_window_intensity_from_student_terms_at_cohort_entry():
                 "academic_term": "SPRING",
                 "academic_year": "2025-26",
             }
-        ]
+        ],
+        index=[5],
     )
     student_terms = pd.DataFrame(
         [
@@ -409,6 +410,46 @@ def test_open_window_intensity_from_student_terms_at_cohort_entry():
         student_id_col="student_id",
     )
     assert len(result) == 1
+
+
+def test_student_terms_open_window_keeps_sparse_index():
+    """Term filtering leaves a sparse index; cohort-entry intensity must follow it."""
+    specs = (
+        (1, "2023-24", "FULL-TIME"),  # 3.0 years elapsed, labelable
+        (2, "2023-24", "PART-TIME"),  # same cohort, window still open
+        (4, "2021-22", "FULL-TIME"),  # not a training cohort
+    )
+    rows = []
+    term_rows = []
+    for student_id, cohort, entry_intensity in specs:
+        row = _checkpoint_row(
+            student_id=student_id,
+            cohort_term="FALL",
+            cohort=cohort,
+            intensity="FULL-TIME",
+        )
+        row.pop("enrollment_intensity_first_term")
+        rows.append(row)
+        if cohort == "2023-24":
+            term_rows.append(
+                {
+                    "id": student_id,
+                    "academic_term": "FALL",
+                    "academic_year": cohort,
+                    "student_term_enrollment_intensity": entry_intensity,
+                }
+            )
+    result = exclude_training_cohort_students(
+        pd.DataFrame(rows, index=[10, 25, 40]),
+        training_cohorts=["fall 2023-24"],
+        as_of_term="spring 2025-26",
+        intensity_time_limits=_INTENSITY_LIMITS,
+        num_terms_in_year=2,
+        student_terms=pd.DataFrame(term_rows),
+        student_id_col="id",
+    )
+    assert list(result["id"]) == [2, 4]
+    assert list(result.index) == [25, 40]
 
 
 def test_exclude_training_cohort_uses_first_term_intensity_not_checkpoint():

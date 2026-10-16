@@ -293,7 +293,7 @@ def exclude_training_cohort_students(
                 as_of_term,
             )
         exclude_mask = exclude_mask.copy()
-        exclude_mask.loc[still_open.index] = ~still_open.to_numpy()
+        exclude_mask.loc[still_open.index] = ~still_open
 
     n_excluded = int(exclude_mask.sum())
     if n_excluded:
@@ -412,7 +412,7 @@ def _intensity_by_term_label(
             how="left",
         )
     )
-    return merged[intensity_col].reset_index(drop=True)
+    return pd.Series(merged[intensity_col].to_numpy(), index=keys.index)
 
 
 def _enrollment_intensity_for_open_window(
