@@ -4,11 +4,9 @@ import typing as t
 
 import pandas as pd
 
-from edvise.feature_generation.constants import (
-    DEFAULT_CORE_TERMS,
-    DEFAULT_SEASON_ORDER_MAP,
-)
+from edvise.feature_generation.constants import DEFAULT_CORE_TERMS
 from edvise.shared.utils import cohort_pair_columns
+from edvise.utils.academic_terms import academic_term_order
 from edvise.utils.data_cleaning import convert_intensity_time_limits
 from edvise.utils.types import IntensityTimeLimitsType
 
@@ -313,27 +311,14 @@ def exclude_training_cohort_students(
     return df_filtered
 
 
-def _calendar_year(season: str, academic_year_start: int) -> int:
-    """Fall and winter of year N open that academic year. Spring and summer close it."""
-    if season in ("fall", "winter"):
-        return academic_year_start
-    return academic_year_start + 1
-
-
 def _season_position(num_terms_in_year: int) -> dict[str, int]:
-    """0-based rank of each season inside one academic year.
+    """0-based rank inside one fall-start academic year.
 
-    ``DEFAULT_SEASON_ORDER_MAP`` numbers a calendar year from spring. Pairing it
-    with calendar year puts spring 2024-25 (Spring 2025) before fall 2025-26.
-    Two-term years keep the core terms. Three-term years drop the trailing summer.
+    ``academic_term_order`` is fall, winter, spring, summer, so spring 2024-25
+    sorts before fall 2025-26. Two-term years keep the core terms. Three-term
+    years drop the trailing summer.
     """
-    ordered = sorted(
-        DEFAULT_SEASON_ORDER_MAP,
-        key=lambda season: (
-            _calendar_year(season, 0),
-            DEFAULT_SEASON_ORDER_MAP[season],
-        ),
-    )
+    ordered = [term.lower() for term in academic_term_order("FALL")]
     if num_terms_in_year == 2:
         core = {term.lower() for term in DEFAULT_CORE_TERMS}
         ordered = [season for season in ordered if season in core]
