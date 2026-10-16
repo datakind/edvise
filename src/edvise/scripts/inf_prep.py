@@ -133,10 +133,9 @@ class InferencePrepTask:
             if self.cfg.modeling and self.cfg.modeling.training
             else None
         )
+        open_window = graduation_open_window(self.cfg.preprocessing, inf_terms)
         student_terms_df = None
-        if training_cohorts and graduation_open_window(
-            self.cfg.preprocessing, inf_terms
-        ):
+        if training_cohorts and open_window:
             st_path_local = local_fs_path(
                 os.path.join(current_run_path, "student_terms.parquet")
             )
@@ -152,10 +151,9 @@ class InferencePrepTask:
         df_selected = apply_inference_training_cohort_filter(
             df_selected,
             training_cohorts=training_cohorts,
-            inf_terms=inf_terms,
-            preprocessing=self.cfg.preprocessing,
             student_terms=student_terms_df,
             student_id_col=student_id_col,
+            open_window=open_window,
         )
         log_inference_selection_breakdown(df_selected, cohort_pair_columns(df_selected))
 

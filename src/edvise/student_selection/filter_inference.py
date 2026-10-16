@@ -4,9 +4,11 @@ import typing as t
 
 import pandas as pd
 
-from edvise.feature_generation.constants import DEFAULT_CORE_TERMS
+from edvise.feature_generation.constants import (
+    DEFAULT_CORE_TERMS,
+    DEFAULT_SEASON_ORDER_MAP,
+)
 from edvise.shared.utils import cohort_pair_columns
-from edvise.utils.academic_terms import academic_term_order
 from edvise.utils.data_cleaning import convert_intensity_time_limits
 from edvise.utils.types import IntensityTimeLimitsType
 
@@ -212,10 +214,9 @@ def apply_inference_training_cohort_filter(
     df: pd.DataFrame,
     *,
     training_cohorts: list[str] | None,
-    inf_terms: list[str],
-    preprocessing: object | None,
     student_terms: pd.DataFrame | None,
     student_id_col: str,
+    open_window: dict[str, t.Any] | None = None,
 ) -> pd.DataFrame:
     """Term-filtered inference rows minus training cohort stop-outs (graduation-aware)."""
     if not training_cohorts:
@@ -235,7 +236,7 @@ def apply_inference_training_cohort_filter(
         cohort_term_column=cohort_term_column,
         student_terms=student_terms,
         student_id_col=student_id_col,
-        **graduation_open_window(preprocessing, inf_terms),
+        **(open_window or {}),
     )
 
 
@@ -312,13 +313,19 @@ def exclude_training_cohort_students(
 
 
 def _season_position(num_terms_in_year: int) -> dict[str, int]:
-    """0-based rank inside one fall-start academic year.
+    """0-based rank inside one academic year, taken from ``DEFAULT_SEASON_ORDER_MAP``.
 
-    ``academic_term_order`` is fall, winter, spring, summer, so spring 2024-25
-    sorts before fall 2025-26. Two-term years keep the core terms. Three-term
-    years drop the trailing summer.
+    The map numbers a calendar year from spring. Fall and winter open academic
+    year N; spring and summer close it, so spring 2024-25 sorts before fall
+    2025-26. Two-term years keep the core terms. Three-term years drop summer.
     """
-    ordered = [term.lower() for term in academic_term_order("FALL")]
+    ordered = sorted(
+        DEFAULT_SEASON_ORDER_MAP,
+        key=lambda season: (
+            0 if season in ("fall", "winter") else 1,
+            DEFAULT_SEASON_ORDER_MAP[season],
+        ),
+    )
     if num_terms_in_year == 2:
         core = {term.lower() for term in DEFAULT_CORE_TERMS}
         ordered = [season for season in ordered if season in core]
