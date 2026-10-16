@@ -84,14 +84,6 @@ def _coerce_float(value):
         return None
 
 
-def _format_threshold(value):
-    return f"{float(value):.4f}".rstrip("0").rstrip(".")
-
-
-def _format_rate(value):
-    return f"{float(value) * 100:.1f}%"
-
-
 def _as_mapping(value):
     if isinstance(value, dict):
         return value
@@ -245,7 +237,7 @@ def logged_bias_mitigation_values(card):
 
 def _pre_adjustment_note(card):
     return _PRE_ADJUSTMENT_NOTE.format(
-        default_threshold=_format_threshold(default_positive_threshold(card))
+        default_threshold=card.format.format_threshold(default_positive_threshold(card))
     )
 
 
@@ -364,12 +356,13 @@ def artifact_bias_mitigation_values(card, mitigation):
     )
 
 
-def _fnr_gap_sentence(bold, values, target_group, reference):
+def _fnr_gap_sentence(fmt, values, target_group, reference):
     gap_points = f"{values['bias_mitigation_fnr_abs_gap'] * 100:.1f}"
+    bold = fmt.bold
     return (
-        f"the model underpredicts for {bold(_format_rate(values['bias_mitigation_group_fnr']))} "
+        f"the model underpredicts for {bold(fmt.format_rate(values['bias_mitigation_group_fnr']))} "
         f"of {target_group} students who need support, compared with "
-        f"{bold(_format_rate(values['bias_mitigation_reference_fnr']))} of "
+        f"{bold(fmt.format_rate(values['bias_mitigation_reference_fnr']))} of "
         f"{reference}, a gap of {bold(gap_points + ' percentage points')}."
     )
 
@@ -382,25 +375,26 @@ def _effect_on_results(
     ``baseline`` is None when the adjusted threshold is already the single
     threshold. An empty mapping means the search has no row at that threshold.
     """
-    bold = card.format.bold
+    fmt = card.format
+    bold = fmt.bold
     after = (
         f"{bold('Effect on results.')} After the adjustment, "
-        f"{_fnr_gap_sentence(bold, logged, target_group, reference)}"
+        f"{_fnr_gap_sentence(fmt, logged, target_group, reference)}"
     )
     if baseline is None:
         return after
     if not all(key in baseline for key in _FNR_COMPARISON_KEYS):
-        missing = card.format.italic(
+        missing = fmt.italic(
             _BEFORE_COMPARISON_UNAVAILABLE.format(
-                default_threshold=_format_threshold(default_threshold)
+                default_threshold=fmt.format_threshold(default_threshold)
             )
         )
         return f"{missing}\n\n{after}"
     return (
         f"{bold('Effect on results.')} Before the adjustment, with one threshold of "
-        f"{bold(_format_threshold(default_threshold))}, "
-        f"{_fnr_gap_sentence(bold, baseline, target_group, reference)} "
-        f"After the adjustment, {_fnr_gap_sentence(bold, logged, target_group, reference)}"
+        f"{bold(fmt.format_threshold(default_threshold))}, "
+        f"{_fnr_gap_sentence(fmt, baseline, target_group, reference)} "
+        f"After the adjustment, {_fnr_gap_sentence(fmt, logged, target_group, reference)}"
     )
 
 
@@ -419,17 +413,18 @@ def render_post_mitigation_section(card, mitigation, display_label=None):
         ).items():
             logged.setdefault(key, value)
 
-    bold = card.format.bold
+    fmt = card.format
+    bold = fmt.bold
     group_label = group_column_label(card, mitigation)
     lines = [
-        f"{card.format.header_level(4)}Fairness Adjustment\n",
+        f"{fmt.header_level(4)}Fairness Adjustment\n",
         (
             "This model uses a group-specific threshold so that underprediction is "
             f"more even across the subgroups of {group_label}. "
             "Every student gets the same Support Score. What differs is the score at "
             "which a student is identified as likely to need support: "
-            f"{bold(_format_threshold(target_threshold))} for "
-            f"{bold(target_group)} students and {bold(_format_threshold(default_threshold))} "
+            f"{bold(fmt.format_threshold(target_threshold))} for "
+            f"{bold(target_group)} students and {bold(fmt.format_threshold(default_threshold))} "
             f"for {reference}.\n"
         ),
     ]

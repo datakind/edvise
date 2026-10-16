@@ -43,3 +43,19 @@ def test_friendly_case_capitalize_true(formatter, input_text, expected):
 def test_friendly_case_capitalize_false(formatter, input_text, expected):
     result = formatter.friendly_case(input_text, capitalize=False)
     assert result == expected
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (0.5, "0.5"),
+        (0.30, "0.3"),
+        (0.3000, "0.3"),
+    ],
+)
+def test_format_threshold_strips_trailing_zeros(formatter, value, expected):
+    assert formatter.format_threshold(value) == expected
+
+
+def test_format_rate_uses_one_decimal(formatter):
+    assert formatter.format_rate(0.2074074074074074) == "20.7%"

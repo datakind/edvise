@@ -20,6 +20,8 @@ def mock_card():
     card.format.header_level.side_effect = formatter.header_level
     card.format.bold.side_effect = formatter.bold
     card.format.italic.side_effect = formatter.italic
+    card.format.format_threshold.side_effect = formatter.format_threshold
+    card.format.format_rate.side_effect = formatter.format_rate
     card.assets_folder = "/tmp/assets"
     card.run_id = "dummy_run_id"
     card.cfg.modeling.bias_mitigation = None
