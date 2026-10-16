@@ -9,6 +9,8 @@ from typing import cast
 from dotenv import load_dotenv
 from pydantic import ValidationError
 
+from edvise.genai.mapping.eval.rates import f1 as _f1
+from edvise.genai.mapping.eval.rates import safe_div as _safe_div
 from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import (
     MappingManifestEnvelope,
 )
@@ -38,16 +40,6 @@ def _get_alias_map(manifest: dict, entity: str) -> dict:
         (a.get("table"), a.get("source_column")): a.get("canonical_column")
         for a in aliases
     }
-
-
-def _safe_div(num: int, den: int) -> float | None:
-    return round(num / den, 3) if den else None
-
-
-def _f1(precision: float | None, recall: float | None) -> float | None:
-    if precision is None or recall is None or (precision + recall) == 0:
-        return None
-    return round(2 * precision * recall / (precision + recall), 3)
 
 
 def _canonicalize_column(
