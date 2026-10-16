@@ -5,8 +5,12 @@
 #
 # mlflow==3.3.2 is installed only on this job. Its dependency cap is
 # pyarrow<22, so this cluster narrows the shared GenAI pin from pyarrow<26
-# to pyarrow<22. pandas==2.2.3, numpy==1.26.4, and databricks-sdk~=0.38.0
-# stay unchanged.
+# to pyarrow<22. pandas==2.2.3 and numpy==1.26.4 stay unchanged.
+# mlflow.genai.evaluate imports databricks.agents.evals.metric, so this job
+# also installs databricks-agents==1.5.0 (the last release that still accepts
+# mlflow-skinny 3.3; 1.6 requires mlflow 3.4). That package needs
+# databricks-sdk>=0.58 and databricks-connect. Connect is pinned to 15.4.26
+# so it matches spark_version 15.4.x instead of resolving to a newer runtime.
 resources:
   jobs:
     edvise_genai_mapping_eval_step2a_pipeline:
@@ -47,11 +51,15 @@ resources:
             - pypi:
                 package: openai>=1.0.0
             - pypi:
-                package: databricks-sdk~=0.38.0
+                package: databricks-sdk>=0.58.0,<1
+            - pypi:
+                package: databricks-connect==15.4.26
             - pypi:
                 package: pyarrow>=17.0.0,<22
             - pypi:
                 package: mlflow==3.3.2
+            - pypi:
+                package: databricks-agents==1.5.0
 
       job_clusters:
         - job_cluster_key: edvise-genai-mapping-eval-step2a-cluster
