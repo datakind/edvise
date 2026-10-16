@@ -11,6 +11,7 @@ Example::
 
     python src/edvise/genai/mapping/scripts/edvise_genai_eval_step2a.py \\
       --catalog dev_sst_02 \\
+      --ds_run_as <service-principal-application-id> \\
       --models sonnet:4.5,sonnet:5,haiku:4.5,haiku:5
 """
 
@@ -60,6 +61,14 @@ def main(argv: list[str] | None = None) -> int:
         help="Unity Catalog that holds the active reference pins",
     )
     parser.add_argument(
+        "--ds_run_as",
+        required=True,
+        help=(
+            "Databricks service principal application id. Comparison runs are "
+            "logged under /Users/<ds_run_as>/."
+        ),
+    )
+    parser.add_argument(
         "--models",
         required=True,
         help=(
@@ -73,7 +82,11 @@ def main(argv: list[str] | None = None) -> int:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
-    run_step2a_evaluation(catalog=args.catalog, models=args.models)
+    run_step2a_evaluation(
+        catalog=args.catalog,
+        models=args.models,
+        ds_run_as=args.ds_run_as,
+    )
     return 0
 
 

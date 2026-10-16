@@ -22,7 +22,7 @@ from edvise.genai.mapping.eval.predict import (
     PredictionObservation,
     make_step2a_predict_fn,
 )
-from edvise.genai.mapping.eval.run import run_step2a_evaluation
+from edvise.genai.mapping.eval.run import experiment_name_for, run_step2a_evaluation
 from edvise.genai.mapping.eval.scorers import assess_step2a
 from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import (
     MappingManifestEnvelope,
@@ -423,6 +423,16 @@ def test_predict_fn_creates_client_without_disabling_tracing(
     assert seen == {"disable_tracing": False}
 
 
+def test_experiment_name_uses_the_service_principal_folder() -> None:
+    assert experiment_name_for("sp-app-id") == (
+        "/Users/sp-app-id/edvise/genai_mapping/step2a_model_comparison"
+    )
+    with pytest.raises(ValueError, match="ds_run_as"):
+        experiment_name_for("  ")
+    with pytest.raises(ValueError, match="ds_run_as"):
+        experiment_name_for("shared/folder")
+
+
 class _RunScope:
     def __enter__(self):
         return self
@@ -488,13 +498,14 @@ def test_run_logs_comparison_params_and_diagnostic(
     run_ids = run_step2a_evaluation(
         catalog="dev_sst_02",
         models="sonnet:4.5,sonnet:5",
-        experiment_name="/Shared/edvise/genai_mapping/step2a_model_comparison",
+        ds_run_as="00000000-0000-0000-0000-000000000001",
         cases=[_context()],
         mlflow_module=mlflow,
     )
     assert run_ids == ["run-1", "run-2"]
-    assert (
-        logged["experiment"] == "/Shared/edvise/genai_mapping/step2a_model_comparison"
+    assert logged["experiment"] == (
+        "/Users/00000000-0000-0000-0000-000000000001/"
+        "edvise/genai_mapping/step2a_model_comparison"
     )
     assert logged["scores"] == [1.0, 1.0, 1.0]
     assert [params["model_version"] for params in logged["params"]] == ["4.5", "5"]

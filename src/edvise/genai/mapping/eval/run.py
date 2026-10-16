@@ -22,18 +22,32 @@ from edvise.genai.mapping.eval.scorers import assess_step2a
 
 LOGGER = logging.getLogger(__name__)
 
-DEFAULT_EXPERIMENT_NAME = "/Shared/edvise/genai_mapping/step2a_model_comparison"
+EXPERIMENT_SUBPATH = "edvise/genai_mapping/step2a_model_comparison"
 _MLFLOW_GENAI_REQUIRED = (
     "mlflow.genai.evaluate requires MLflow 3.3 or newer. "
     "Run this evaluation with the Databricks step 2a eval job, which pins mlflow==3.3.2."
 )
 
 
+def experiment_name_for(ds_run_as: str) -> str:
+    """MLflow experiment under the job service principal's workspace folder.
+
+    The principal can create experiments in ``/Users/<ds_run_as>/`` and often
+    cannot create them under ``/Shared``.
+    """
+    account = ds_run_as.strip().strip("/")
+    if not account or "/" in account:
+        raise ValueError(
+            "ds_run_as must be the Databricks service principal application id."
+        )
+    return f"/Users/{account}/{EXPERIMENT_SUBPATH}"
+
+
 def run_step2a_evaluation(
     *,
     catalog: str,
     models: str | list[str],
-    experiment_name: str = DEFAULT_EXPERIMENT_NAME,
+    ds_run_as: str,
     pipeline_version: str = "eval",
     mlflow_module: Any | None = None,
     cases: list[Step2aEvalContext] | None = None,
@@ -44,9 +58,10 @@ def run_step2a_evaluation(
     as ``sonnet:4.5``. Each slot defaults to the hosted
     ``system.ai.claude-<family>-<version>`` foundation model unless overridden
     (see :mod:`edvise.genai.mapping.eval.models`). Each model is one MLflow
-    run in ``experiment_name``; run metrics are the mean across the reference
-    cases, so the experiment compares the models.
+    run under ``/Users/<ds_run_as>/``; run metrics are the mean across the
+    reference cases, so the experiment compares the models.
     """
+    experiment_name = experiment_name_for(ds_run_as)
     loaded = (
         cases if cases is not None else load_step2a_reference_cases(catalog=catalog)
     )
