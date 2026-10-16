@@ -34,9 +34,13 @@ def assess_step2a(outputs: Any, expectations: dict[str, Any]) -> Step2aAssessmen
     """
     gold_manifest = expectations["gold_manifest"]
     schema_contract = expectations.get("schema_contract")
+    institution_id = _institution_id(gold_manifest)
     manifest, parse_error = _coerce_manifest(outputs)
     if manifest is None:
-        return _failed_assessment(parse_error or "prediction was not a manifest")
+        return _failed_assessment(
+            parse_error or "prediction was not a manifest",
+            institution_id=institution_id,
+        )
 
     is_valid, validation_error = validate_envelope_dict(manifest)
     scores = score_result(
@@ -82,7 +86,9 @@ def _coerce_manifest(outputs: Any) -> tuple[dict[str, Any] | None, str | None]:
     return parsed, None
 
 
-def _failed_assessment(error: str) -> Step2aAssessment:
+def _failed_assessment(
+    error: str, *, institution_id: str | None = None
+) -> Step2aAssessment:
     return Step2aAssessment(
         0.0,
         0.0,
@@ -93,7 +99,7 @@ def _failed_assessment(error: str) -> Step2aAssessment:
             "headline_metrics_zeroed": True,
             "source_exact_undefined": False,
             "execution_ready_undefined": False,
-            "institution_id": None,
+            "institution_id": institution_id,
             "overall": None,
             "cohort": None,
             "course": None,
@@ -111,7 +117,8 @@ def _diagnostic(
 ) -> dict[str, Any]:
     if not scores:
         return _failed_assessment(
-            validation_error or "scoring produced no result"
+            validation_error or "scoring produced no result",
+            institution_id=institution_id,
         ).diagnostic
     field_scores: list[dict[str, Any]] = []
     entities: dict[str, Any] = {}

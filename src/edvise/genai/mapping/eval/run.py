@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from edvise.genai.mapping.eval.dataset import (
@@ -129,6 +130,11 @@ def _execute_evaluation(
             }
         )
         _log_operational_metrics(mlflow, observation)
+        _log_predicted_manifests(mlflow, observation)
+        mlflow.log_table(
+            data=overall_by_school_table(diagnostics),
+            artifact_file="diagnostics/step2a_overall_by_school.json",
+        )
         mlflow.log_dict(
             {
                 "prompt_variant": PROMPT_VARIANT,
@@ -162,6 +168,79 @@ def _mlflow_scorers(mlflow: Any, diagnostics: list[dict[str, Any]]) -> list[Any]
         return assess_step2a(outputs, expectations).execution_ready
 
     return [envelope_valid, source_exact, execution_ready]
+
+
+_OVERALL_COLUMNS = (
+    "map_decision_accuracy",
+    "mappable_precision_strict",
+    "mappable_recall_strict",
+    "source_exact_accuracy_gold_mappable",
+    "row_selection_accuracy",
+    "row_selection_accuracy_non_anyrow",
+    "join_f1",
+    "join_table_accuracy",
+    "join_key_accuracy",
+    "degree_filter_accuracy",
+    "exact_field_match_rate",
+    "execution_ready_rate",
+)
+
+
+def overall_by_school_table(diagnostics: list[dict[str, Any]]) -> dict[str, list[Any]]:
+    """One row per school, with that case's ``overall`` scores as columns.
+
+    A school that fails before scoring still gets a row. Its metric columns
+    are empty and ``validation_error`` says why. A repeated school keeps the
+    later row, which is the scored call rather than the pre-flight probe.
+    """
+    columns = (
+        "institution_id",
+        "validation_passed",
+        "validation_error",
+        *_OVERALL_COLUMNS,
+    )
+    rows: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+    for index, case in enumerate(diagnostics):
+        institution_id = case.get("institution_id")
+        school = institution_id.strip() if isinstance(institution_id, str) else ""
+        key = school or f"__unidentified_{index}"
+        overall = case.get("overall")
+        scores = overall if isinstance(overall, dict) else {}
+        row: dict[str, Any] = {
+            "institution_id": school or None,
+            "validation_passed": case.get("validation_passed"),
+            "validation_error": case.get("validation_error"),
+        }
+        for column in _OVERALL_COLUMNS:
+            row[column] = scores.get(column)
+        if key not in rows:
+            order.append(key)
+        rows[key] = row
+    return {column: [rows[key][column] for key in order] for column in columns}
+
+
+def _log_predicted_manifests(mlflow: Any, observation: PredictionObservation) -> None:
+    """Write one predicted manifest per reference case.
+
+    ``mlflow.genai.evaluate`` probes the first case before scoring, so the
+    same institution can appear twice. The later call is the scored one.
+    """
+    latest: dict[str, Any] = {}
+    for record in observation.manifests:
+        institution_id = str(record.get("institution_id") or "").strip()
+        if institution_id:
+            latest[institution_id] = record.get("manifest")
+    for institution_id, manifest in latest.items():
+        mlflow.log_dict(
+            manifest if isinstance(manifest, dict) else {"response": manifest},
+            f"manifests/{_artifact_stem(institution_id)}.json",
+        )
+
+
+def _artifact_stem(institution_id: str) -> str:
+    stem = re.sub(r"[^A-Za-z0-9._-]+", "_", institution_id).strip("._")
+    return stem or "manifest"
 
 
 def _log_operational_metrics(mlflow: Any, observation: PredictionObservation) -> None:

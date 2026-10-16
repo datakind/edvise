@@ -276,6 +276,43 @@ def test_run_once_keeps_text_blocks_and_drops_reasoning(monkeypatch, capsys) -> 
     assert capsys.readouterr().out == ""
 
 
+def test_run_once_fails_when_the_model_returns_only_reasoning(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "edvise.genai.mapping.schema_mapping_agent.manifest.eval.ChatCompletionChunk",
+        _FakeChunk,
+    )
+    chunks = [
+        _FakeChunk(
+            [{"type": "reasoning", "summary": [{"type": "summary_text", "text": ""}]}]
+        )
+    ]
+    client = _FakeClient()
+    client.chat.completions.create = lambda **_kwargs: _FakeStreamOfChunks(chunks)  # type: ignore[method-assign]
+
+    result = run_once("system.ai.claude-sonnet-5", "prompt", client)
+    assert result["success"] is False
+    assert result["response"] is None
+    assert "no answer text" in result["error"]
+    assert result["reasoning"][0]["type"] == "reasoning"
+
+
+def test_run_once_fails_when_the_model_returns_no_text(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "edvise.genai.mapping.schema_mapping_agent.manifest.eval.ChatCompletionChunk",
+        _FakeChunk,
+    )
+    client = _FakeClient()
+    client.chat.completions.create = lambda **_kwargs: _FakeStreamOfChunks(  # type: ignore[method-assign]
+        [_FakeChunk("   ")]
+    )
+
+    result = run_once("system.ai.claude-sonnet-5", "prompt", client)
+    assert result["success"] is False
+    assert result["response"] is None
+    assert result["error"].endswith("Model returned no answer text.")
+    assert result["reasoning"] == []
+
+
 def test_run_once_returns_model_refusal_as_a_failed_call(monkeypatch) -> None:
     monkeypatch.setattr(
         "edvise.genai.mapping.schema_mapping_agent.manifest.eval.ChatCompletionChunk",

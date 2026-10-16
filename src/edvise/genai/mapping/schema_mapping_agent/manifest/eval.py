@@ -286,6 +286,14 @@ def run_once(
         if log_cache_usage:
             log_gateway_cache_usage_if_present(final_usage, log=logger, model=model)
 
+        if not full_text.strip():
+            if reasoning:
+                raise ValueError(
+                    "Model returned reasoning but no answer text. "
+                    "The token budget was spent before the manifest."
+                )
+            raise ValueError("Model returned no answer text.")
+
         latency_s = time.perf_counter() - start
 
         # For models with prefill, reattach the brace if needed; for others, just strip fences

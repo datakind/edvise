@@ -20,9 +20,10 @@ from edvise.genai.mapping.shared.databricks_ai_gateway import (
 
 @dataclass
 class PredictionObservation:
-    """Latency and response size captured while ``predict_fn`` runs."""
+    """Latency, response size, and predicted manifests captured while ``predict_fn`` runs."""
 
     calls: list[dict[str, Any]] = field(default_factory=list)
+    manifests: list[dict[str, Any]] = field(default_factory=list)
 
 
 def make_step2a_predict_fn(
@@ -71,6 +72,11 @@ def make_step2a_predict_fn(
                 disable_tracing=False
             )
         result = run_once(gateway_model_id, prompt, holder["client"])
+        predicted = _manifest_from_call(
+            result,
+            institution_id=institution_id,
+            pipeline_version=pipeline_version,
+        )
         if observation is not None:
             observation.calls.append(
                 {
@@ -82,20 +88,33 @@ def make_step2a_predict_fn(
                     "reasoning": result.get("reasoning") or [],
                 }
             )
-        if not result.get("success"):
-            return {"error": result.get("error") or "Step 2a prediction failed"}
-        raw = result.get("response")
-        try:
-            parsed = json.loads(raw) if isinstance(raw, str) else raw
-        except json.JSONDecodeError as exc:
-            return {"error": str(exc), "response": raw}
-        if not isinstance(parsed, dict):
-            return {
-                "error": "Step 2a prediction was not a JSON object",
-                "response": raw,
-            }
-        parsed["institution_id"] = institution_id
-        parsed["pipeline_version"] = pipeline_version or "eval"
-        return parsed
+            observation.manifests.append(
+                {"institution_id": institution_id, "manifest": predicted}
+            )
+        return predicted
 
     return predict_fn
+
+
+def _manifest_from_call(
+    result: dict[str, Any],
+    *,
+    institution_id: str,
+    pipeline_version: str,
+) -> dict[str, Any]:
+    """Turn one gateway call into the manifest the scorers receive."""
+    if not result.get("success"):
+        return {"error": result.get("error") or "Step 2a prediction failed"}
+    raw = result.get("response")
+    try:
+        parsed = json.loads(raw) if isinstance(raw, str) else raw
+    except json.JSONDecodeError as exc:
+        return {"error": str(exc), "response": raw}
+    if not isinstance(parsed, dict):
+        return {
+            "error": "Step 2a prediction was not a JSON object",
+            "response": raw,
+        }
+    parsed["institution_id"] = institution_id
+    parsed["pipeline_version"] = pipeline_version or "eval"
+    return parsed

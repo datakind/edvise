@@ -22,7 +22,11 @@ from edvise.genai.mapping.eval.predict import (
     PredictionObservation,
     make_step2a_predict_fn,
 )
-from edvise.genai.mapping.eval.run import experiment_name_for, run_step2a_evaluation
+from edvise.genai.mapping.eval.run import (
+    experiment_name_for,
+    overall_by_school_table,
+    run_step2a_evaluation,
+)
 from edvise.genai.mapping.eval.scorers import assess_step2a
 from edvise.genai.mapping.schema_mapping_agent.manifest.schemas import (
     MappingManifestEnvelope,
@@ -139,6 +143,7 @@ def test_invalid_prediction_zeros_headline_scores() -> None:
     assert assessment.execution_ready == 0.0
     assert assessment.diagnostic["validation_passed"] is False
     assert "gateway timeout" in assessment.diagnostic["validation_error"]
+    assert assessment.diagnostic["institution_id"] == "synthetic_coastal_cc"
     assert assessment.diagnostic["field_scores"] == []
 
 
@@ -358,6 +363,9 @@ def test_predict_fn_injects_envelope_fields_and_records_latency(
     assert observation.calls[0]["latency_s"] == 1.25
     assert observation.calls[0]["response_chars"] == 18
     assert observation.calls[0]["reasoning"] == [{"type": "reasoning", "summary": []}]
+    assert observation.manifests == [
+        {"institution_id": "synthetic_coastal_cc", "manifest": predicted}
+    ]
 
 
 def test_predict_fn_returns_error_payload_when_gateway_fails(
@@ -495,6 +503,9 @@ def test_run_logs_comparison_params_and_diagnostic(
         log_params=lambda params: logged["params"].append(dict(params)),
         log_metric=lambda key, value: logged["metrics"].__setitem__(key, value),
         log_dict=lambda payload, path: logged["artifacts"].__setitem__(path, payload),
+        log_table=lambda data, artifact_file: logged["artifacts"].__setitem__(
+            artifact_file, data
+        ),
     )
 
     run_ids = run_step2a_evaluation(
@@ -529,6 +540,32 @@ def test_run_logs_comparison_params_and_diagnostic(
     assert artifact["cases"][0]["validation_passed"] is True
     assert len(artifact["cases"][0]["field_scores"]) == 3
     assert artifact["predictions"][0]["latency_s"] == 2.5
+    manifest = logged["artifacts"]["manifests/synthetic_coastal_cc.json"]
+    assert manifest["institution_id"] == "synthetic_coastal_cc"
+    assert manifest["pipeline_version"] == "eval"
+    table = logged["artifacts"]["diagnostics/step2a_overall_by_school.json"]
+    assert table["institution_id"] == ["synthetic_coastal_cc"]
+    assert table["validation_passed"] == [True]
+    assert table["source_exact_accuracy_gold_mappable"] == [1.0]
+    assert table["execution_ready_rate"] == [1.0]
+
+
+def test_overall_table_keeps_a_row_when_scoring_fails() -> None:
+    table = overall_by_school_table(
+        [
+            {
+                "institution_id": "synthetic_coastal_cc",
+                "validation_passed": False,
+                "validation_error": "Model returned no answer text.",
+                "overall": None,
+            }
+        ]
+    )
+    assert table["institution_id"] == ["synthetic_coastal_cc"]
+    assert table["validation_passed"] == [False]
+    assert table["validation_error"] == ["Model returned no answer text."]
+    assert table["source_exact_accuracy_gold_mappable"] == [None]
+    assert table["execution_ready_rate"] == [None]
 
 
 def _write_pin(current: Path, *, institution_id: str) -> SimpleNamespace:
