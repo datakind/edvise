@@ -8,6 +8,7 @@ from edvise.student_selection.filter_inference import (
     exclude_training_cohort_students,
     filter_inference_cohort,
     filter_inference_term,
+    graduation_open_window,
 )
 
 
@@ -292,3 +293,226 @@ def test_exclude_training_cohort_students_all_excluded_raises():
             df,
             training_cohorts=["fall 2023-24"],
         )
+
+
+_INTENSITY_LIMITS = {
+    "FULL-TIME": (3.0, "year"),
+    "PART-TIME": (4.5, "year"),
+}
+
+
+def _checkpoint_row(
+    *,
+    student_id: int,
+    cohort_term: str,
+    cohort: str,
+    intensity: str,
+    ckpt_term: str = "SPRING",
+    ckpt_year: str = "2025-26",
+) -> dict:
+    return {
+        "id": student_id,
+        "cohort_term": cohort_term,
+        "cohort": cohort,
+        "enrollment_intensity_first_term": intensity,
+        "student_term_enrollment_intensity": intensity,
+        "academic_term": ckpt_term,
+        "academic_year": ckpt_year,
+    }
+
+
+def test_exclude_training_cohort_keeps_in_window_part_time():
+    """As of spring 2025-26 a shared cohort drops labelable FT and keeps open PT."""
+    df = pd.DataFrame(
+        [
+            # FT fall 2023-24: 6 terms = 3.0 years → labelable
+            _checkpoint_row(
+                student_id=1,
+                cohort_term="FALL",
+                cohort="2023-24",
+                intensity="FULL-TIME",
+            ),
+            # PT fall 2023-24: 3.0 years < 4.5 → still open, same training cohort
+            _checkpoint_row(
+                student_id=2,
+                cohort_term="FALL",
+                cohort="2023-24",
+                intensity="PART-TIME",
+            ),
+            # PT spring 2021-22: 9 terms = 4.5 years → labelable
+            _checkpoint_row(
+                student_id=3,
+                cohort_term="SPRING",
+                cohort="2021-22",
+                intensity="PART-TIME",
+            ),
+            # Labelable, but this cohort was not used in training
+            _checkpoint_row(
+                student_id=4,
+                cohort_term="FALL",
+                cohort="2021-22",
+                intensity="FULL-TIME",
+            ),
+        ]
+    )
+    result = exclude_training_cohort_students(
+        df,
+        training_cohorts=["fall 2023-24", "spring 2021-22"],
+        as_of_term="spring 2025-26",
+        intensity_time_limits=_INTENSITY_LIMITS,
+        num_terms_in_year=2,
+    )
+    assert set(result["id"]) == {2, 4}
+
+
+def test_student_terms_open_window_uses_entry_intensity_on_sparse_index():
+    """Cohort-entry intensity follows the sparse index left by term filtering."""
+    specs = (
+        (1, "2023-24", "FULL-TIME"),  # labelable at 3.0 years
+        (2, "2023-24", "PART-TIME"),  # same elapsed time, window still open
+        (4, "2021-22", "FULL-TIME"),  # outside the training cohorts
+    )
+    rows = []
+    term_rows = []
+    for student_id, cohort, entry_intensity in specs:
+        row = _checkpoint_row(
+            student_id=student_id,
+            cohort_term="FALL",
+            cohort=cohort,
+            intensity="FULL-TIME",
+        )
+        row.pop("enrollment_intensity_first_term")
+        rows.append(row)
+        if cohort != "2023-24":
+            continue
+        term_rows.append(
+            {
+                "id": student_id,
+                "academic_term": "FALL",
+                "academic_year": cohort,
+                "student_term_enrollment_intensity": entry_intensity,
+            }
+        )
+        # Checkpoint-term intensity must not override cohort entry.
+        term_rows.append(
+            {
+                "id": student_id,
+                "academic_term": "SPRING",
+                "academic_year": "2025-26",
+                "student_term_enrollment_intensity": "FULL-TIME",
+            }
+        )
+    result = exclude_training_cohort_students(
+        pd.DataFrame(rows, index=[10, 25, 40]),
+        training_cohorts=["fall 2023-24"],
+        as_of_term="spring 2025-26",
+        intensity_time_limits=_INTENSITY_LIMITS,
+        num_terms_in_year=2,
+        student_terms=pd.DataFrame(term_rows),
+        student_id_col="id",
+    )
+    assert list(result["id"]) == [2, 4]
+    assert list(result.index) == [25, 40]
+
+
+def test_exclude_training_cohort_uses_first_term_intensity_not_checkpoint():
+    """PT at enrollment keeps the 4.5-year window even if FT at checkpoint."""
+    df = pd.DataFrame(
+        [
+            {
+                **_checkpoint_row(
+                    student_id=1,
+                    cohort_term="FALL",
+                    cohort="2023-24",
+                    intensity="FULL-TIME",
+                ),
+                "enrollment_intensity_first_term": "PART-TIME",
+            },
+        ]
+    )
+    result = exclude_training_cohort_students(
+        df,
+        training_cohorts=["fall 2023-24"],
+        as_of_term="spring 2025-26",
+        intensity_time_limits=_INTENSITY_LIMITS,
+        num_terms_in_year=2,
+    )
+    assert set(result["id"]) == {1}
+
+
+def test_exclude_training_cohort_unknown_intensity_stays_excluded():
+    df = pd.DataFrame(
+        [
+            _checkpoint_row(
+                student_id=1,
+                cohort_term="FALL",
+                cohort="2024-25",
+                intensity="FULL-TIME",
+            ),
+            {
+                "id": 2,
+                "cohort_term": "FALL",
+                "cohort": "2024-25",
+                "enrollment_intensity_first_term": pd.NA,
+                "student_term_enrollment_intensity": pd.NA,
+                "academic_term": "SPRING",
+                "academic_year": "2025-26",
+            },
+        ]
+    )
+    result = exclude_training_cohort_students(
+        df,
+        training_cohorts=["fall 2024-25"],
+        as_of_term="spring 2025-26",
+        intensity_time_limits=_INTENSITY_LIMITS,
+        num_terms_in_year=2,
+    )
+    assert set(result["id"]) == {1}
+
+
+def test_graduation_open_window_only_for_graduation():
+    graduation = type(
+        "Preprocessing",
+        (),
+        {
+            "target": type(
+                "Target",
+                (),
+                {
+                    "type_": "graduation",
+                    "intensity_time_limits": _INTENSITY_LIMITS,
+                    "num_terms_in_year": 2,
+                },
+            )()
+        },
+    )()
+    credits = type(
+        "Preprocessing",
+        (),
+        {
+            "target": type(
+                "Target",
+                (),
+                {"type_": "credits_earned", "intensity_time_limits": _INTENSITY_LIMITS},
+            )()
+        },
+    )()
+    window = graduation_open_window(
+        graduation, ["fall 2024-25", "spring 2025-26", "spring 2024-25"]
+    )
+    assert window["as_of_term"] == "spring 2025-26"
+    assert window["num_terms_in_year"] == 2
+    assert graduation_open_window(credits, ["spring 2025-26"]) == {}
+    # Fall 2024, then Spring 2025, then Fall 2025.
+    assert (
+        graduation_open_window(graduation, ["spring 2024-25", "fall 2024-25"])[
+            "as_of_term"
+        ]
+        == "spring 2024-25"
+    )
+    assert (
+        graduation_open_window(graduation, ["spring 2024-25", "fall 2025-26"])[
+            "as_of_term"
+        ]
+        == "fall 2025-26"
+    )
