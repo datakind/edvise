@@ -114,25 +114,6 @@ def compute_target(
     )
     # get all students for which a target label can accurately be computed
     # i.e. the data in df covers their last "on-time" graduation term
-    intensity_num_terms = utils.data_cleaning.convert_intensity_time_limits(
-        "term", intensity_time_limits, num_terms_in_year=num_terms_in_year
-    )
-    # Fall-start, four terms per year: N academic years from first fall through
-    # spring of year N is N * 4 - 1 terms. Summer-start calendars span N * 4 terms.
-    # See :func:`shared.apply_on_time_term_budget`.
-    intensity_num_terms = shared.apply_on_time_term_budget(
-        intensity_num_terms,
-        num_terms_in_year=num_terms_in_year,
-        first_term_of_year=first_term_of_year,
-    )
-
-    intensity_time_limits_for_eligibility = t.cast(
-        utils.types.IntensityTimeLimitsType,
-        {
-            intensity: (float(num_terms), "term")
-            for intensity, num_terms in intensity_num_terms.items()
-        },
-    )
     ckpt_include_cols = student_id_cols + [term_rank_col, enrollment_intensity_col]
     if "academic_term" in df.columns:
         ckpt_include_cols = ckpt_include_cols + ["academic_term"]
@@ -147,7 +128,7 @@ def compute_target(
             term_is_core_col="term_is_core",
             exclude_non_core_terms=False,
         ),
-        intensity_time_limits=intensity_time_limits_for_eligibility,
+        intensity_time_limits=intensity_time_limits,
         max_term_rank=max_term_rank,
         num_terms_in_year=num_terms_in_year,
         student_id_cols=student_id_cols,

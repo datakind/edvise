@@ -301,6 +301,23 @@ _INTENSITY_LIMITS = {
 }
 
 
+def _entry_term_row(
+    *,
+    student_id: int,
+    cohort_term: str,
+    cohort: str,
+    intensity: str,
+    term_rank: int = 0,
+) -> dict:
+    return {
+        "id": student_id,
+        "academic_term": cohort_term,
+        "academic_year": cohort,
+        "student_term_enrollment_intensity": intensity,
+        "term_rank": term_rank,
+    }
+
+
 def _checkpoint_row(
     *,
     student_id: int,
@@ -309,15 +326,16 @@ def _checkpoint_row(
     intensity: str,
     ckpt_term: str = "SPRING",
     ckpt_year: str = "2025-26",
+    term_rank: int = 5,
 ) -> dict:
     return {
         "id": student_id,
         "cohort_term": cohort_term,
         "cohort": cohort,
-        "enrollment_intensity_first_term": intensity,
         "student_term_enrollment_intensity": intensity,
         "academic_term": ckpt_term,
         "academic_year": ckpt_year,
+        "term_rank": term_rank,
     }
 
 
@@ -345,6 +363,7 @@ def test_exclude_training_cohort_keeps_in_window_part_time():
                 cohort_term="SPRING",
                 cohort="2021-22",
                 intensity="PART-TIME",
+                term_rank=8,
             ),
             # Labelable, but this cohort was not used in training
             _checkpoint_row(
@@ -355,12 +374,51 @@ def test_exclude_training_cohort_keeps_in_window_part_time():
             ),
         ]
     )
+    student_terms = pd.DataFrame(
+        [
+            _entry_term_row(
+                student_id=1,
+                cohort_term="FALL",
+                cohort="2023-24",
+                intensity="FULL-TIME",
+            ),
+            _entry_term_row(
+                student_id=2,
+                cohort_term="FALL",
+                cohort="2023-24",
+                intensity="PART-TIME",
+            ),
+            _entry_term_row(
+                student_id=3,
+                cohort_term="SPRING",
+                cohort="2021-22",
+                intensity="PART-TIME",
+                term_rank=0,
+            ),
+            _entry_term_row(
+                student_id=4,
+                cohort_term="FALL",
+                cohort="2021-22",
+                intensity="FULL-TIME",
+            ),
+            # Inference-term rows (must not drive the open-window budget).
+            {
+                "id": 3,
+                "academic_term": "SPRING",
+                "academic_year": "2025-26",
+                "student_term_enrollment_intensity": "PART-TIME",
+                "term_rank": 8,
+            },
+        ]
+    )
     result = exclude_training_cohort_students(
         df,
         training_cohorts=["fall 2023-24", "spring 2021-22"],
         as_of_term="spring 2025-26",
         intensity_time_limits=_INTENSITY_LIMITS,
         num_terms_in_year=2,
+        student_terms=student_terms,
+        student_id_col="id",
     )
     assert set(result["id"]) == {2, 4}
 
@@ -381,18 +439,15 @@ def test_student_terms_open_window_uses_entry_intensity_on_sparse_index():
             cohort=cohort,
             intensity="FULL-TIME",
         )
-        row.pop("enrollment_intensity_first_term")
         rows.append(row)
         if cohort != "2023-24":
             continue
-        term_rows.append(
-            {
-                "id": student_id,
-                "academic_term": "FALL",
-                "academic_year": cohort,
-                "student_term_enrollment_intensity": entry_intensity,
-            }
-        )
+        term_rows.append(_entry_term_row(
+            student_id=student_id,
+            cohort_term="FALL",
+            cohort=cohort,
+            intensity=entry_intensity,
+        ))
         # Checkpoint-term intensity must not override cohort entry.
         term_rows.append(
             {
@@ -400,6 +455,7 @@ def test_student_terms_open_window_uses_entry_intensity_on_sparse_index():
                 "academic_term": "SPRING",
                 "academic_year": "2025-26",
                 "student_term_enrollment_intensity": "FULL-TIME",
+                "term_rank": 5,
             }
         )
     result = exclude_training_cohort_students(
@@ -415,19 +471,26 @@ def test_student_terms_open_window_uses_entry_intensity_on_sparse_index():
     assert list(result.index) == [25, 40]
 
 
-def test_exclude_training_cohort_uses_first_term_intensity_not_checkpoint():
+def test_exclude_training_cohort_uses_entry_intensity_not_checkpoint():
     """PT at enrollment keeps the 4.5-year window even if FT at checkpoint."""
     df = pd.DataFrame(
         [
-            {
-                **_checkpoint_row(
-                    student_id=1,
-                    cohort_term="FALL",
-                    cohort="2023-24",
-                    intensity="FULL-TIME",
-                ),
-                "enrollment_intensity_first_term": "PART-TIME",
-            },
+            _checkpoint_row(
+                student_id=1,
+                cohort_term="FALL",
+                cohort="2023-24",
+                intensity="FULL-TIME",
+            ),
+        ]
+    )
+    student_terms = pd.DataFrame(
+        [
+            _entry_term_row(
+                student_id=1,
+                cohort_term="FALL",
+                cohort="2023-24",
+                intensity="PART-TIME",
+            ),
         ]
     )
     result = exclude_training_cohort_students(
@@ -436,6 +499,8 @@ def test_exclude_training_cohort_uses_first_term_intensity_not_checkpoint():
         as_of_term="spring 2025-26",
         intensity_time_limits=_INTENSITY_LIMITS,
         num_terms_in_year=2,
+        student_terms=student_terms,
+        student_id_col="id",
     )
     assert set(result["id"]) == {1}
 
@@ -448,16 +513,27 @@ def test_exclude_training_cohort_unknown_intensity_stays_excluded():
                 cohort_term="FALL",
                 cohort="2024-25",
                 intensity="FULL-TIME",
+                term_rank=1,
             ),
             {
                 "id": 2,
                 "cohort_term": "FALL",
                 "cohort": "2024-25",
-                "enrollment_intensity_first_term": pd.NA,
                 "student_term_enrollment_intensity": pd.NA,
                 "academic_term": "SPRING",
                 "academic_year": "2025-26",
+                "term_rank": 1,
             },
+        ]
+    )
+    student_terms = pd.DataFrame(
+        [
+            _entry_term_row(
+                student_id=1,
+                cohort_term="FALL",
+                cohort="2024-25",
+                intensity="FULL-TIME",
+            ),
         ]
     )
     result = exclude_training_cohort_students(
@@ -466,6 +542,8 @@ def test_exclude_training_cohort_unknown_intensity_stays_excluded():
         as_of_term="spring 2025-26",
         intensity_time_limits=_INTENSITY_LIMITS,
         num_terms_in_year=2,
+        student_terms=student_terms,
+        student_id_col="id",
     )
     assert set(result["id"]) == {1}
 

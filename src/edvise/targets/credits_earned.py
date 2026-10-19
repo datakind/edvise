@@ -133,21 +133,13 @@ def compute_target(
     )
 
     # 7. Eligibility (see :func:`shared.get_students_with_max_target_term_in_dataset`):
-    intensity_time_limits_for_eligibility = t.cast(
-        utils.types.IntensityTimeLimitsType,
-        {
-            intensity: (float(num_terms), "term")
-            for intensity, num_terms in intensity_num_terms.items()
-        },
-    )
-
     # Filter to labelable students:
     # Only label students whose "deadline term" falls within the available data
     # Prevents mislabeling: if a student's data ends before their deadline, we can't know if they'll succeed
     df_labelable_students = shared.get_students_with_max_target_term_in_dataset(
         df,
         checkpoint=df_ckpt,
-        intensity_time_limits=intensity_time_limits_for_eligibility,
+        intensity_time_limits=intensity_time_limits,
         max_term_rank=max_term_rank,
         num_terms_in_year=num_terms_in_year,
         student_id_cols=student_id_cols,

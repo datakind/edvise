@@ -4,17 +4,17 @@ import typing as t
 
 import pandas as pd
 
-from edvise.feature_generation.constants import (
-    DEFAULT_CORE_TERMS,
-    DEFAULT_SEASON_ORDER_MAP,
-)
 from edvise.shared.utils import cohort_pair_columns
-from edvise.utils.data_cleaning import convert_intensity_time_limits
+from edvise.targets import shared as target_shared
+from edvise.utils.academic_terms import (
+    DEFAULT_FIRST_TERM_OF_YEAR,
+    cohort_term_sort_ranks,
+)
 from edvise.utils.types import IntensityTimeLimitsType
 
 _ACADEMIC_TERM_COLS = ("academic_term", "academic_year")
 _TERM_INTENSITY_COL = "student_term_enrollment_intensity"
-_FIRST_TERM_INTENSITY_COL = "enrollment_intensity_first_term"
+_TERM_RANK_COL = "term_rank"
 
 
 def parse_term_filter_param(value: t.Optional[str]) -> t.Optional[list[str]]:
@@ -249,6 +249,7 @@ def exclude_training_cohort_students(
     as_of_term: str | None = None,
     intensity_time_limits: IntensityTimeLimitsType | None = None,
     num_terms_in_year: int = 4,
+    first_term_of_year: str = DEFAULT_FIRST_TERM_OF_YEAR,
     student_terms: pd.DataFrame | None = None,
     student_id_col: str = "student_id",
 ) -> pd.DataFrame:
@@ -275,9 +276,9 @@ def exclude_training_cohort_students(
         # Only training-cohort rows can be kept; skip the rest of the frame.
         still_open = _still_inside_intensity_window(
             df.loc[exclude_mask],
-            as_of_term=as_of_term,
             intensity_time_limits=intensity_time_limits,
             num_terms_in_year=num_terms_in_year,
+            first_term_of_year=first_term_of_year,
             cohort_term_column=cohort_term_column,
             cohort_column=cohort_column,
             student_terms=student_terms,
@@ -312,203 +313,167 @@ def exclude_training_cohort_students(
     return df_filtered
 
 
-def _season_position(num_terms_in_year: int) -> dict[str, int]:
-    """0-based rank inside one academic year, taken from ``DEFAULT_SEASON_ORDER_MAP``.
-
-    The map numbers a calendar year from spring. Fall and winter open academic
-    year N; spring and summer close it, so spring 2024-25 sorts before fall
-    2025-26. Two-term years keep the core terms. Three-term years drop summer.
-    """
-    ordered = sorted(
-        DEFAULT_SEASON_ORDER_MAP,
-        key=lambda season: (
-            0 if season in ("fall", "winter") else 1,
-            DEFAULT_SEASON_ORDER_MAP[season],
-        ),
-    )
-    if num_terms_in_year == 2:
-        core = {term.lower() for term in DEFAULT_CORE_TERMS}
-        ordered = [season for season in ordered if season in core]
-    elif num_terms_in_year == 3:
-        ordered = ordered[:3]
-    return {season: index for index, season in enumerate(ordered)}
+def _first_term_of_year(preprocessing: object | None) -> str:
+    features = getattr(preprocessing, "features", None)
+    raw = getattr(features, "first_term_of_year", None)
+    if isinstance(raw, str) and raw.strip():
+        return raw.strip().upper()
+    return DEFAULT_FIRST_TERM_OF_YEAR
 
 
-def _term_index(
-    seasons: pd.Series, years: pd.Series, num_terms_in_year: int
-) -> pd.Series:
-    """Later terms compare greater. Unknown seasons are null."""
-    position = _season_position(num_terms_in_year)
-    season_key = seasons.astype("string").str.strip().str.lower()
-    year_start = pd.to_numeric(
-        years.astype("string").str.strip().str.split("-").str[0], errors="coerce"
-    )
-    return year_start * num_terms_in_year + season_key.map(position)
-
-
-def _latest_term(term_list: list[str], num_terms_in_year: int) -> str:
+def _latest_term(term_list: list[str], first_term_of_year: str) -> str:
+    """Latest inference label using the institution academic-year term order."""
     labels = _normalize_label_list(term_list)
-    parts = [label.split(maxsplit=1) for label in labels]
-    if not parts or any(len(part) < 2 for part in parts):
-        raise ValueError(
-            f"Inference terms must look like 'fall 2025-26', got {term_list!r}."
-        )
-    indexes = _term_index(
-        pd.Series([part[0] for part in parts]),
-        pd.Series([part[1] for part in parts]),
-        num_terms_in_year,
-    )
-    if indexes.isna().any():
-        raise ValueError(f"Could not order inference terms {term_list!r}.")
-    return labels[int(indexes.to_numpy().argmax())]
+    season_ranks = cohort_term_sort_ranks(first_term_of_year)
+
+    def sort_key(label: str) -> tuple[int, int]:
+        season, year = label.split(maxsplit=1)
+        rank = season_ranks.get(season)
+        if rank is None:
+            raise ValueError(
+                f"Inference terms must look like 'fall 2025-26', got {term_list!r}."
+            )
+        return int(year.split("-")[0]), rank
+
+    return max(labels, key=sort_key)
 
 
-def _intensity_by_term_label(
+def _value_at_cohort_entry(
     keys: pd.DataFrame,
     lookup: pd.DataFrame | None,
     *,
     student_id_col: str,
-    key_term_col: str,
-    key_year_col: str,
-    intensity_col: str = _TERM_INTENSITY_COL,
+    cohort_term_column: str,
+    cohort_column: str,
+    value_col: str,
     lookup_term_col: str = _ACADEMIC_TERM_COLS[0],
     lookup_year_col: str = _ACADEMIC_TERM_COLS[1],
 ) -> pd.Series:
-    """Map each key row to ``intensity_col`` on the lookup row with the same term label."""
+    """Map each row to ``value_col`` on the lookup row at cohort entry."""
     empty = pd.Series(pd.NA, index=keys.index)
     if lookup is None:
         return empty
     if not {
         student_id_col,
-        key_term_col,
-        key_year_col,
+        cohort_term_column,
+        cohort_column,
     }.issubset(keys.columns) or not {
         student_id_col,
         lookup_term_col,
         lookup_year_col,
-        intensity_col,
+        value_col,
     }.issubset(lookup.columns):
         return empty
 
-    label = _joined_labels(keys, key_term_col, key_year_col)
+    cohort_label = _joined_labels(keys, cohort_term_column, cohort_column)
     st = lookup[
-        [student_id_col, lookup_term_col, lookup_year_col, intensity_col]
+        [student_id_col, lookup_term_col, lookup_year_col, value_col]
     ].copy()
     st["_label"] = _joined_labels(st, lookup_term_col, lookup_year_col)
     merged = (
         keys[[student_id_col]]
-        .assign(_label=label.to_numpy())
+        .assign(_label=cohort_label.to_numpy())
         .merge(
             st.drop_duplicates([student_id_col, "_label"]),
             on=[student_id_col, "_label"],
             how="left",
         )
     )
-    return pd.Series(merged[intensity_col].to_numpy(), index=keys.index)
+    return pd.Series(merged[value_col].to_numpy(), index=keys.index)
 
 
-def _enrollment_intensity_for_open_window(
+def _entry_checkpoint_for_open_window(
     df: pd.DataFrame,
     *,
     student_terms: pd.DataFrame | None,
     student_id_col: str,
     cohort_term_column: str,
     cohort_column: str,
-) -> pd.Series:
-    """Intensity at cohort entry (not the checkpoint term when they differ)."""
-    if _FIRST_TERM_INTENSITY_COL in df.columns:
-        return df[_FIRST_TERM_INTENSITY_COL]
-
-    from_terms = _intensity_by_term_label(
+) -> pd.DataFrame | None:
+    """Cohort-entry checkpoint rows (same grain training labelability uses)."""
+    intensity = _value_at_cohort_entry(
         df,
         student_terms,
         student_id_col=student_id_col,
-        key_term_col=cohort_term_column,
-        key_year_col=cohort_column,
+        cohort_term_column=cohort_term_column,
+        cohort_column=cohort_column,
+        value_col=_TERM_INTENSITY_COL,
     )
-    if from_terms.notna().any():
-        logging.info(
-            "Using %s at cohort entry (%s not on frame).",
-            _TERM_INTENSITY_COL,
-            _FIRST_TERM_INTENSITY_COL,
+    term_rank = _value_at_cohort_entry(
+        df,
+        student_terms,
+        student_id_col=student_id_col,
+        cohort_term_column=cohort_term_column,
+        cohort_column=cohort_column,
+        value_col=_TERM_RANK_COL,
+    )
+
+    if student_terms is None and _TERM_INTENSITY_COL in df.columns:
+        at_entry = _joined_labels(df, cohort_term_column, cohort_column).eq(
+            _joined_labels(df, *_ACADEMIC_TERM_COLS)
         )
-        return from_terms
+        if at_entry.any():
+            intensity = intensity.where(intensity.notna(), df[_TERM_INTENSITY_COL])
+            if _TERM_RANK_COL in df.columns:
+                term_rank = term_rank.where(
+                    term_rank.notna(), df[_TERM_RANK_COL]
+                )
 
-    if _TERM_INTENSITY_COL not in df.columns:
-        return pd.Series(pd.NA, index=df.index)
+    if intensity.isna().all() or term_rank.isna().all():
+        return None
 
-    at_entry = _joined_labels(df, cohort_term_column, cohort_column).eq(
-        _joined_labels(df, *_ACADEMIC_TERM_COLS)
+    entry = pd.DataFrame(
+        {
+            _TERM_INTENSITY_COL: intensity,
+            _TERM_RANK_COL: pd.to_numeric(term_rank, errors="coerce"),
+            _ACADEMIC_TERM_COLS[0]: df[cohort_term_column],
+        },
+        index=df.index,
     )
-    if not at_entry.any():
-        return pd.Series(pd.NA, index=df.index)
-    logging.info(
-        "Using %s on checkpoint rows that coincide with cohort entry.",
-        _TERM_INTENSITY_COL,
-    )
-    out = pd.Series(pd.NA, index=df.index, dtype="object")
-    out.loc[at_entry] = df.loc[at_entry, _TERM_INTENSITY_COL]
-    return out
-
-
-def _year_limits_by_intensity(
-    intensity: pd.Series,
-    intensity_time_limits: IntensityTimeLimitsType,
-    num_terms_in_year: int,
-) -> pd.Series:
-    limits = {
-        str(k).strip().upper(): float(v)
-        for k, v in convert_intensity_time_limits(
-            "year", intensity_time_limits, num_terms_in_year=num_terms_in_year
-        ).items()
-    }
-    return intensity.astype("string").str.strip().str.upper().map(limits)
+    if student_id_col in df.columns:
+        entry[student_id_col] = df[student_id_col]
+    return entry
 
 
 def _still_inside_intensity_window(
     df: pd.DataFrame,
     *,
-    as_of_term: str,
     intensity_time_limits: IntensityTimeLimitsType,
     num_terms_in_year: int,
+    first_term_of_year: str,
     cohort_term_column: str,
     cohort_column: str,
     student_terms: pd.DataFrame | None = None,
     student_id_col: str = "student_id",
 ) -> pd.Series:
-    """True where elapsed years are under the student's own limit.
-
-    Year limits come from ``convert_intensity_time_limits``, the same helper
-    graduation targets use. Intensity is read at enrollment (first term),
-    not at checkpoint time. Missing intensity or start term stays excluded.
-    """
-    enrollment_intensity = _enrollment_intensity_for_open_window(
+    """True when the inference term is strictly before training's label boundary."""
+    entry_ckpt = _entry_checkpoint_for_open_window(
         df,
         student_terms=student_terms,
         student_id_col=student_id_col,
         cohort_term_column=cohort_term_column,
         cohort_column=cohort_column,
     )
-    if enrollment_intensity.isna().all():
+    if entry_ckpt is None or _TERM_RANK_COL not in df.columns:
         logging.warning(
-            "No enrollment-time intensity; excluding the full training cohort."
+            "Missing cohort-entry checkpoint or %s; excluding training cohort rows.",
+            _TERM_RANK_COL,
         )
         return pd.Series(False, index=df.index)
 
-    season, year = as_of_term.strip().lower().split(maxsplit=1)
-    as_of_idx = _term_index(
-        pd.Series([season]), pd.Series([year]), num_terms_in_year
-    ).iloc[0]
-    start_idx = _term_index(
-        df[cohort_term_column], df[cohort_column], num_terms_in_year
+    intensity_num_terms = target_shared.intensity_term_budgets(
+        intensity_time_limits,
+        num_terms_in_year=num_terms_in_year,
+        first_term_of_year=first_term_of_year,
     )
-    elapsed_years = (as_of_idx - start_idx + 1) / float(num_terms_in_year)
-    year_limit = _year_limits_by_intensity(
-        enrollment_intensity, intensity_time_limits, num_terms_in_year
+    ranked = target_shared.assign_student_max_term_rank(
+        entry_ckpt,
+        intensity_num_terms=intensity_num_terms,
+        num_terms_in_year=num_terms_in_year,
+        first_term_of_year=first_term_of_year,
     )
-    return (
-        elapsed_years.lt(year_limit) & start_idx.notna() & year_limit.notna()
-    ).fillna(False)
+    as_of_rank = pd.to_numeric(df[_TERM_RANK_COL], errors="coerce")
+    return as_of_rank.lt(ranked["student_max_term_rank"]).fillna(False)
 
 
 def graduation_open_window(
@@ -521,10 +486,12 @@ def graduation_open_window(
     if getattr(target, "type_", None) != "graduation" or not limits:
         return {}
     num_terms_in_year = int(getattr(target, "num_terms_in_year", None) or 4)
+    first_term_of_year = _first_term_of_year(preprocessing)
     return {
-        "as_of_term": _latest_term(inf_terms, num_terms_in_year),
+        "as_of_term": _latest_term(inf_terms, first_term_of_year),
         "intensity_time_limits": limits,
         "num_terms_in_year": num_terms_in_year,
+        "first_term_of_year": first_term_of_year,
     }
 
 
