@@ -662,6 +662,24 @@ class BiasMitigationConfig(pyd.BaseModel):
     )
 
 
+def bias_mitigation_is_configured(cfg: t.Any) -> bool:
+    """True when a legacy config sets a dual-threshold bias-mitigation rule."""
+    modeling = getattr(cfg, "modeling", None)
+    mitigation = (
+        getattr(modeling, "bias_mitigation", None) if modeling is not None else None
+    )
+    if mitigation is None:
+        return False
+    group = getattr(mitigation, "student_group", None)
+    threshold = getattr(mitigation, "custom_threshold", None)
+    return (
+        isinstance(group, str)
+        and bool(group.strip())
+        and isinstance(threshold, (int, float))
+        and not isinstance(threshold, bool)
+    )
+
+
 class PostprocessingConfig(pyd.BaseModel):
     enabled: bool = pyd.Field(
         default=False,
