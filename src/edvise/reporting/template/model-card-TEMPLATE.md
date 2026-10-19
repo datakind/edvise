@@ -162,6 +162,9 @@ _This section defines technical, statistical, and modeling terms used throughout
 ***Enrollment Intensity*** <a id="glossary-enrollment-intensity"></a><br>
 A classification indicating whether a student is enrolled full-time or part-time during a term.
 
+***Peak COVID Term*** <a id="glossary-peak-covid"></a><br>
+Academic terms that occurred during the height of the COVID-19 pandemic, when instructional formats and student outcomes may have differed from typical conditions.
+
 ***Pell Grant Recipient*** <a id="glossary-pell"></a><br>
 A student who receives a U.S. federal Pell Grant, typically awarded to students with demonstrated financial need.
 
