@@ -128,7 +128,6 @@ class TermFeatureSpec:
     term_rank: bool = True
     term_rank_core: bool = True
     term_rank_noncore: bool = True
-    term_in_peak_covid: bool = True
     term_is_core: bool = True
     term_is_noncore: bool = True
 
@@ -159,7 +158,6 @@ class CumulativeExpandingColumnSpec:
     """
 
     term_id: bool = True
-    term_in_peak_covid: bool = True
     term_is_core: bool = True
     term_is_noncore: bool = True
     term_is_while_student_enrolled_at_other_inst: bool = True

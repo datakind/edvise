@@ -280,7 +280,7 @@ def test_generate_ranked_feature_table_original_dtypes():
     )
 
     # original_dtypes uses string values as they would be stored in JSON
-    # This matches the actual format from MLflow: {"term_in_peak_covid": "bool", ...}
+    # This matches the actual format from MLflow: {"term_is_core": "bool", ...}
     original_dtypes = {
         "cummax_in_12_creds_took_course_subject_area_math": "bool",
         "term_gpa": "float64",

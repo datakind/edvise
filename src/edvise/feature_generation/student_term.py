@@ -229,7 +229,6 @@ def aggregate_from_course_level_features(
         "term_rank_noncore": ("term_rank_noncore", _first),
         "term_is_core": ("term_is_core", _first),
         "term_is_noncore": ("term_is_noncore", _first),
-        "term_in_peak_covid": ("term_in_peak_covid", _first),
     }
     prog_src = resolve_term_program_of_study_source(df, cols)
     if prog_src:

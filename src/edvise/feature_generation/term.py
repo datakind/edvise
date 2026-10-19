@@ -20,7 +20,6 @@ def add_features(
     *,
     first_term_of_year: types.TermType = constants.DEFAULT_FIRST_TERM_OF_YEAR,  # type: ignore
     core_terms: set[types.TermType] = constants.DEFAULT_CORE_TERMS,  # type: ignore
-    peak_covid_terms: set[tuple[str, str]] = constants.DEFAULT_PEAK_COVID_TERMS,
     year_col: str = "academic_year",
     term_col: str = "academic_term",
     spec: TermFeatureSpec | None = None,
@@ -38,8 +37,6 @@ def add_features(
             between core terms. Default value is {"FALL", "SPRING"}, which typically
             corresponds to a semester system; for schools on a trimester calendary,
             {"FALL", "WINTER", "SPRING"} is probably what you want.
-        peak_covid_terms: Set of (year, term) pairs considered by the institution as
-            occurring during "peak" COVID; for example, ``("2020-21", "SPRING")`` .
         spec: Optional toggles; default is all.
     """
     LOGGER.info("adding term features ...")
@@ -87,13 +84,6 @@ def add_features(
             term_col=term_col,
             terms_subset=noncore_terms,
             first_term_of_year=first_term_of_year,
-        )
-    if s.term_in_peak_covid:
-        assign_kw["term_in_peak_covid"] = ft.partial(
-            term_in_peak_covid,
-            year_col=year_col,
-            term_col=term_col,
-            peak_covid_terms=peak_covid_terms,
         )
     if s.term_is_core:
         assign_kw["term_is_core"] = ft.partial(
@@ -254,18 +244,6 @@ def add_term_order(
     g["term_order"] = (g["year"] * 100 + g["season_order"]).astype("Int64")
 
     return g
-
-
-def term_in_peak_covid(
-    df: pd.DataFrame,
-    *,
-    year_col: str = "academic_year",
-    term_col: str = "academic_term",
-    peak_covid_terms: set[tuple[str, str]],
-) -> pd.Series:
-    return pd.Series(
-        pd.MultiIndex.from_frame(df[[year_col, term_col]]).isin(peak_covid_terms)
-    )
 
 
 def term_in_subset(
