@@ -366,9 +366,7 @@ def _value_at_cohort_entry(
         return empty
 
     cohort_label = _joined_labels(keys, cohort_term_column, cohort_column)
-    st = lookup[
-        [student_id_col, lookup_term_col, lookup_year_col, value_col]
-    ].copy()
+    st = lookup[[student_id_col, lookup_term_col, lookup_year_col, value_col]].copy()
     st["_label"] = _joined_labels(st, lookup_term_col, lookup_year_col)
     merged = (
         keys[[student_id_col]]
@@ -415,9 +413,7 @@ def _entry_checkpoint_for_open_window(
         if at_entry.any():
             intensity = intensity.where(intensity.notna(), df[_TERM_INTENSITY_COL])
             if _TERM_RANK_COL in df.columns:
-                term_rank = term_rank.where(
-                    term_rank.notna(), df[_TERM_RANK_COL]
-                )
+                term_rank = term_rank.where(term_rank.notna(), df[_TERM_RANK_COL])
 
     if intensity.isna().all() or term_rank.isna().all():
         return None

@@ -442,12 +442,14 @@ def test_student_terms_open_window_uses_entry_intensity_on_sparse_index():
         rows.append(row)
         if cohort != "2023-24":
             continue
-        term_rows.append(_entry_term_row(
-            student_id=student_id,
-            cohort_term="FALL",
-            cohort=cohort,
-            intensity=entry_intensity,
-        ))
+        term_rows.append(
+            _entry_term_row(
+                student_id=student_id,
+                cohort_term="FALL",
+                cohort=cohort,
+                intensity=entry_intensity,
+            )
+        )
         # Checkpoint-term intensity must not override cohort entry.
         term_rows.append(
             {
