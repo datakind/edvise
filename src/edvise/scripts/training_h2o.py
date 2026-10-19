@@ -817,6 +817,30 @@ class TrainingTask:
 
         return model_name
 
+    def _defer_model_card_to_postprocessing(self) -> bool:
+        """Legacy bias-mitigation cards are written after school postprocessing."""
+        from edvise.configs.legacy import bias_mitigation_is_configured
+        from edvise.scripts.legacy_postprocessing import (
+            legacy_postprocess_script_exists,
+            should_defer_model_card_to_postprocessing,
+        )
+
+        post = getattr(self.cfg, "postprocessing", None)
+        enabled = bool(post is not None and getattr(post, "enabled", False))
+        script_exists = False
+        if (
+            self.spec.schema_type == "legacy"
+            and enabled
+            and bias_mitigation_is_configured(self.cfg)
+        ):
+            script_exists = legacy_postprocess_script_exists(self.args)
+        return should_defer_model_card_to_postprocessing(
+            schema_type=self.spec.schema_type,
+            cfg=self.cfg,
+            postprocessing_enabled=enabled,
+            postprocess_script_exists=script_exists,
+        )
+
     def create_model_card(self, model_name):
         # Initialize card
         card = self.spec.model_card_cls(
@@ -897,8 +921,14 @@ class TrainingTask:
         logging.info("Registering model in UC gold volume")
         model_name = self.register_model()
 
-        logging.info("Generating model card")
-        self.create_model_card(model_name)
+        if self._defer_model_card_to_postprocessing():
+            logging.info(
+                "Deferring the model card until after legacy postprocessing "
+                "because [modeling.bias_mitigation] is set."
+            )
+        else:
+            logging.info("Generating model card")
+            self.create_model_card(model_name)
 
         logging.info("Updating pipeline version in config")
         # Persist the runtime pipeline version (git tag / commit used by the job)
