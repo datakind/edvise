@@ -117,7 +117,6 @@ class ESFeatureGenerationTask:
             course_level_pattern=fc.course_level_pattern,
             core_terms=fc.core_terms,
             first_term_of_year=fc.first_term_of_year,
-            peak_covid_terms=fc.peak_covid_terms,
             key_course_subject_areas=fc.key_course_subject_areas,
             key_course_ids=fc.key_course_ids,
             cohort_input_columns=ES_COHORT_INPUT_COLUMNS,

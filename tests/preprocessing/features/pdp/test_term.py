@@ -6,7 +6,7 @@ from edvise.feature_generation import term
 
 
 @pytest.mark.parametrize(
-    ["df", "first_term_of_year", "core_terms", "peak_covid_terms", "exp"],
+    ["df", "first_term_of_year", "core_terms", "exp"],
     [
         (
             pd.DataFrame(
@@ -39,7 +39,6 @@ from edvise.feature_generation import term
             ),
             "FALL",
             {"FALL", "SPRING"},
-            {("2020-21", "SPRING"), ("2021-22", "FALL")},
             pd.DataFrame(
                 {
                     "student_guid": ["123", "123", "123", "123", "456", "456"],
@@ -81,7 +80,6 @@ from edvise.feature_generation import term
                     "term_rank": [1, 1, 2, 3, 0, 4],
                     "term_rank_core": [1, 1, pd.NA, 2, 0, pd.NA],
                     "term_rank_noncore": [pd.NA, pd.NA, 0, pd.NA, pd.NA, 1],
-                    "term_in_peak_covid": [False, False, False, True, False, False],
                     "term_is_core": [True, True, False, True, True, False],
                     "term_is_noncore": [False, False, True, False, False, True],
                 }
@@ -97,12 +95,11 @@ from edvise.feature_generation import term
         ),
     ],
 )
-def test_add_term_features(df, first_term_of_year, core_terms, peak_covid_terms, exp):
+def test_add_term_features(df, first_term_of_year, core_terms, exp):
     obs = term.add_features(
         df,
         first_term_of_year=first_term_of_year,
         core_terms=core_terms,
-        peak_covid_terms=peak_covid_terms,
     )
     assert isinstance(obs, pd.DataFrame)
     assert pd.testing.assert_frame_equal(obs, exp, check_dtype=False) is None
@@ -128,31 +125,6 @@ def test_add_term_features(df, first_term_of_year, core_terms, peak_covid_terms,
 def test_term_rank(df, year_col, term_col, terms_subset, exp):
     obs = term.term_rank(
         df, year_col=year_col, term_col=term_col, terms_subset=terms_subset
-    )
-    assert isinstance(obs, pd.Series) and not obs.empty
-    assert obs.equals(exp) or obs.compare(exp).empty
-
-
-@pytest.mark.parametrize(
-    ["df", "year_col", "term_col", "peak_covid_terms", "exp"],
-    [
-        (
-            pd.DataFrame(
-                {
-                    "year": ["20-21", "20-21", "21-22", "21-22", "21-22"],
-                    "term": ["FA", "SP", "FA", "SP", "SU"],
-                }
-            ),
-            "year",
-            "term",
-            [("20-21", "SP"), ("20-21", "SU"), ("21-22", "FA")],
-            pd.Series([False, True, True, False, False], dtype="bool"),
-        )
-    ],
-)
-def test_term_in_peak_covid(df, year_col, term_col, peak_covid_terms, exp):
-    obs = term.term_in_peak_covid(
-        df, year_col=year_col, term_col=term_col, peak_covid_terms=peak_covid_terms
     )
     assert isinstance(obs, pd.Series) and not obs.empty
     assert obs.equals(exp) or obs.compare(exp).empty
@@ -313,7 +285,6 @@ def test_summer_start_ranks_and_dates_summer_at_the_beginning_of_the_year():
         _one_year_terms(),
         first_term_of_year="SUMMER",
         core_terms={"FALL", "SPRING"},
-        peak_covid_terms=set(),
     )
     by_term = dict(zip(obs["academic_term"], obs["term_rank"]))
     assert by_term == {"SUMMER": 0, "FALL": 1, "WINTER": 2, "SPRING": 3}
@@ -327,7 +298,6 @@ def test_fall_start_ranks_and_dates_summer_at_the_end_of_the_year():
         _one_year_terms(),
         first_term_of_year="FALL",
         core_terms={"FALL", "SPRING"},
-        peak_covid_terms=set(),
     )
     by_term = dict(zip(obs["academic_term"], obs["term_rank"]))
     assert by_term == {"FALL": 0, "WINTER": 1, "SPRING": 2, "SUMMER": 3}

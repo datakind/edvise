@@ -77,9 +77,6 @@ def make_student_term_dataset(
     min_num_credits_full_time: float = feature_generation.constants.DEFAULT_MIN_NUM_CREDITS_FULL_TIME,
     course_level_pattern: str = feature_generation.constants.DEFAULT_COURSE_LEVEL_PATTERN,
     core_terms: set[str] = feature_generation.constants.DEFAULT_CORE_TERMS,
-    peak_covid_terms: set[
-        tuple[str, str]
-    ] = feature_generation.constants.DEFAULT_PEAK_COVID_TERMS,
     key_course_subject_areas: t.Optional[list[t.Union[str, list[str]]]] = None,
     key_course_ids: t.Optional[list[t.Union[str, list[str]]]] = None,
     course_feature_spec: CourseFeatureSpec | None = None,
@@ -120,7 +117,6 @@ def make_student_term_dataset(
             feature_generation.term.add_features,
             first_term_of_year=first_term,
             core_terms=core_terms,
-            peak_covid_terms=peak_covid_terms,
             year_col=course_input_columns.academic_year,
             term_col=course_input_columns.academic_term,
             spec=term_feature_spec,
