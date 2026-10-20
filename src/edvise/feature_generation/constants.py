@@ -8,14 +8,6 @@ DEFAULT_COURSE_CREDIT_CHECK = 12
 DEFAULT_FIRST_TERM_OF_YEAR: Literal["FALL", "SUMMER"] = "FALL"
 DEFAULT_CORE_TERMS = {"FALL", "SPRING"}
 DEFAULT_COURSE_LEVEL_PATTERN = r"^(?P<course_level>\d)\d{2}(?:[A-Z]{,2})?$"
-DEFAULT_PEAK_COVID_TERMS = {
-    ("2019-20", "SPRING"),  # Spring 2020
-    ("2019-20", "SUMMER"),  # Summer 2020
-    ("2020-21", "FALL"),  # Fall 2020
-    ("2020-21", "WINTER"),  # Winter 2020/2021
-    ("2020-21", "SPRING"),  # Spring 2021
-    ("2020-21", "SUMMER"),  # Summer 2021
-}
 DEFAULT_SEASON_ORDER_MAP = {
     "spring": 1,
     "summer": 2,

@@ -33,8 +33,6 @@ def _col_aggs_for_expanding(
     rows: list[tuple[str, str | list[str]]] = []
     if ec.term_id:
         rows.append(("term_id", "count"))
-    if ec.term_in_peak_covid:
-        rows.append(("term_in_peak_covid", "sum"))
     if ec.term_is_core:
         rows.append(("term_is_core", "sum"))
     if ec.term_is_noncore:
