@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -46,54 +47,17 @@ def make_step2a_predict_fn(
     in the same way onboard does before envelope validation. A failed call
     returns an error object so the scorers can record zeros instead of raising.
     """
-    by_institution = {case.target_institution_id: case for case in cases}
-    holder: dict[str, Any] = {"client": client}
-
-    def predict_fn(
-        institution_id: str, reference_institution_id: str
-    ) -> dict[str, Any]:
-        context = by_institution.get(institution_id)
-        if context is None:
-            raise ValueError(
-                f"Evaluation record institution_id {institution_id!r} is not one of "
-                f"the loaded reference cases: {sorted(by_institution)}."
-            )
-        if reference_institution_id != context.reference_institution_id:
-            raise ValueError(
-                "Evaluation record reference_institution_id "
-                f"{reference_institution_id!r} does not match loaded context "
-                f"{context.reference_institution_id!r}."
-            )
-        prompt = build_step2a_batched_prompt(
-            institution_id=institution_id,
-            output_path=context.output_path,
-            institution_schema_contract=context.target_contract,
-            reference_manifests=[context.reference_manifest],
-            reference_institution_ids=[reference_institution_id],
-            cohort_schema_class=RawEdviseStudentDataSchema,
-            course_schema_class=RawEdviseCourseDataSchema,
-        )
-        if holder["client"] is None:
-            holder["client"] = create_openai_client_for_databricks_gateway(
-                disable_tracing=False
-            )
-        result = run_once(gateway_model_id, prompt, holder["client"])
-        predicted = _manifest_from_call(
-            result,
-            institution_id=institution_id,
-            pipeline_version=pipeline_version,
-        )
-        _record_prediction(
-            observation,
-            institution_id=institution_id,
-            reference_institution_id=reference_institution_id,
-            result=result,
-            artifact_key="manifest",
-            artifact=predicted,
-        )
-        return predicted
-
-    return predict_fn
+    return _make_predict_fn(
+        cases=cases,
+        gateway_model_id=gateway_model_id,
+        pipeline_version=pipeline_version,
+        client=client,
+        observation=observation,
+        label="Step 2a",
+        artifact_key="manifest",
+        prompt_for=_step2a_prompt,
+        finalize=lambda predicted: predicted,
+    )
 
 
 def make_step2b_predict_fn(
@@ -109,58 +73,116 @@ def make_step2b_predict_fn(
     The returned map has ``institution_id`` and ``pipeline_version`` filled in,
     then duplicate plans removed, the same way onboard does before validation.
     """
+    return _make_predict_fn(
+        cases=cases,
+        gateway_model_id=gateway_model_id,
+        pipeline_version=pipeline_version,
+        client=client,
+        observation=observation,
+        label="Step 2b",
+        artifact_key="transformation_map",
+        prompt_for=_step2b_prompt,
+        finalize=_finalize_step2b,
+    )
+
+
+def _make_predict_fn(
+    *,
+    cases: Sequence[Any],
+    gateway_model_id: str,
+    pipeline_version: str,
+    client: Any | None,
+    observation: PredictionObservation | None,
+    label: str,
+    artifact_key: str,
+    prompt_for: Callable[[Any, str], str],
+    finalize: Callable[[dict[str, Any]], dict[str, Any]],
+) -> Any:
     by_institution = {case.target_institution_id: case for case in cases}
     holder: dict[str, Any] = {"client": client}
 
     def predict_fn(
         institution_id: str, reference_institution_id: str
     ) -> dict[str, Any]:
-        context = by_institution.get(institution_id)
-        if context is None:
-            raise ValueError(
-                f"Evaluation record institution_id {institution_id!r} is not one of "
-                f"the loaded reference cases: {sorted(by_institution)}."
-            )
-        if reference_institution_id != context.reference_institution_id:
-            raise ValueError(
-                "Evaluation record reference_institution_id "
-                f"{reference_institution_id!r} does not match loaded context "
-                f"{context.reference_institution_id!r}."
-            )
-        prompt = build_step2b_prompt(
-            institution_id=institution_id,
-            output_path=context.output_path,
-            institution_mapping_manifest=context.mapping_manifest,
-            institution_schema_contract=context.target_contract,
-            cohort_schema_class=RawEdviseStudentDataSchema,
-            course_schema_class=RawEdviseCourseDataSchema,
-            reference_transformation_maps=[context.reference_transformation_map],
-            reference_institution_ids=[reference_institution_id],
+        context = _require_context(
+            by_institution, institution_id, reference_institution_id
         )
+        prompt = prompt_for(context, reference_institution_id)
         if holder["client"] is None:
             holder["client"] = create_openai_client_for_databricks_gateway(
                 disable_tracing=False
             )
         result = run_once(gateway_model_id, prompt, holder["client"])
-        predicted = _object_from_call(
-            result,
-            institution_id=institution_id,
-            pipeline_version=pipeline_version,
-            label="Step 2b",
+        predicted = finalize(
+            _object_from_call(
+                result,
+                institution_id=institution_id,
+                pipeline_version=pipeline_version,
+                label=label,
+            )
         )
-        if "transformation_maps" in predicted:
-            dedupe_transformation_plans_in_wrapper(predicted)
         _record_prediction(
             observation,
             institution_id=institution_id,
             reference_institution_id=reference_institution_id,
             result=result,
-            artifact_key="transformation_map",
+            artifact_key=artifact_key,
             artifact=predicted,
         )
         return predicted
 
     return predict_fn
+
+
+def _step2a_prompt(context: Step2aEvalContext, reference_institution_id: str) -> str:
+    return build_step2a_batched_prompt(
+        institution_id=context.target_institution_id,
+        output_path=context.output_path,
+        institution_schema_contract=context.target_contract,
+        reference_manifests=[context.reference_manifest],
+        reference_institution_ids=[reference_institution_id],
+        cohort_schema_class=RawEdviseStudentDataSchema,
+        course_schema_class=RawEdviseCourseDataSchema,
+    )
+
+
+def _step2b_prompt(context: Step2bEvalContext, reference_institution_id: str) -> str:
+    return build_step2b_prompt(
+        institution_id=context.target_institution_id,
+        output_path=context.output_path,
+        institution_mapping_manifest=context.mapping_manifest,
+        institution_schema_contract=context.target_contract,
+        cohort_schema_class=RawEdviseStudentDataSchema,
+        course_schema_class=RawEdviseCourseDataSchema,
+        reference_transformation_maps=[context.reference_transformation_map],
+        reference_institution_ids=[reference_institution_id],
+    )
+
+
+def _finalize_step2b(predicted: dict[str, Any]) -> dict[str, Any]:
+    if "transformation_maps" in predicted:
+        dedupe_transformation_plans_in_wrapper(predicted)
+    return predicted
+
+
+def _require_context(
+    by_institution: dict[str, Any],
+    institution_id: str,
+    reference_institution_id: str,
+) -> Any:
+    context = by_institution.get(institution_id)
+    if context is None:
+        raise ValueError(
+            f"Evaluation record institution_id {institution_id!r} is not one of "
+            f"the loaded reference cases: {sorted(by_institution)}."
+        )
+    if reference_institution_id != context.reference_institution_id:
+        raise ValueError(
+            "Evaluation record reference_institution_id "
+            f"{reference_institution_id!r} does not match loaded context "
+            f"{context.reference_institution_id!r}."
+        )
+    return context
 
 
 def _record_prediction(
@@ -186,21 +208,6 @@ def _record_prediction(
     )
     observation.manifests.append(
         {"institution_id": institution_id, artifact_key: artifact}
-    )
-
-
-def _manifest_from_call(
-    result: dict[str, Any],
-    *,
-    institution_id: str,
-    pipeline_version: str,
-) -> dict[str, Any]:
-    """Turn one gateway call into the manifest the scorers receive."""
-    return _object_from_call(
-        result,
-        institution_id=institution_id,
-        pipeline_version=pipeline_version,
-        label="Step 2a",
     )
 
 

@@ -122,21 +122,12 @@ def assess_step2b(outputs: Any, expectations: dict[str, Any]) -> Step2bAssessmen
     return Step2bAssessment(1.0, execution_exact, execution_safe, diagnostic)
 
 
+_STEP2A_UNDEFINED = ("source_exact_undefined", "execution_ready_undefined")
+_STEP2B_UNDEFINED = ("execution_exact_undefined", "execution_safe_undefined")
+
+
 def _coerce_manifest(outputs: Any) -> tuple[dict[str, Any] | None, str | None]:
-    parsed = outputs
-    if isinstance(outputs, str):
-        try:
-            parsed = json.loads(outputs)
-        except json.JSONDecodeError as exc:
-            return None, str(exc)
-    if not isinstance(parsed, dict):
-        return (
-            None,
-            f"prediction was {type(parsed).__name__}, expected a manifest object",
-        )
-    if parsed.get("error") and "manifests" not in parsed:
-        return None, str(parsed.get("error"))
-    return parsed, None
+    return _coerce_object(outputs, artifact_key="manifests", label="manifest object")
 
 
 def _failed_assessment(
@@ -146,18 +137,7 @@ def _failed_assessment(
         0.0,
         0.0,
         0.0,
-        {
-            "validation_passed": False,
-            "validation_error": error,
-            "headline_metrics_zeroed": True,
-            "source_exact_undefined": False,
-            "execution_ready_undefined": False,
-            "institution_id": institution_id,
-            "overall": None,
-            "cohort": None,
-            "course": None,
-            "field_scores": [],
-        },
+        _blank_diagnostic(error, institution_id, _STEP2A_UNDEFINED),
     )
 
 
@@ -169,27 +149,18 @@ def _diagnostic(
     institution_id: str | None,
 ) -> dict[str, Any]:
     if not scores:
-        return _failed_assessment(
+        return _blank_diagnostic(
             validation_error or "scoring produced no result",
-            institution_id=institution_id,
-        ).diagnostic
-    field_scores: list[dict[str, Any]] = []
-    entities: dict[str, Any] = {}
-    for entity in ("cohort", "course"):
-        block = dict(scores[entity])
-        field_scores.extend(block.pop("field_scores", []))
-        entities[entity] = block
-    return {
-        "validation_passed": validation_passed,
-        "validation_error": validation_error,
-        "headline_metrics_zeroed": not validation_passed,
-        "source_exact_undefined": False,
-        "execution_ready_undefined": False,
-        "institution_id": institution_id,
-        "overall": scores["overall"],
-        **entities,
-        "field_scores": field_scores,
-    }
+            institution_id,
+            _STEP2A_UNDEFINED,
+        )
+    return _scored_diagnostic(
+        scores,
+        institution_id=institution_id,
+        validation_passed=validation_passed,
+        validation_error=validation_error,
+        undefined_flags=_STEP2A_UNDEFINED,
+    )
 
 
 def _failed_step2b(
@@ -199,23 +170,47 @@ def _failed_step2b(
         0.0,
         0.0,
         0.0,
-        {
-            "validation_passed": False,
-            "validation_error": error,
-            "headline_metrics_zeroed": True,
-            "execution_exact_undefined": False,
-            "execution_safe_undefined": False,
-            "institution_id": institution_id,
-            "overall": None,
-            "cohort": None,
-            "course": None,
-            "field_scores": [],
-        },
+        _blank_diagnostic(error, institution_id, _STEP2B_UNDEFINED),
     )
 
 
 def _step2b_diagnostic(
     scores: dict[str, Any], *, institution_id: str | None
+) -> dict[str, Any]:
+    return _scored_diagnostic(
+        scores,
+        institution_id=institution_id,
+        validation_passed=bool(scores.get("validation_passed")),
+        validation_error=scores.get("validation_error"),
+        undefined_flags=_STEP2B_UNDEFINED,
+    )
+
+
+def _blank_diagnostic(
+    error: str, institution_id: str | None, undefined_flags: tuple[str, ...]
+) -> dict[str, Any]:
+    diagnostic: dict[str, Any] = {
+        "validation_passed": False,
+        "validation_error": error,
+        "headline_metrics_zeroed": True,
+        "institution_id": institution_id,
+        "overall": None,
+        "cohort": None,
+        "course": None,
+        "field_scores": [],
+    }
+    for flag in undefined_flags:
+        diagnostic[flag] = False
+    return diagnostic
+
+
+def _scored_diagnostic(
+    scores: dict[str, Any],
+    *,
+    institution_id: str | None,
+    validation_passed: bool,
+    validation_error: str | None,
+    undefined_flags: tuple[str, ...],
 ) -> dict[str, Any]:
     field_scores: list[dict[str, Any]] = []
     entities: dict[str, Any] = {}
@@ -223,17 +218,18 @@ def _step2b_diagnostic(
         block = dict(scores[entity])
         field_scores.extend(block.pop("field_scores", []))
         entities[entity] = block
-    return {
-        "validation_passed": scores.get("validation_passed"),
-        "validation_error": scores.get("validation_error"),
-        "headline_metrics_zeroed": not scores.get("validation_passed"),
-        "execution_exact_undefined": False,
-        "execution_safe_undefined": False,
+    diagnostic: dict[str, Any] = {
+        "validation_passed": validation_passed,
+        "validation_error": validation_error,
+        "headline_metrics_zeroed": not validation_passed,
         "institution_id": institution_id,
         "overall": scores["overall"],
         **entities,
         "field_scores": field_scores,
     }
+    for flag in undefined_flags:
+        diagnostic[flag] = False
+    return diagnostic
 
 
 def _coerce_object(

@@ -55,6 +55,132 @@ def experiment_name_for(ds_run_as: str, *, subpath: str = EXPERIMENT_SUBPATH) ->
     return f"/Users/{account}/{subpath.strip('/')}"
 
 
+@dataclass(frozen=True)
+class _Bakeoff:
+    """What differs between prompt bake-offs. The run loop is shared."""
+
+    label: str
+    empty_message: str
+    experiment_subpath: str
+    prompt_variant: str
+    artifact_prefix: str
+    predicted_directory: str
+    predicted_payload_key: str
+    overall_columns: tuple[str, ...]
+    headline_metrics: tuple[str, ...]
+    assess: Callable[..., Any]
+    load_cases: Callable[..., list[Any]]
+    make_predict_fn: Callable[..., Any]
+
+
+def _bakeoff_runner(bakeoff: _Bakeoff) -> Callable[..., list[str]]:
+    def run(
+        *,
+        catalog: str,
+        models: str | list[str],
+        ds_run_as: str,
+        pipeline_version: str = "eval",
+        mlflow_module: Any | None = None,
+        cases: Sequence[Any] | None = None,
+    ) -> list[str]:
+        return _run_model_comparison(
+            bakeoff,
+            catalog=catalog,
+            models=models,
+            ds_run_as=ds_run_as,
+            pipeline_version=pipeline_version,
+            mlflow_module=mlflow_module,
+            cases=cases,
+        )
+
+    return run
+
+
+_OVERALL_COLUMNS = (
+    "map_decision_accuracy",
+    "mappable_precision_strict",
+    "mappable_recall_strict",
+    "source_exact_accuracy_gold_mappable",
+    "row_selection_accuracy",
+    "row_selection_accuracy_non_anyrow",
+    "join_f1",
+    "join_table_accuracy",
+    "join_key_accuracy",
+    "degree_filter_accuracy",
+    "exact_field_match_rate",
+    "execution_ready_rate",
+)
+
+_STEP2B_OVERALL_COLUMNS = (
+    "plan_decision_accuracy",
+    "exact_plan_match_rate",
+    "function_chain_accuracy",
+    "function_chain_precision",
+    "function_chain_recall",
+    "function_chain_f1",
+    "required_step_recall",
+    "critical_arg_accuracy",
+    "map_values_step_accuracy",
+    "dependency_accuracy",
+    "fill_constant_accuracy",
+    "execution_safe_rate",
+    "execution_exact_rate",
+)
+
+
+@dataclass(frozen=True)
+class EvalStep:
+    """One prompt bake-off the shared eval job can run."""
+
+    step_id: str
+    description: str
+    run: Callable[..., list[str]]
+
+
+_BAKEOFFS: dict[str, _Bakeoff] = {
+    "2a": _Bakeoff(
+        label="Step 2a",
+        empty_message="Step 2a evaluation has no reference cases.",
+        experiment_subpath=EXPERIMENT_SUBPATH,
+        prompt_variant=PROMPT_VARIANT,
+        artifact_prefix="step2a",
+        predicted_directory="manifests",
+        predicted_payload_key="manifest",
+        overall_columns=_OVERALL_COLUMNS,
+        headline_metrics=("envelope_valid", "source_exact", "execution_ready"),
+        assess=assess_step2a,
+        load_cases=load_step2a_reference_cases,
+        make_predict_fn=make_step2a_predict_fn,
+    ),
+    "2b": _Bakeoff(
+        label="Step 2b",
+        empty_message="Step 2b evaluation has no reference cases.",
+        experiment_subpath=STEP2B_EXPERIMENT_SUBPATH,
+        prompt_variant=STEP2B_PROMPT_VARIANT,
+        artifact_prefix="step2b",
+        predicted_directory="transformation_maps",
+        predicted_payload_key="transformation_map",
+        overall_columns=_STEP2B_OVERALL_COLUMNS,
+        headline_metrics=("transformation_valid", "execution_exact", "execution_safe"),
+        assess=assess_step2b,
+        load_cases=load_step2b_reference_cases,
+        make_predict_fn=make_step2b_predict_fn,
+    ),
+}
+
+_EVAL_STEPS: dict[str, EvalStep] = {
+    step_id: EvalStep(
+        step_id,
+        description,
+        _bakeoff_runner(_BAKEOFFS[step_id]),
+    )
+    for step_id, description in (
+        ("2a", "Schema Mapping Agent manifest prompt"),
+        ("2b", "Schema Mapping Agent transformation-map prompt"),
+    )
+}
+
+
 def run_step2a_evaluation(
     *,
     catalog: str,
@@ -64,33 +190,15 @@ def run_step2a_evaluation(
     mlflow_module: Any | None = None,
     cases: list[Step2aEvalContext] | None = None,
 ) -> list[str]:
-    """Score every supplied model on the same reference cases.
-
-    ``models`` is a comma-separated string, JSON array, or list of slots such
-    as ``sonnet:4.5``. Each slot defaults to the hosted
-    ``system.ai.claude-<family>-<version>`` foundation model unless overridden
-    (see :mod:`edvise.genai.mapping.eval.models`). Each model is one MLflow
-    run under ``/Users/<ds_run_as>/``; run metrics are the mean across the
-    reference cases, so the experiment compares the models.
-    """
-    return _run_model_comparison(
+    """Score the manifest prompt. See :func:`run_evaluation` for the shared loop."""
+    return run_evaluation(
+        step="2a",
+        catalog=catalog,
         models=models,
         ds_run_as=ds_run_as,
         pipeline_version=pipeline_version,
         mlflow_module=mlflow_module,
-        cases=cases
-        if cases is not None
-        else load_step2a_reference_cases(catalog=catalog),
-        empty_message="Step 2a evaluation has no reference cases.",
-        experiment_subpath=EXPERIMENT_SUBPATH,
-        step_label="Step 2a",
-        make_predict_fn=make_step2a_predict_fn,
-        make_scorers=_mlflow_scorers,
-        prompt_variant=PROMPT_VARIANT,
-        overall_columns=_OVERALL_COLUMNS,
-        artifact_prefix="step2a",
-        predicted_directory="manifests",
-        predicted_payload_key="manifest",
+        cases=cases,
     )
 
 
@@ -103,53 +211,16 @@ def run_step2b_evaluation(
     mlflow_module: Any | None = None,
     cases: list[Step2bEvalContext] | None = None,
 ) -> list[str]:
-    """Score every supplied model on the same Step 2b reference cases.
-
-    Same bake-off shape as :func:`run_step2a_evaluation`: one MLflow run per
-    model, under ``/Users/<ds_run_as>/edvise/genai_mapping/step2b_model_comparison``.
-    """
-    return _run_model_comparison(
+    """Score the transformation-map prompt. See :func:`run_evaluation`."""
+    return run_evaluation(
+        step="2b",
+        catalog=catalog,
         models=models,
         ds_run_as=ds_run_as,
         pipeline_version=pipeline_version,
         mlflow_module=mlflow_module,
-        cases=cases
-        if cases is not None
-        else load_step2b_reference_cases(catalog=catalog),
-        empty_message="Step 2b evaluation has no reference cases.",
-        experiment_subpath=STEP2B_EXPERIMENT_SUBPATH,
-        step_label="Step 2b",
-        make_predict_fn=make_step2b_predict_fn,
-        make_scorers=_step2b_scorers,
-        prompt_variant=STEP2B_PROMPT_VARIANT,
-        overall_columns=_STEP2B_OVERALL_COLUMNS,
-        artifact_prefix="step2b",
-        predicted_directory="transformation_maps",
-        predicted_payload_key="transformation_map",
+        cases=cases,
     )
-
-
-@dataclass(frozen=True)
-class EvalStep:
-    """One prompt bake-off the shared eval job can run."""
-
-    step_id: str
-    description: str
-    run: Callable[..., list[str]]
-
-
-_EVAL_STEPS: dict[str, EvalStep] = {
-    "2a": EvalStep(
-        "2a",
-        "Schema Mapping Agent manifest prompt",
-        run_step2a_evaluation,
-    ),
-    "2b": EvalStep(
-        "2b",
-        "Schema Mapping Agent transformation-map prompt",
-        run_step2b_evaluation,
-    ),
-}
 
 
 def supported_eval_steps() -> tuple[str, ...]:
@@ -200,48 +271,34 @@ def run_evaluation(
 
 
 def _run_model_comparison(
+    bakeoff: _Bakeoff,
     *,
+    catalog: str,
     models: str | list[str],
     ds_run_as: str,
     pipeline_version: str,
     mlflow_module: Any | None,
     cases: Sequence[Any] | None,
-    empty_message: str,
-    experiment_subpath: str,
-    step_label: str,
-    make_predict_fn: Callable[..., Any],
-    make_scorers: Callable[[Any, list[dict[str, Any]]], list[Any]],
-    prompt_variant: str,
-    overall_columns: tuple[str, ...],
-    artifact_prefix: str,
-    predicted_directory: str,
-    predicted_payload_key: str,
 ) -> list[str]:
-    experiment_name = experiment_name_for(ds_run_as, subpath=experiment_subpath)
-    loaded = list(cases or [])
+    loaded = list(cases) if cases is not None else bakeoff.load_cases(catalog=catalog)
     if not loaded:
-        raise ValueError(empty_message)
+        raise ValueError(bakeoff.empty_message)
+    experiment_name = experiment_name_for(ds_run_as, subpath=bakeoff.experiment_subpath)
     resolved_models = resolve_comparison_models(models)
     mlflow = mlflow_module or _import_mlflow_genai()
     run_ids: list[str] = []
     for resolved in resolved_models:
         run_id = _execute_evaluation(
+            bakeoff,
             mlflow=mlflow,
             cases=loaded,
             resolved=resolved,
             experiment_name=experiment_name,
             pipeline_version=pipeline_version or "eval",
-            make_predict_fn=make_predict_fn,
-            make_scorers=make_scorers,
-            prompt_variant=prompt_variant,
-            overall_columns=overall_columns,
-            artifact_prefix=artifact_prefix,
-            predicted_directory=predicted_directory,
-            predicted_payload_key=predicted_payload_key,
         )
         LOGGER.info(
             "%s evaluation complete | model=%s | gateway=%s | run_id=%s",
-            step_label,
+            bakeoff.label,
             resolved.selection,
             resolved.gateway_model_id,
             run_id,
@@ -251,29 +308,25 @@ def _run_model_comparison(
 
 
 def _execute_evaluation(
+    bakeoff: _Bakeoff,
     *,
     mlflow: Any,
     cases: Sequence[Any],
     resolved: ResolvedEvalModel,
     experiment_name: str,
     pipeline_version: str,
-    make_predict_fn: Callable[..., Any],
-    make_scorers: Callable[[Any, list[dict[str, Any]]], list[Any]],
-    prompt_variant: str,
-    overall_columns: tuple[str, ...],
-    artifact_prefix: str,
-    predicted_directory: str,
-    predicted_payload_key: str,
 ) -> str:
     observation = PredictionObservation()
     diagnostics: list[dict[str, Any]] = []
-    predict_fn = make_predict_fn(
+    predict_fn = bakeoff.make_predict_fn(
         cases=cases,
         gateway_model_id=resolved.gateway_model_id,
         pipeline_version=pipeline_version,
         observation=observation,
     )
-    scorers = make_scorers(mlflow, diagnostics)
+    scorers = _headline_scorers(
+        mlflow, diagnostics, bakeoff.assess, bakeoff.headline_metrics
+    )
     mlflow.set_experiment(experiment_name)
     result = mlflow.genai.evaluate(
         data=[case.evaluation_record() for case in cases],
@@ -290,7 +343,7 @@ def _execute_evaluation(
                 "model_family": resolved.family,
                 "model_version": resolved.version,
                 "gateway_model_id": resolved.gateway_model_id,
-                "prompt_variant": prompt_variant,
+                "prompt_variant": bakeoff.prompt_variant,
                 "catalog": catalog,
                 "n_reference_cases": str(len(cases)),
                 "target_reference_ids": target_ids,
@@ -301,16 +354,18 @@ def _execute_evaluation(
         _log_predicted_manifests(
             mlflow,
             observation,
-            directory=predicted_directory,
-            payload_key=predicted_payload_key,
+            directory=bakeoff.predicted_directory,
+            payload_key=bakeoff.predicted_payload_key,
         )
         mlflow.log_table(
-            data=overall_by_school_table(diagnostics, overall_columns=overall_columns),
-            artifact_file=f"diagnostics/{artifact_prefix}_overall_by_school.json",
+            data=overall_by_school_table(
+                diagnostics, overall_columns=bakeoff.overall_columns
+            ),
+            artifact_file=f"diagnostics/{bakeoff.artifact_prefix}_overall_by_school.json",
         )
         mlflow.log_dict(
             {
-                "prompt_variant": prompt_variant,
+                "prompt_variant": bakeoff.prompt_variant,
                 "model_family": resolved.family,
                 "model_version": resolved.version,
                 "gateway_model_id": resolved.gateway_model_id,
@@ -318,81 +373,37 @@ def _execute_evaluation(
                 "predictions": observation.calls,
                 "cases": diagnostics,
             },
-            f"diagnostics/{artifact_prefix}_field_detail.json",
+            f"diagnostics/{bakeoff.artifact_prefix}_field_detail.json",
         )
     return str(run_id)
 
 
-def _mlflow_scorers(mlflow: Any, diagnostics: list[dict[str, Any]]) -> list[Any]:
+def _headline_scorers(
+    mlflow: Any,
+    diagnostics: list[dict[str, Any]],
+    assess: Callable[..., Any],
+    metric_names: tuple[str, ...],
+) -> list[Any]:
+    """One MLflow scorer per headline field. The first scorer records the diagnostic."""
     scorer = mlflow.genai.scorers.scorer
+    bound: list[Any] = []
+    for index, name in enumerate(metric_names):
 
-    @scorer
-    def envelope_valid(outputs: Any, expectations: dict[str, Any]) -> float:
-        assessment = assess_step2a(outputs, expectations)
-        diagnostics.append(assessment.diagnostic)
-        return assessment.envelope_valid
+        def metric(
+            outputs: Any,
+            expectations: dict[str, Any],
+            *,
+            _name: str = name,
+            _record: bool = index == 0,
+        ) -> float:
+            assessment = assess(outputs, expectations)
+            if _record:
+                diagnostics.append(assessment.diagnostic)
+            return float(getattr(assessment, _name))
 
-    @scorer
-    def source_exact(outputs: Any, expectations: dict[str, Any]) -> float:
-        return assess_step2a(outputs, expectations).source_exact
-
-    @scorer
-    def execution_ready(outputs: Any, expectations: dict[str, Any]) -> float:
-        return assess_step2a(outputs, expectations).execution_ready
-
-    return [envelope_valid, source_exact, execution_ready]
-
-
-def _step2b_scorers(mlflow: Any, diagnostics: list[dict[str, Any]]) -> list[Any]:
-    scorer = mlflow.genai.scorers.scorer
-
-    @scorer
-    def transformation_valid(outputs: Any, expectations: dict[str, Any]) -> float:
-        assessment = assess_step2b(outputs, expectations)
-        diagnostics.append(assessment.diagnostic)
-        return assessment.transformation_valid
-
-    @scorer
-    def execution_exact(outputs: Any, expectations: dict[str, Any]) -> float:
-        return assess_step2b(outputs, expectations).execution_exact
-
-    @scorer
-    def execution_safe(outputs: Any, expectations: dict[str, Any]) -> float:
-        return assess_step2b(outputs, expectations).execution_safe
-
-    return [transformation_valid, execution_exact, execution_safe]
-
-
-_OVERALL_COLUMNS = (
-    "map_decision_accuracy",
-    "mappable_precision_strict",
-    "mappable_recall_strict",
-    "source_exact_accuracy_gold_mappable",
-    "row_selection_accuracy",
-    "row_selection_accuracy_non_anyrow",
-    "join_f1",
-    "join_table_accuracy",
-    "join_key_accuracy",
-    "degree_filter_accuracy",
-    "exact_field_match_rate",
-    "execution_ready_rate",
-)
-
-_STEP2B_OVERALL_COLUMNS = (
-    "plan_decision_accuracy",
-    "exact_plan_match_rate",
-    "function_chain_accuracy",
-    "function_chain_precision",
-    "function_chain_recall",
-    "function_chain_f1",
-    "required_step_recall",
-    "critical_arg_accuracy",
-    "map_values_step_accuracy",
-    "dependency_accuracy",
-    "fill_constant_accuracy",
-    "execution_safe_rate",
-    "execution_exact_rate",
-)
+        metric.__name__ = name
+        bound.append(scorer(metric))
+    return bound
 
 
 def overall_by_school_table(
