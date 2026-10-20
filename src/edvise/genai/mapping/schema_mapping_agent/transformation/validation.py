@@ -73,6 +73,13 @@ def _plans_from_entity_section(entity_blob: object) -> list[dict[str, Any]] | No
     return [p for p in raw_plans if isinstance(p, dict)]
 
 
+def _find_plan_index(plans: list[dict[str, Any]], target_field: str) -> int | None:
+    for index, plan in enumerate(plans):
+        if str(plan.get("target_field") or "").strip() == target_field:
+            return index
+    return None
+
+
 def validate_transformation_plans_against_manifest(
     transformation_data: dict[str, Any],
     manifest_map: dict[str, Any],

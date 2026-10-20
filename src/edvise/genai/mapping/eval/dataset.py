@@ -7,7 +7,7 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
-from edvise.genai.mapping.schema_mapping_agent.manifest.prompts import load_json
+from edvise.genai.mapping.shared.utilities import load_json
 from edvise.genai.mapping.shared.reference_pin import resolve_sma_few_shot_pin
 from edvise.genai.mapping.shared.reference_select import (
     list_active_reference_pins,

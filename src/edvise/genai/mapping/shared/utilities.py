@@ -2,6 +2,15 @@
 
 from __future__ import annotations
 
+import json
+from typing import Any, cast
+
+
+def load_json(path: str) -> dict[str, Any]:
+    """Read a JSON object from ``path``."""
+    with open(path) as f:
+        return cast(dict[str, Any], json.load(f))
+
 
 def strip_json_fences(text: str) -> str:
     """Strip markdown code fences from JSON text."""
