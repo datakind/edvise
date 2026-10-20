@@ -176,6 +176,12 @@ resources:
                 package: h2o==3.46.0.7
             - pypi:
                 package: shap~=0.46.0
+            - pypi:
+                package: weasyprint~=60.2
+            - pypi:
+                package: pydyf~=0.8.0
+            - pypi:
+                package: markdown~=3.5
       job_clusters:
         - job_cluster_key: edvise-legacy-training-pipeline-cluster
           new_cluster:
