@@ -365,7 +365,6 @@ def test_run_logs_one_mlflow_run_per_model(monkeypatch: pytest.MonkeyPatch) -> N
     assert run_ids == ["run-1", "run-2"]
     assert logged["experiment"].endswith("edvise/genai_mapping/step2b_model_comparison")
     assert logged["scores"] == [1.0, 1.0, 1.0]
-    assert logged["params"][0]["prompt_variant"] == "production"
     assert logged["params"][0]["gateway_model_id"] == "system.ai.claude-sonnet-4-5"
     assert logged["metrics"] == {"latency_s": 3.0, "response_chars": 80.0}
     table = logged["artifacts"]["diagnostics/step2b_overall_by_school.json"]

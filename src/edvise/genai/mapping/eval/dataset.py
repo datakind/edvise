@@ -16,8 +16,6 @@ from edvise.genai.mapping.shared.reference_select import (
 )
 
 LOGGER = logging.getLogger(__name__)
-PROMPT_VARIANT = "batched"
-STEP2B_PROMPT_VARIANT = "production"
 _CONTRACT_NAME = "enriched_schema_contract.json"
 
 

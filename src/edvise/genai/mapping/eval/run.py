@@ -13,8 +13,6 @@ from dataclasses import dataclass
 from typing import Any
 
 from edvise.genai.mapping.eval.dataset import (
-    PROMPT_VARIANT,
-    STEP2B_PROMPT_VARIANT,
     Step2aEvalContext,
     Step2bEvalContext,
     load_step2a_reference_cases,
@@ -33,8 +31,12 @@ from edvise.genai.mapping.eval.scorers import assess_step2a, assess_step2b
 
 LOGGER = logging.getLogger(__name__)
 
-EXPERIMENT_SUBPATH = "edvise/genai_mapping/step2a_model_comparison"
-STEP2B_EXPERIMENT_SUBPATH = "edvise/genai_mapping/step2b_model_comparison"
+
+def _experiment_subpath(step_id: str) -> str:
+    return f"edvise/genai_mapping/step{step_id}_model_comparison"
+
+
+EXPERIMENT_SUBPATH = _experiment_subpath("2a")
 _MLFLOW_GENAI_REQUIRED = (
     "mlflow.genai.evaluate requires MLflow 3.3 or newer. "
     "Run this evaluation with the Databricks genai mapping eval job, which pins mlflow==3.3.2."
@@ -59,11 +61,8 @@ def experiment_name_for(ds_run_as: str, *, subpath: str = EXPERIMENT_SUBPATH) ->
 class _Bakeoff:
     """What differs between prompt bake-offs. The run loop is shared."""
 
-    label: str
-    empty_message: str
-    experiment_subpath: str
-    prompt_variant: str
-    artifact_prefix: str
+    step_id: str
+    description: str
     predicted_directory: str
     predicted_payload_key: str
     overall_columns: tuple[str, ...]
@@ -71,6 +70,22 @@ class _Bakeoff:
     assess: Callable[..., Any]
     load_cases: Callable[..., list[Any]]
     make_predict_fn: Callable[..., Any]
+
+    @property
+    def label(self) -> str:
+        return f"Step {self.step_id}"
+
+    @property
+    def artifact_prefix(self) -> str:
+        return f"step{self.step_id}"
+
+    @property
+    def experiment_subpath(self) -> str:
+        return _experiment_subpath(self.step_id)
+
+    @property
+    def empty_message(self) -> str:
+        return f"Step {self.step_id} evaluation has no reference cases."
 
 
 def _bakeoff_runner(bakeoff: _Bakeoff) -> Callable[..., list[str]]:
@@ -139,11 +154,8 @@ class EvalStep:
 
 _BAKEOFFS: dict[str, _Bakeoff] = {
     "2a": _Bakeoff(
-        label="Step 2a",
-        empty_message="Step 2a evaluation has no reference cases.",
-        experiment_subpath=EXPERIMENT_SUBPATH,
-        prompt_variant=PROMPT_VARIANT,
-        artifact_prefix="step2a",
+        step_id="2a",
+        description="Schema Mapping Agent manifest prompt",
         predicted_directory="manifests",
         predicted_payload_key="manifest",
         overall_columns=_OVERALL_COLUMNS,
@@ -153,11 +165,8 @@ _BAKEOFFS: dict[str, _Bakeoff] = {
         make_predict_fn=make_step2a_predict_fn,
     ),
     "2b": _Bakeoff(
-        label="Step 2b",
-        empty_message="Step 2b evaluation has no reference cases.",
-        experiment_subpath=STEP2B_EXPERIMENT_SUBPATH,
-        prompt_variant=STEP2B_PROMPT_VARIANT,
-        artifact_prefix="step2b",
+        step_id="2b",
+        description="Schema Mapping Agent transformation-map prompt",
         predicted_directory="transformation_maps",
         predicted_payload_key="transformation_map",
         overall_columns=_STEP2B_OVERALL_COLUMNS,
@@ -169,15 +178,12 @@ _BAKEOFFS: dict[str, _Bakeoff] = {
 }
 
 _EVAL_STEPS: dict[str, EvalStep] = {
-    step_id: EvalStep(
-        step_id,
-        description,
-        _bakeoff_runner(_BAKEOFFS[step_id]),
+    bakeoff.step_id: EvalStep(
+        bakeoff.step_id,
+        bakeoff.description,
+        _bakeoff_runner(bakeoff),
     )
-    for step_id, description in (
-        ("2a", "Schema Mapping Agent manifest prompt"),
-        ("2b", "Schema Mapping Agent transformation-map prompt"),
-    )
+    for bakeoff in _BAKEOFFS.values()
 }
 
 
@@ -343,7 +349,6 @@ def _execute_evaluation(
                 "model_family": resolved.family,
                 "model_version": resolved.version,
                 "gateway_model_id": resolved.gateway_model_id,
-                "prompt_variant": bakeoff.prompt_variant,
                 "catalog": catalog,
                 "n_reference_cases": str(len(cases)),
                 "target_reference_ids": target_ids,
@@ -365,7 +370,6 @@ def _execute_evaluation(
         )
         mlflow.log_dict(
             {
-                "prompt_variant": bakeoff.prompt_variant,
                 "model_family": resolved.family,
                 "model_version": resolved.version,
                 "gateway_model_id": resolved.gateway_model_id,
@@ -384,8 +388,22 @@ def _headline_scorers(
     assess: Callable[..., Any],
     metric_names: tuple[str, ...],
 ) -> list[Any]:
-    """One MLflow scorer per headline field. The first scorer records the diagnostic."""
+    """One MLflow scorer per headline field. The first scorer records the diagnostic.
+
+    MLflow calls each scorer separately. The assessment is cached for the same
+    prediction so the full score runs once per case.
+    """
     scorer = mlflow.genai.scorers.scorer
+    cached: dict[tuple[int, int], Any] = {}
+
+    def assessment_for(outputs: Any, expectations: dict[str, Any]) -> Any:
+        key = (id(outputs), id(expectations))
+        assessment = cached.get(key)
+        if assessment is None:
+            assessment = assess(outputs, expectations)
+            cached[key] = assessment
+        return assessment
+
     bound: list[Any] = []
     for index, name in enumerate(metric_names):
 
@@ -396,7 +414,7 @@ def _headline_scorers(
             _name: str = name,
             _record: bool = index == 0,
         ) -> float:
-            assessment = assess(outputs, expectations)
+            assessment = assessment_for(outputs, expectations)
             if _record:
                 diagnostics.append(assessment.diagnostic)
             return float(getattr(assessment, _name))
