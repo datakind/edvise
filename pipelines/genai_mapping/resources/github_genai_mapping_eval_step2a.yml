@@ -1,7 +1,9 @@
-# Manual Step 2a model comparison. One run scores every supplied model slot
-# against the active reference pins and logs one MLflow run per model. Each
-# slot defaults to the hosted system.ai.claude-<family>-<version> foundation
-# model; override via EDVISE_EVAL_GATEWAY_MODELS if that naming doesn't match.
+# Manual model comparison. The step parameter selects a registered eval
+# (2a manifest, 2b transformation map, and any later id such as Identity
+# Agent). One run scores every supplied model slot against the active
+# reference pins and logs one MLflow run per model. Each slot defaults to the
+# hosted system.ai.claude-<family>-<version> foundation model; override via
+# EDVISE_EVAL_GATEWAY_MODELS if that naming doesn't match.
 #
 # mlflow==3.3.2 is installed only on this job. Its dependency cap is
 # pyarrow<22, so this cluster narrows the shared GenAI pin from pyarrow<26
@@ -23,7 +25,7 @@ resources:
       tasks:
         - task_key: eval_step2a
           spark_python_task:
-            python_file: src/edvise/genai/mapping/scripts/edvise_genai_eval_step2a.py
+            python_file: src/edvise/genai/mapping/scripts/edvise_genai_eval.py
             source: GIT
             parameters:
               - --catalog
@@ -32,6 +34,8 @@ resources:
               - "{{job.parameters.ds_run_as}}"
               - --models
               - "{{job.parameters.models}}"
+              - --step
+              - "{{job.parameters.step}}"
           job_cluster_key: edvise-genai-mapping-eval-step2a-cluster
           libraries:
             - pypi:
@@ -89,6 +93,8 @@ resources:
           default: ${var.ds_run_as}
         - name: models
           default: sonnet:4.5,sonnet:5,sonnet:5.5,haiku:4.5,haiku:5,haiku:5.5
+        - name: step
+          default: "2a"
 
       permissions:
         - group_name: ${var.datakind_group_to_manage_workflow}
