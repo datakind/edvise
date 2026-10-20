@@ -15,15 +15,15 @@
 # so it matches spark_version 15.4.x instead of resolving to a newer runtime.
 resources:
   jobs:
-    edvise_genai_mapping_eval_step2a_pipeline:
-      name: edvise_genai_mapping_eval_step2a
+    edvise_genai_mapping_eval_pipeline:
+      name: edvise_genai_mapping_eval
       timeout_seconds: 14400
       max_concurrent_runs: 1
       queue:
         enabled: true
 
       tasks:
-        - task_key: eval_step2a
+        - task_key: eval
           spark_python_task:
             python_file: src/edvise/genai/mapping/scripts/edvise_genai_eval.py
             source: GIT
@@ -36,7 +36,7 @@ resources:
               - "{{job.parameters.models}}"
               - --step
               - "{{job.parameters.step}}"
-          job_cluster_key: edvise-genai-mapping-eval-step2a-cluster
+          job_cluster_key: edvise-genai-mapping-eval-cluster
           libraries:
             - pypi:
                 package: pandas==2.2.3
@@ -66,7 +66,7 @@ resources:
                 package: databricks-agents==1.5.0
 
       job_clusters:
-        - job_cluster_key: edvise-genai-mapping-eval-step2a-cluster
+        - job_cluster_key: edvise-genai-mapping-eval-cluster
           new_cluster:
             cluster_name: ""
             spark_version: 15.4.x-scala2.12
