@@ -70,9 +70,9 @@ def select_features(
         .pipe(drop_low_variance_features, threshold=low_variance_threshold)
     )
     # Stable order so duplicate removal keeps the earliest column, not a random set member.
-    selected_names = set(df_selected.columns) | set(force_include_cols)
-    present = [col for col in df.columns if col in selected_names]
-    df_selected = df.loc[:, present + list(selected_names - set(present))]
+    keep = set(df_selected.columns)
+    keep.update(force_include_cols)
+    df_selected = df.loc[:, [col for col in df.columns if col in keep]]
     if collinear_threshold is not None:
         # multi-collinearity: it may not interfere with the model's performance
         # but it does negatively affect the interpretation of the predictors
@@ -201,6 +201,8 @@ def drop_duplicate_features(
     # Dropped column -> the identical column that was kept.
     repeat_of: dict[str, str] = {}
     selector = DropDuplicateFeatures(missing_values="ignore")
+    # Numbers and booleans share one pass so 0/1 matches True/False. Strings and
+    # categoricals share the other. The two passes stay separate so "1" is not a copy of 1.
     for include, cast in (
         (["number", "boolean"], "float64"),
         (["string", "category", "object"], "string"),
@@ -208,29 +210,23 @@ def drop_duplicate_features(
         columns = df.select_dtypes(include=include).columns.tolist()
         if len(columns) < 2:
             continue
-        # The selector keeps the first column of each identical group.
-        ordered = [col for col in columns if col in forced] + [
-            col for col in columns if col not in forced
-        ]
+        # feature-engine keeps the first column of each identical group.
+        ordered = [col for col in columns if col in forced]
+        ordered.extend(col for col in columns if col not in forced)
+        position = {col: i for i, col in enumerate(ordered)}
         selector.fit(df.loc[:, ordered].astype(cast))
+        dropped = selector.features_to_drop_
         for group in selector.duplicated_feature_sets_:
-            members = [col for col in ordered if col in group]
-            kept, extras = members[0], members[1:]
-            forced_members = [col for col in members if col in forced]
-            if len(forced_members) == 1:
-                LOGGER.info(
-                    "Duplicate columns found: kept force-included '%s', dropped: %s",
-                    kept,
-                    extras,
-                )
-            elif len(forced_members) > 1:
+            kept = next(iter(group - dropped))
+            extras = sorted(group - {kept}, key=position.get)
+            forced_extras = [col for col in extras if col in forced]
+            if kept in forced and forced_extras:
                 LOGGER.warning(
                     "Duplicate force-included columns found: keeping '%s', dropping: %s",
                     kept,
-                    [col for col in forced_members if col != kept],
+                    forced_extras,
                 )
-            for extra in extras:
-                repeat_of[extra] = kept
+            repeat_of.update(dict.fromkeys(extras, kept))
 
     if not repeat_of:
         LOGGER.info("no duplicate features found")
