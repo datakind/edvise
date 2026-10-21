@@ -218,7 +218,7 @@ def drop_duplicate_features(
         dropped = selector.features_to_drop_
         for group in selector.duplicated_feature_sets_:
             kept = next(iter(group - dropped))
-            extras = sorted(group - {kept}, key=position.get)
+            extras = sorted(group - {kept}, key=lambda col: position[col])
             forced_extras = [col for col in extras if col in forced]
             if kept in forced and forced_extras:
                 LOGGER.warning(
