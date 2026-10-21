@@ -27,24 +27,9 @@ from ..schemas import (
     TransformationMap,
     extract_transformation_review,
 )
+from ..validation import _find_plan_index, _plans_from_entity_section
 
 logger = logging.getLogger(__name__)
-
-
-def _plans_from_entity_section(entity_blob: object) -> list[dict[str, Any]] | None:
-    if not isinstance(entity_blob, dict):
-        return None
-    raw_plans = entity_blob.get("plans")
-    if not isinstance(raw_plans, list):
-        return None
-    return [p for p in raw_plans if isinstance(p, dict)]
-
-
-def _find_plan_index(plans: list[dict[str, Any]], target_field: str) -> int | None:
-    for i, p in enumerate(plans):
-        if str(p.get("target_field") or "").strip() == target_field:
-            return i
-    return None
 
 
 def build_transformation_review_hitl_file_for_entity(
