@@ -14,6 +14,9 @@ LOGGER = logging.getLogger(__name__)
 MAX_INCOMPLETE_THRESHOLD = 0.2
 # A categorical is ID-like when nearly every non-null value is unique.
 _ID_LIKE_NUNIQUE_RATIO = 0.99
+# Compared together so 0/1 matches True/False. Kept separate from labels so "1" is not a copy of 1.
+_NUMBER_OR_BOOL = ("number", "boolean")
+_CATEGORICAL = ("string", "category", "object")
 
 
 def select_features(
@@ -172,16 +175,15 @@ def drop_low_variance_features(df: pd.DataFrame) -> pd.DataFrame:
 
 def _id_like_categorical_cols(df: pd.DataFrame) -> list[str]:
     """Categorical columns where nearly every non-null value is unique."""
-    categorical = df.select_dtypes(include=["string", "category", "object"])
-    id_like: list[str] = []
-    for col in categorical.columns:
-        non_null = int(categorical[col].notna().sum())
-        if non_null <= 1:
-            continue
-        nunique = int(categorical[col].nunique(dropna=True))
-        if nunique > 1 and nunique / non_null >= _ID_LIKE_NUNIQUE_RATIO:
-            id_like.append(str(col))
-    return id_like
+    categorical = df.select_dtypes(include=list(_CATEGORICAL))
+    if categorical.empty:
+        return []
+    non_null = categorical.notna().sum()
+    nunique = categorical.nunique(dropna=True)
+    id_like = (
+        (non_null > 1) & (nunique > 1) & (nunique / non_null >= _ID_LIKE_NUNIQUE_RATIO)
+    )
+    return [str(col) for col in categorical.columns[id_like.fillna(False)]]
 
 
 def drop_duplicate_features(
@@ -203,11 +205,9 @@ def drop_duplicate_features(
     drop_columns: list[str] = []
     duplicate_descriptions: list[str] = []
     selector = DropDuplicateFeatures(missing_values="ignore")
-    # Numbers and booleans share one pass so 0/1 matches True/False. Strings and
-    # categoricals share the other. The two passes stay separate so "1" is not a copy of 1.
     for include, cast in (
-        (["number", "boolean"], "float64"),
-        (["string", "category", "object"], "string"),
+        (_NUMBER_OR_BOOL, "float64"),
+        (_CATEGORICAL, "string"),
     ):
         columns = df.select_dtypes(include=include).columns.tolist()
         if len(columns) < 2:
