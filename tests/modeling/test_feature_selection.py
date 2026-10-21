@@ -125,7 +125,7 @@ def test_drop_duplicate_features_bool_matches_numeric_twin():
     assert returned_df.shape[0] == related_features.shape[0]
 
 
-def test_drop_duplicate_features_drops_every_twin_set():
+def test_drop_duplicate_features_drops_every_twin_set(caplog):
     """Every identical pair is removed, including numeric-only frames and categoricals."""
     features = pd.DataFrame(
         {
@@ -137,8 +137,15 @@ def test_drop_duplicate_features_drops_every_twin_set():
             "color_copy": pd.Series(["red", "blue", "red", "green"], dtype="string"),
         }
     )
-    returned_df = fs.drop_duplicate_features(features)
+    with caplog.at_level("INFO"):
+        returned_df = fs.drop_duplicate_features(features)
     assert returned_df.columns.tolist() == ["a", "b", "color"]
+    summary = next(
+        message for message in caplog.messages if message.startswith("dropping")
+    )
+    assert "a_copy (duplicate of a)" in summary
+    assert "b_copy (duplicate of b)" in summary
+    assert "color_copy (duplicate of color)" in summary
 
 
 def test_drop_duplicate_features_distinguishes_null_positions():

@@ -198,7 +198,8 @@ def drop_duplicate_features(
     from feature_engine.selection import DropDuplicateFeatures
 
     forced = set(force_include_cols or [])
-    drop_cols: list[str] = []
+    # Dropped column -> the identical column that was kept.
+    repeat_of: dict[str, str] = {}
     selector = DropDuplicateFeatures(missing_values="ignore")
     for include, cast in (
         (["number", "boolean"], "float64"),
@@ -228,13 +229,15 @@ def drop_duplicate_features(
                     kept,
                     [col for col in forced_members if col != kept],
                 )
-            drop_cols.extend(extras)
+            for extra in extras:
+                repeat_of[extra] = kept
 
-    if not drop_cols:
+    if not repeat_of:
         LOGGER.info("no duplicate features found")
         return df
-    LOGGER.info("dropping %s duplicate features: %s", len(drop_cols), drop_cols)
-    return df.drop(columns=drop_cols)
+    described = [f"{col} (duplicate of {kept})" for col, kept in repeat_of.items()]
+    LOGGER.info("dropping %s duplicate features: %s", len(described), described)
+    return df.drop(columns=list(repeat_of))
 
 
 def drop_collinear_features_iteratively(
