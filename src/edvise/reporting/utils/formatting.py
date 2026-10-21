@@ -55,6 +55,14 @@ class Formatting:
         """
         return f"_{text}_"
 
+    def format_threshold(self, value: Num) -> str:
+        """Render a probability threshold without trailing zeros, e.g. 0.30 -> 0.3."""
+        return f"{float(value):.4f}".rstrip("0").rstrip(".")
+
+    def format_rate(self, value: Num) -> str:
+        """Render a 0-1 rate as a percent with one decimal, e.g. 0.207 -> 20.7%."""
+        return f"{float(value) * 100:.1f}%"
+
     def ordinal(self, n: int) -> str:
         """
         Converts an integer to its ordinal form (e.g. 1 -> 1st).

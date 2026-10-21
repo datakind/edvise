@@ -9,7 +9,7 @@ Step 2a manifest prompts.
 
 from __future__ import annotations
 
-from edvise.genai.mapping.shared.utilities import strip_json_fences
+from edvise.genai.mapping.shared.utilities import load_json, strip_json_fences
 
 from .generate import (
     assemble_step2a_batched_prompt_from_sections,
@@ -27,7 +27,6 @@ from .generate import (
     collect_step2a_prompt_course_pass_sections,
     collect_step2a_prompt_sections,
     extract_schema_descriptor,
-    load_json,
     merge_step2a_entity_manifests,
     slim_reference_manifest,
     summarize_schema_contract,
