@@ -198,8 +198,8 @@ def drop_duplicate_features(
     from feature_engine.selection import DropDuplicateFeatures
 
     forced = set(force_include_cols or [])
-    # Dropped column -> the identical column that was kept.
-    repeat_of: dict[str, str] = {}
+    drop_columns: list[str] = []
+    duplicate_descriptions: list[str] = []
     selector = DropDuplicateFeatures(missing_values="ignore")
     # Numbers and booleans share one pass so 0/1 matches True/False. Strings and
     # categoricals share the other. The two passes stay separate so "1" is not a copy of 1.
@@ -226,14 +226,19 @@ def drop_duplicate_features(
                     kept,
                     forced_extras,
                 )
-            repeat_of.update(dict.fromkeys(extras, kept))
+            for col in extras:
+                drop_columns.append(col)
+                duplicate_descriptions.append(f"{col} (duplicate of {kept})")
 
-    if not repeat_of:
+    if not drop_columns:
         LOGGER.info("no duplicate features found")
         return df
-    described = [f"{col} (duplicate of {kept})" for col, kept in repeat_of.items()]
-    LOGGER.info("dropping %s duplicate features: %s", len(described), described)
-    return df.drop(columns=list(repeat_of))
+    LOGGER.info(
+        "dropping %s duplicate features: %s",
+        len(drop_columns),
+        duplicate_descriptions,
+    )
+    return df.drop(columns=drop_columns)
 
 
 def drop_collinear_features_iteratively(
