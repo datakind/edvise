@@ -4,7 +4,6 @@ from collections.abc import Collection
 
 import numpy as np
 import pandas as pd
-import sklearn.feature_selection
 import sklearn.impute
 from statsmodels.stats.outliers_influence import variance_inflation_factor
 
@@ -13,6 +12,8 @@ LOGGER = logging.getLogger(__name__)
 # Max fraction of nulls allowed when keeping a feature. Config may set a stricter
 # (lower) value; values above this cap are clamped for feature selection.
 MAX_INCOMPLETE_THRESHOLD = 0.2
+# A categorical is ID-like when nearly every non-null value is unique.
+_ID_LIKE_NUNIQUE_RATIO = 0.99
 
 
 def select_features(
@@ -25,7 +26,7 @@ def select_features(
     collinear_threshold: t.Optional[float] = 10.0,
 ) -> pd.DataFrame:
     """
-    Select features by dropping incomplete features, low variance features,
+    Select features by dropping incomplete features, exact constant features,
     identical features, and variables with high correlations to others.
 
     Args:
@@ -35,7 +36,8 @@ def select_features(
         force_include_cols: list of features to force include in the final dataset.
         incomplete_threshold: Threshold for determining incomplete features.
             Values above ``MAX_INCOMPLETE_THRESHOLD`` (0.2) are capped.
-        low_variance_threshold: Threshold for determining low-variance features.
+        low_variance_threshold: Accepted for existing configs. Exact-constant
+            dropping uses tol=1 and does not apply this variance cutoff.
         collinear_threshold: Threshold for determining collinear features;
             if null, skip this selection step.
 
@@ -56,6 +58,11 @@ def select_features(
     LOGGER.info(
         "force including %s columns: %s", len(force_include_cols), force_include_cols
     )
+    if low_variance_threshold != 0.0:
+        LOGGER.warning(
+            "low_variance_threshold=%s is not applied; dropping exact constants only (tol=1)",
+            low_variance_threshold,
+        )
     df_selected = (
         # we'll add these columns back in later
         df.drop(columns=non_feature_cols + force_include_cols)
@@ -65,9 +72,8 @@ def select_features(
         # If there are non-dummy categorical variables that get dropped here,
         # consider pre-processing into dummy variables for this reason.
         .pipe(drop_incomplete_features, threshold=incomplete_threshold)
-        # NOTE: only removing features with variance == 0.0 by default
-        # since features with low but non-zero variance may still be predictive
-        .pipe(drop_low_variance_features, threshold=low_variance_threshold)
+        # Exact constants only. Near-constant columns stay until tol is lowered.
+        .pipe(drop_low_variance_features)
     )
     # Stable order so duplicate removal keeps the earliest column, not a random set member.
     keep = set(df_selected.columns)
@@ -134,52 +140,48 @@ def drop_incomplete_features(
         return df
 
 
-def drop_low_variance_features(
-    df: pd.DataFrame, *, threshold: float = 0.0
-) -> pd.DataFrame:
+def drop_low_variance_features(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Drop columns with low or no variance, according to a threshold.
+    Drop columns that have a single non-null value, on every dtype.
 
-    Args:
-        df
-        threshold: Variance of values below which columns are dropped from ``df`` .
-
-    Returns:
-        ``df`` without the low-variance columns
+    ``tol=1`` keeps near-constant columns (more than one distinct value). Lower
+    ``tol`` later, around 0.99, to drop columns that are almost one label.
+    Categorical columns with a distinct value for nearly every row are flagged
+    and kept.
     """
-    df_numeric = df.select_dtypes(include="number")
-    column_contains_inf = np.isinf(df_numeric).any()
-    if column_contains_inf.any():
-        inf_cols = df_numeric.columns[column_contains_inf].tolist()  # type: ignore
-        LOGGER.error(
-            "Columns %s contain infinite values -- remove and try again!", inf_cols
-        )
-        raise ValueError()
+    # Lazy import: inference jobs load this module but do not select features.
+    from feature_engine.selection import DropConstantFeatures
 
-    selector = (
-        sklearn.feature_selection.VarianceThreshold(threshold=threshold)
-        .fit(df_numeric)
-    )  # fmt: skip
-    df_categorical = df.select_dtypes(include=["string", "category", "boolean"])
-    constant_value_cols = {
-        col
-        for col, nunique in df_categorical.nunique().eq(1).to_dict().items()
-        if nunique == 1
-    }
-    low_variance_cols = list(
-        set(df_numeric.columns) - set(selector.get_feature_names_out())
-        | constant_value_cols
-    )
-    if low_variance_cols:
-        LOGGER.info(
-            "dropping %s low-variance features: %s",
-            len(low_variance_cols),
-            low_variance_cols,
+    id_like = _id_like_categorical_cols(df)
+    if id_like:
+        LOGGER.warning(
+            "ID-like categorical columns (nunique ≈ n rows), kept: %s",
+            id_like,
         )
-        return df.drop(columns=low_variance_cols)
-    else:
-        LOGGER.info("no features found with variance < %s", threshold)
+    if df.shape[1] == 0:
         return df
+    selector = DropConstantFeatures(tol=1, missing_values="ignore")
+    selector.fit(df)
+    drop_cols = list(selector.features_to_drop_)
+    if not drop_cols:
+        LOGGER.info("no constant features found")
+        return df
+    LOGGER.info("dropping %s constant features: %s", len(drop_cols), drop_cols)
+    return df.drop(columns=drop_cols)
+
+
+def _id_like_categorical_cols(df: pd.DataFrame) -> list[str]:
+    """Categorical columns where nearly every non-null value is unique."""
+    categorical = df.select_dtypes(include=["string", "category", "object"])
+    id_like: list[str] = []
+    for col in categorical.columns:
+        non_null = int(categorical[col].notna().sum())
+        if non_null <= 1:
+            continue
+        nunique = int(categorical[col].nunique(dropna=True))
+        if nunique > 1 and nunique / non_null >= _ID_LIKE_NUNIQUE_RATIO:
+            id_like.append(str(col))
+    return id_like
 
 
 def drop_duplicate_features(

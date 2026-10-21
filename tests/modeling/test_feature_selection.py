@@ -88,17 +88,57 @@ def test_select_features_allows_stricter_incomplete_threshold(df):
     assert "partially_incomplete_feature" in dropped
 
 
-@pytest.mark.parametrize(
-    ["threshold", "exp_dropped_cols"],
-    [
-        (0.0, ["incomplete_feature", "zero_variance_feature"]),
-        (0.2, ["incomplete_feature", "low_variance_feature", "zero_variance_feature"]),
-    ],
-)
-def test_drop_low_variance_features(df, threshold, exp_dropped_cols):
-    df_result = fs.drop_low_variance_features(df, threshold=threshold)
-    assert df.columns.difference(df_result.columns).tolist() == exp_dropped_cols
+def test_drop_low_variance_features_drops_exact_constants(df):
+    """tol=1 drops a single non-null value and keeps a near-constant numeric."""
+    df_result = fs.drop_low_variance_features(df)
+    dropped = set(df.columns.difference(df_result.columns))
+    assert dropped == {"incomplete_feature", "zero_variance_feature"}
+    assert "low_variance_feature" in df_result.columns
     assert df_result.shape[0] == df.shape[0]
+
+
+def test_drop_low_variance_features_drops_constant_labels():
+    features = pd.DataFrame(
+        {
+            "const_label": pd.Series(["fall", "fall", "fall"], dtype="category"),
+            "const_bool": [True, True, True],
+            "grade": pd.Series(["A", "B", "A"], dtype="string"),
+        }
+    )
+    returned = fs.drop_low_variance_features(features)
+    assert returned.columns.tolist() == ["grade"]
+
+
+def test_drop_low_variance_features_ignores_nulls_in_constant_column():
+    features = pd.DataFrame(
+        {"mostly_null_constant": [1.0, np.nan, 1.0], "other": [1, 2, 3]}
+    )
+    returned = fs.drop_low_variance_features(features)
+    assert returned.columns.tolist() == ["other"]
+
+
+def test_drop_low_variance_features_flags_id_like_categoricals(df, caplog):
+    with caplog.at_level("WARNING"):
+        returned = fs.drop_low_variance_features(df)
+    assert "id" in returned.columns
+    assert any(
+        "ID-like categorical columns" in message and "id" in message
+        for message in caplog.messages
+    )
+
+
+def test_select_features_does_not_apply_variance_threshold(df, caplog):
+    with caplog.at_level("WARNING"):
+        result = fs.select_features(
+            df,
+            non_feature_cols=["id"],
+            force_include_cols=["include_feature"],
+            low_variance_threshold=0.2,
+            collinear_threshold=None,
+        )
+    assert "low_variance_feature" in result.columns
+    assert "zero_variance_feature" not in result.columns
+    assert any("not applied" in message for message in caplog.messages)
 
 
 def test_drop_collinear_features_iteratively():
