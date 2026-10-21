@@ -40,12 +40,12 @@ def test_load_config(file_name, schema, context):
         (
             """
             academic_term = { name = "academic term" }
-            term_in_peak_covid = { name = "term occurred in 'peak' COVID" }
+            term_is_core = { name = "term is a core term" }
             num_courses = { name = "number of courses taken this term" }
             """,
             {
                 "academic_term": {"name": "academic term"},
-                "term_in_peak_covid": {"name": "term occurred in 'peak' COVID"},
+                "term_is_core": {"name": "term is a core term"},
                 "num_courses": {"name": "number of courses taken this term"},
             },
             does_not_raise(),
@@ -53,7 +53,7 @@ def test_load_config(file_name, schema, context):
         (
             """
             academic_term = { name = "academic term" }
-            term_in_peak_covid = { name = "term occurred in 'peak' COVID" }
+            term_is_core = { name = "term is a core term" }
             num_courses = { name = "number of courses taken this term"
             """,
             None,

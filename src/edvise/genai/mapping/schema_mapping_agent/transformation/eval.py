@@ -30,6 +30,8 @@ from edvise.data_audit.schemas.raw_edvise_course import RawEdviseCourseDataSchem
 from edvise.data_audit.schemas.raw_edvise_student import RawEdviseStudentDataSchema
 from edvise.genai.mapping.eval.gateway import run_once
 from edvise.genai.mapping.eval.models import MODELS, apply_eval_models_from_env
+from edvise.genai.mapping.eval.rates import f1 as _f1
+from edvise.genai.mapping.eval.rates import safe_div as _safe_div
 from edvise.genai.mapping.eval.paths import (
     _eval_run_root,
     _require_uc_catalog_for_eval,
@@ -40,7 +42,9 @@ from edvise.genai.mapping.eval.paths import (
     folder_slug_2b,
 )
 
-from .prompt import build_step2b_prompt, load_json
+from edvise.genai.mapping.shared.utilities import load_json
+
+from .prompt import build_step2b_prompt
 from .schemas import TransformationMap
 
 load_dotenv()
@@ -66,16 +70,6 @@ REFERENCE_INSTITUTION = {
     "id": "synthetic_metro_research_uni",
     "name": "Synthetic Metro Research University",
 }
-
-
-def _safe_div(num: int, den: int) -> float | None:
-    return round(num / den, 3) if den else None
-
-
-def _f1(precision: float | None, recall: float | None) -> float | None:
-    if precision is None or recall is None or (precision + recall) == 0:
-        return None
-    return round(2 * precision * recall / (precision + recall), 3)
 
 
 def _get_plans_by_field(tm: dict, entity: str) -> dict[str, dict]:

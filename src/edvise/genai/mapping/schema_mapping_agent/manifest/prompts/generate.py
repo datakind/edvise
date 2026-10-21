@@ -738,12 +738,18 @@ ROW SELECTION
   Do not use filters to resolve ambiguity or simplify a complex mapping — flag for HITL review instead
 
 UNMAPPABLE FIELDS
-- Unmappable fields are not automatically confidence: 1.0
-- Exception: all-null sources (`null_pct` 100) are automatically unmapped at confidence 1.0 —
-  see SHARED POLICY. Do not HITL to confirm that skip.
-- If a related but insufficient column exists (e.g. a flag instead of a count, a proxy instead of a direct match),
-  lower confidence to reflect the ambiguity and flag for HITL review
-- Document what was found and why it is insufficient in the rationale
+- Confidence scores the mapping decision, including the decision to leave a field unmapped.
+  It does not score how sure you are that some source column exists.
+- 1.0 — every candidate source is all-null (`null_pct` 100). See SHARED POLICY.
+  Do not send that skip to HITL.
+- 0.9 — the target concept is clearly absent and no semantically related column exists.
+  Leave the field unmapped. Do not send it to HITL only to confirm the absence.
+- 0.8 — related columns exist, but they clearly mean something else (a boolean where the
+  target is a count, an ever-received flag where the target is year-1). Leave the field unmapped.
+- 0.7 — a plausible proxy or near-match exists, and a reviewer could reasonably map it or
+  leave it unmapped. This sits on the HITL boundary.
+- < 0.7 — several plausible candidates, or the contract does not say whether to map or unmap.
+- Document what was considered and why it does or does not suffice in the rationale.
 
 MISSING SOURCE VALUES
 - The schema contract already reflects missing data as null (null_pct, and no sentinel strings in
@@ -755,20 +761,34 @@ MISSING SOURCE VALUES
   the field executor maps JSON null to pd.NA using pandas nullable types
 
 CONFIDENCE SCORING
-- 1.0 — direct column match, no transformation ambiguity, single table, no join required
-- 0.9 — requires value mapping with complete unique_values coverage, no join required
-- 0.7–0.8 — any of: proxy field, incomplete value coverage, multi-column derivation,
-  or join required with a clearly identifiable join key
-- 0.6–0.7 — join required but join key is uncertain, or first_by used without a clearly meaningful sort column,
-  or filter applied to resolve ambiguity
-- < 0.6 — ambiguous mapping where the correct source, strategy, or join cannot be determined from the schema contract alone;
-  always flag for HITL review
+- Confidence is how certain you are that the decision is right for every record: the chosen
+  source, or the choice to leave the field unmapped. Do not lower it only because a column is
+  missing, and do not lower it only because Step 2b must parse a datetime.
+- Mapped fields, non-overlapping:
+  - 0.9–1.0 — direct, semantically unambiguous column. Use 1.0 for a single table with no value
+    mapping. Use 0.9 when value mapping is complete and no join is required.
+  - 0.8 — the source is clear, and the mapping needs a join on an obvious key or a well-supported
+    value map.
+  - 0.7 — genuine semantic ambiguity a reviewer should see: a proxy, incomplete value coverage,
+    or two close columns.
+  - < 0.7 — the source, join, row strategy, or grain cannot be decided from the contract.
+    An uncertain join key, a first_by without a meaningful sort column, or a filter used to
+    paper over ambiguity belongs here.
+- Unmappable fields use the UNMAPPABLE FIELDS bands. A confirmed absence stays at 0.9 or 1.0.
 - **≤ {pipeline_hitl_t}** — pipeline HITL gate (same value as IdentityAgent grain/term): per-field confidence
   at or below this score is routed to refinement + HITL review
 - Do **not** lower confidence solely because Step 2b must parse/coerce datetime — see SHARED POLICY
 - CRITICAL: Do not inflate confidence because a mapping is structurally plausible.
   Confidence reflects how certain you are that this mapping produces the correct semantic output
   for every student/course record, not just that it produces valid output
+- Examples:
+  - course_credits_attempted, and the course table has no credit column and no substitute →
+    unmapped at 0.9, no HITL
+  - certificate1_date, and the only date is a generic degree_term shared by every credential →
+    0.6–0.7 and HITL
+  - course_prefix, when both a course_prefix column and a combined course_name could supply it →
+    0.7 and HITL
+  - course_begin_date taken from month_day_year_of_term_begin_date → 0.9–1.0, no HITL
 
 RATIONALE
 - Focus on mapping evidence: which source column(s) plausibly carry the target semantics, grain and table choice,
@@ -1490,11 +1510,3 @@ def build_step2a_batched_prompt(
         compact_manifest_schema=compact_manifest_schema,
     )
     return assemble_step2a_batched_prompt_from_sections(sections)
-
-
-# ── Convenience helpers ────────────────────────────────────────────────────────
-
-
-def load_json(path: str) -> dict[str, Any]:
-    with open(path) as f:
-        return cast(dict[str, Any], json.load(f))

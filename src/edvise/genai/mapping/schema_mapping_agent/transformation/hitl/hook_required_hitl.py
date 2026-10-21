@@ -24,6 +24,8 @@ from edvise.genai.mapping.schema_mapping_agent.transformation.hitl.schemas impor
 )
 from edvise.genai.mapping.shared.hitl.json_io import read_pydantic_json
 
+from ..validation import _find_plan_index, _plans_from_entity_section
+
 logger = logging.getLogger(__name__)
 
 
@@ -53,19 +55,6 @@ def iter_hook_required_plans(
             )
             continue
         out.append(plan)
-    return out
-
-
-def _plans_from_entity_section(entity_blob: object) -> list[dict[str, Any]] | None:
-    if not isinstance(entity_blob, dict):
-        return None
-    raw_plans = entity_blob.get("plans")
-    if not isinstance(raw_plans, list):
-        return None
-    out: list[dict[str, Any]] = []
-    for p in raw_plans:
-        if isinstance(p, dict):
-            out.append(p)
     return out
 
 
@@ -151,13 +140,6 @@ def write_transformation_hook_hitl_envelope(
         json.dumps(env.model_dump(mode="json"), indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
-
-
-def _find_plan_index(plans: list[dict[str, Any]], target_field: str) -> int | None:
-    for i, p in enumerate(plans):
-        if str(p.get("target_field") or "").strip() == target_field:
-            return i
-    return None
 
 
 def apply_transformation_hook_hitl_resolutions(
