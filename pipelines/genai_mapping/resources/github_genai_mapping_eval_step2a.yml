@@ -1,0 +1,97 @@
+# Manual Step 2a model comparison. One run scores every supplied model slot
+# against the active reference pins and logs one MLflow run per model. Each
+# slot defaults to the hosted system.ai.claude-<family>-<version> foundation
+# model; override via EDVISE_EVAL_GATEWAY_MODELS if that naming doesn't match.
+#
+# mlflow==3.3.2 is installed only on this job. Its dependency cap is
+# pyarrow<22, so this cluster narrows the shared GenAI pin from pyarrow<26
+# to pyarrow<22. pandas==2.2.3 and numpy==1.26.4 stay unchanged.
+# mlflow.genai.evaluate imports databricks.agents.evals.metric, so this job
+# also installs databricks-agents==1.5.0 (the last release that still accepts
+# mlflow-skinny 3.3; 1.6 requires mlflow 3.4). That package needs
+# databricks-sdk>=0.58 and databricks-connect. Connect is pinned to 15.4.26
+# so it matches spark_version 15.4.x instead of resolving to a newer runtime.
+resources:
+  jobs:
+    edvise_genai_mapping_eval_step2a_pipeline:
+      name: edvise_genai_mapping_eval_step2a
+      timeout_seconds: 14400
+      max_concurrent_runs: 1
+      queue:
+        enabled: true
+
+      tasks:
+        - task_key: eval_step2a
+          spark_python_task:
+            python_file: src/edvise/genai/mapping/scripts/edvise_genai_eval_step2a.py
+            source: GIT
+            parameters:
+              - --catalog
+              - "{{job.parameters.catalog}}"
+              - --ds_run_as
+              - "{{job.parameters.ds_run_as}}"
+              - --models
+              - "{{job.parameters.models}}"
+          job_cluster_key: edvise-genai-mapping-eval-step2a-cluster
+          libraries:
+            - pypi:
+                package: pandas==2.2.3
+            - pypi:
+                package: numpy==1.26.4
+            - pypi:
+                package: pandera==0.23.0
+            - pypi:
+                package: pydantic~=2.10
+            - pypi:
+                package: tomli==2.2.1
+            - pypi:
+                package: tomlkit==0.13.3
+            - pypi:
+                package: python-dotenv==1.0.1
+            - pypi:
+                package: openai>=1.0.0
+            - pypi:
+                package: databricks-sdk>=0.58.0,<1
+            - pypi:
+                package: databricks-connect==15.4.26
+            - pypi:
+                package: pyarrow>=17.0.0,<22
+            - pypi:
+                package: mlflow==3.3.2
+            - pypi:
+                package: databricks-agents==1.5.0
+
+      job_clusters:
+        - job_cluster_key: edvise-genai-mapping-eval-step2a-cluster
+          new_cluster:
+            cluster_name: ""
+            spark_version: 15.4.x-scala2.12
+            spark_conf:
+              spark.master: local[*, 4]
+              spark.databricks.cluster.profile: singleNode
+            gcp_attributes:
+              use_preemptible_executors: false
+              availability: ON_DEMAND_GCP
+              zone_id: HA
+            node_type_id: n2-standard-4
+            custom_tags:
+              ResourceClass: SingleNode
+              x-databricks-nextgen-cluster: "true"
+            enable_elastic_disk: true
+            data_security_mode: SINGLE_USER
+            runtime_engine: STANDARD
+            num_workers: 0
+
+      parameters:
+        - name: catalog
+          default: ${var.DB_workspace}
+        - name: ds_run_as
+          default: ${var.ds_run_as}
+        - name: models
+          default: sonnet:4.5,sonnet:5,sonnet:5.5,haiku:4.5,haiku:5,haiku:5.5
+
+      permissions:
+        - group_name: ${var.datakind_group_to_manage_workflow}
+          level: CAN_MANAGE
+        - service_principal_name: ${var.ds_run_as}
+          level: CAN_MANAGE
