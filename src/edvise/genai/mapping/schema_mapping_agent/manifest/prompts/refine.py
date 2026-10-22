@@ -150,7 +150,7 @@ SMAHITLItem: {
   institution_id: str,
   entity_type: "cohort" | "course",
   target_field: str,
-  failure_mode: "low_confidence" | "column_not_found" | "join_structure" | "row_selection" | "map_unmap",
+  failure_mode: "low_confidence" | "column_not_found" | "illegal_column" | "join_structure" | "row_selection" | "map_unmap",
   hitl_question: str,        # specific actionable question naming field, issue, decision needed
   hitl_context: str | null,  # evidence: sample values, available columns, rationale, error details
   current_field_mapping: FieldMappingRecord,  # ORIGINAL from input manifest, unchanged — options hold fixes
@@ -203,7 +203,7 @@ Pass 1 output — respond with a single JSON object, no preamble, no markdown:
       "institution_id": str,
       "entity_type": "cohort" | "course",
       "target_field": str,
-      "failure_mode": "low_confidence" | "column_not_found" | "join_structure" | "row_selection" | "map_unmap",
+      "failure_mode": "low_confidence" | "column_not_found" | "illegal_column" | "join_structure" | "row_selection" | "map_unmap",
       "hitl_question": str,
       "hitl_context": str | null,
       "current_field_mapping": FieldMappingRecord,  // original input record, copied unchanged
@@ -387,6 +387,16 @@ BY FAILURE MODE:
       TERMINAL field_mapping must include the full join (same rule as EXECUTION BASE TABLE).
     - Include leave_unmapped when none of the candidates are acceptable.
 
+  illegal_column:
+    - The current source_column exists but is not allowed for this target.
+    - Option 1 is the replacement named in validation_errors: the required IdentityAgent
+      column, or a true conferral datetime / raw term-code column. Do not rank candidates
+      by name similarity, and do not offer another `_edvise_term_*` column for a conferral target.
+    - If that replacement lives on a non-base table, the TERMINAL field_mapping must include
+      the full join (same rule as EXECUTION BASE TABLE).
+    - Include leave_unmapped only when validation_errors do not name a required column
+      that is already present.
+
   join_structure:
     - {_BASE_TABLE_JOIN_HINT}
     - Options are valid join key combinations from the schema contract.
@@ -411,7 +421,7 @@ _FIELD_COLLAPSE_RULE = """
 MULTIPLE VALIDATION ERRORS ON THE SAME FIELD (Pass 2):
   Pass 1 should collapse multiple errors into one hitl_flags entry per target_field when possible.
   Set failure_mode to the most actionable category
-  (join_structure > column_not_found > row_selection > map_unmap > low_confidence).
+  (join_structure > column_not_found > illegal_column > row_selection > map_unmap > low_confidence).
   List all ManifestValidationError.detail strings in validation_errors.
   Generate options that fix all errors simultaneously — each option is a complete
   FieldMappingRecord that resolves every flagged issue on that field.
@@ -1095,7 +1105,11 @@ def _hitl_target_fields(
 def _failure_mode_for_validation_errors(
     errors: list[ManifestValidationError],
 ) -> str:
-    """Map remaining ManifestValidationError codes to SMAFailureMode values."""
+    """Map ManifestValidationError codes to SMAFailureMode values.
+
+    Every current code maps to a structural mode. ``low_confidence`` is only
+    the residual when ``errors`` is empty or a code has not been classified yet.
+    """
     codes = {e.error_code for e in errors}
     join_codes = {
         ManifestValidationErrorCode.JOIN_BASE_TABLE_NOT_FOUND,
@@ -1114,6 +1128,11 @@ def _failure_mode_for_validation_errors(
         ManifestValidationErrorCode.SOURCE_COLUMN_NOT_FOUND,
     }:
         return "column_not_found"
+    if codes & {
+        ManifestValidationErrorCode.CONFERRAL_USES_IA_TERM_COLUMN,
+        ManifestValidationErrorCode.TERM_TARGET_SHOULD_USE_IA_NORMALIZED_COLUMN,
+    }:
+        return "illegal_column"
     row_codes = {
         ManifestValidationErrorCode.ROW_SELECTION_ORDER_BY_NOT_FOUND,
         ManifestValidationErrorCode.ROW_SELECTION_ORDER_BY_NOT_CHRONOLOGICAL,
@@ -1125,6 +1144,7 @@ def _failure_mode_for_validation_errors(
     if codes & {
         ManifestValidationErrorCode.MAPPED_FIELD_MISSING_SOURCE,
         ManifestValidationErrorCode.UNMAPPED_FIELD_HAS_SOURCE,
+        ManifestValidationErrorCode.GRAIN_KEY_MISSING_SOURCE,
     }:
         return "map_unmap"
     return "low_confidence"

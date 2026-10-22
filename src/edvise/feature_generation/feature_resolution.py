@@ -123,7 +123,6 @@ def resolve_term_feature_spec(
         term_rank=term_on,
         term_rank_core=term_on,
         term_rank_noncore=term_on,
-        term_in_peak_covid=term_on,
         term_is_core=term_on,
         term_is_noncore=term_on,
     )
@@ -290,7 +289,6 @@ def resolve_cumulative_feature_spec(
 ) -> CumulativeFeatureSpec:
     exp = CumulativeExpandingColumnSpec(
         term_id=term_on,
-        term_in_peak_covid=term_on,
         term_is_core=term_on,
         term_is_noncore=term_on,
         term_is_while_student_enrolled_at_other_inst=bool(has_oth and term_on),

@@ -103,41 +103,20 @@ def get_students_with_max_target_term_in_dataset(
     if df_ckpt.groupby(by=student_id_cols).size().gt(1).any():
         raise ValueError("checkpoint df must include exactly 1 row per student")
 
-    intensity_num_terms = utils.data_cleaning.convert_intensity_time_limits(
-        "term", intensity_time_limits, num_terms_in_year=num_terms_in_year
+    intensity_num_terms = intensity_term_budgets(
+        intensity_time_limits,
+        num_terms_in_year=num_terms_in_year,
+        first_term_of_year=first_term_of_year,
     )
-    # ``intensity_num_terms`` counts terms from the checkpoint term *inclusive* through
-    # the last term we must observe to know the outcome; the last rank is therefore
-    # checkpoint_rank + num_terms - 1 (not + num_terms, which required one extra term).
-    if "*" in intensity_num_terms:
-        df_ckpt = df_ckpt.assign(
-            student_max_term_rank=lambda df: (
-                df[term_rank_col] + intensity_num_terms["*"] - 1.0
-            )
-        )
-    else:
-        df_ckpt = df_ckpt.assign(
-            student_max_term_rank=lambda df: (
-                df[term_rank_col]
-                + df[enrollment_intensity_col].map(intensity_num_terms)
-                - 1.0
-            )
-        )
-    # Season corrections on top of caller budgets. Callers shorten a 4-term
-    # fall-start budget by one term (see :func:`apply_on_time_term_budget`):
-    # - 3-term FALL → SPRING (-1); Spring is enough — no later Fall required
-    # - 4-term fall-start SUMMER/WINTER: undo that shortening (Summer already
-    #   lands on Spring; Winter→Fall). Summer-start calendars skip both.
-    if academic_term_col in df_ckpt.columns:
-        season = df_ckpt[academic_term_col].astype("string").str.upper()
-        if num_terms_in_year == 3:
-            df_ckpt.loc[season.eq("FALL"), "student_max_term_rank"] -= 1.0
-        elif num_terms_in_year == 4 and summer_is_end_of_academic_year(
-            first_term_of_year
-        ):
-            df_ckpt.loc[season.isin(["SUMMER", "WINTER"]), "student_max_term_rank"] += (
-                1.0
-            )
+    df_ckpt = assign_student_max_term_rank(
+        df_ckpt,
+        intensity_num_terms=intensity_num_terms,
+        enrollment_intensity_col=enrollment_intensity_col,
+        term_rank_col=term_rank_col,
+        academic_term_col=academic_term_col,
+        num_terms_in_year=num_terms_in_year,
+        first_term_of_year=first_term_of_year,
+    )
     df_out = (
         df_ckpt.loc[
             df_ckpt["student_max_term_rank"].le(max_term_rank),
@@ -152,6 +131,66 @@ def get_students_with_max_target_term_in_dataset(
     )
     _log_labelable_students(nuq_students_in, len(df_out))
     return df_out
+
+
+def intensity_term_budgets(
+    intensity_time_limits: utils.types.IntensityTimeLimitsType,
+    *,
+    num_terms_in_year: int,
+    first_term_of_year: str = "FALL",
+) -> dict[str, float]:
+    """On-time term budgets after year→term conversion and calendar adjustment."""
+    intensity_num_terms = utils.data_cleaning.convert_intensity_time_limits(
+        "term", intensity_time_limits, num_terms_in_year=num_terms_in_year
+    )
+    limits_already_in_terms = all(
+        isinstance(limit, (tuple, list))
+        and len(limit) == 2
+        and str(limit[1]).lower() == "term"
+        for limit in intensity_time_limits.values()
+    )
+    if limits_already_in_terms:
+        return {k: float(v) for k, v in intensity_num_terms.items()}
+    return apply_on_time_term_budget(
+        intensity_num_terms,
+        num_terms_in_year=num_terms_in_year,
+        first_term_of_year=first_term_of_year,
+    )
+
+
+def assign_student_max_term_rank(
+    checkpoint_df: pd.DataFrame,
+    *,
+    intensity_num_terms: dict[str, float],
+    num_terms_in_year: int = 4,
+    enrollment_intensity_col: str = "student_term_enrollment_intensity",
+    term_rank_col: str = "term_rank",
+    academic_term_col: str = "academic_term",
+    first_term_of_year: str = "FALL",
+) -> pd.DataFrame:
+    """Add ``student_max_term_rank`` using the same rules as training labelability."""
+    df_ckpt = checkpoint_df.copy()
+    if "*" in intensity_num_terms:
+        df_ckpt["student_max_term_rank"] = (
+            df_ckpt[term_rank_col] + intensity_num_terms["*"] - 1.0
+        )
+    else:
+        df_ckpt["student_max_term_rank"] = (
+            df_ckpt[term_rank_col]
+            + df_ckpt[enrollment_intensity_col].map(intensity_num_terms)
+            - 1.0
+        )
+    if academic_term_col in df_ckpt.columns:
+        season = df_ckpt[academic_term_col].astype("string").str.upper()
+        if num_terms_in_year == 3:
+            df_ckpt.loc[season.eq("FALL"), "student_max_term_rank"] -= 1.0
+        elif num_terms_in_year == 4 and summer_is_end_of_academic_year(
+            first_term_of_year
+        ):
+            df_ckpt.loc[season.isin(["SUMMER", "WINTER"]), "student_max_term_rank"] += (
+                1.0
+            )
+    return df_ckpt
 
 
 def validate_retention_into_year(retention_into_year: int) -> int:

@@ -42,7 +42,6 @@ class PDPStudentTermsDataSchema(pda.DataFrameModel):
     academic_term: pt.Series[pd.CategoricalDtype] = TermField()
     term_start_dt: pt.Series["datetime64[ns]"]
     term_rank: pt.Series["int8"]
-    term_in_peak_covid: pt.Series["bool"]
     term_rank_core: pt.Series["Int8"] = pda.Field(nullable=True)
     term_is_core: pt.Series["bool"]
     num_courses: pt.Series["int8"]

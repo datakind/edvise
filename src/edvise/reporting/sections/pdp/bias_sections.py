@@ -2,23 +2,21 @@ from .. import (
     bias_sections as base_bias_sections,
 )
 
+# Stable display labels for PDP group columns (friendly_case alone shortens
+# first_gen → "First Gen").
+_PDP_GROUP_LABELS = {
+    "ethnicity": "Ethnicity",
+    "first_gen": "First Generation Status",
+    "gender": "Gender",
+    "race": "Race",
+    "student_age": "Student Age",
+}
+
 
 def register_bias_sections(card, registry):
-    base_bias_sections.register_bias_sections(card, registry)
+    def group_label_fn(col: str) -> str:
+        return str(_PDP_GROUP_LABELS.get(col, card.format.friendly_case(col)))
 
-    @registry.register("bias_groups_section")
-    def bias_groups_section():
-        """
-        Returns bias groups for PDP. These groups will be static across
-        all institutions in PDP.
-        """
-        intro = f"{card.format.indent_level(1)}- Our assessment for FNR Parity was conducted across the following student groups.\n"
-        groups = [
-            "Ethnicity",
-            "First Generation Status",
-            "Gender",
-            "Race",
-            "Student Age",
-        ]
-        nested = [f"{card.format.indent_level(2)}- {group}\n" for group in groups]
-        return intro + "".join(nested)
+    base_bias_sections.register_bias_sections(
+        card, registry, group_label_fn=group_label_fn
+    )

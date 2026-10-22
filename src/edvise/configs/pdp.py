@@ -229,16 +229,17 @@ class FeaturesConfig(pyd.BaseModel):
             "SUMMER ranks Summer first, dates it in the start year "
             "(2024-25 SUMMER → summer 2024), and keeps that cohort with Fall of the "
             "same academic year. The 4-term on-time window that ends in Spring applies "
-            "only when this is FALL."
+            "only when this is FALL. Case is ignored; the value is stored as FALL or SUMMER."
         ),
     )
-    peak_covid_terms: set[tuple[str, str]] = pyd.Field(
-        default=constants.DEFAULT_PEAK_COVID_TERMS,
-        description=(
-            "Set of (academic year, academic term) pairs considered by institution "
-            "as 'peak' COVID, for use in control variables to account for pandemic effects"
-        ),
-    )
+
+    @pyd.field_validator("first_term_of_year", mode="before")
+    @classmethod
+    def normalize_first_term_of_year(cls, value: object) -> object:
+        if isinstance(value, str):
+            return value.strip().upper()
+        return value
+
     key_course_subject_areas: t.Optional[t.List[t.Union[str, t.List[str]]]] = pyd.Field(
         default=None,
         description=(
