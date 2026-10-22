@@ -160,10 +160,22 @@ COURSE_IDENTIFIER_COLUMNS = ("course_prefix", "course_number")
 
 
 def course_rows_have_identifiers(df_course: pd.DataFrame) -> pd.Series:
-    """Return rows that have both course prefix and course number.
+    """Return whether each course row has both identifiers.
 
-    Blank strings count as present. Only missing values are excluded, matching
-    the rows kept by :func:`drop_course_rows_missing_identifiers`.
+    A row is kept when ``course_prefix`` and ``course_number`` are both
+    non-null. Blank strings count as present. This is the mask used by
+    :func:`drop_course_rows_missing_identifiers`. PDP course standardization
+    turns the ``MISSING`` sentinel into null before it calls that drop, so
+    callers that need the same result should do that first.
+
+    Args:
+        df_course: Course rows containing ``course_prefix`` and ``course_number``.
+
+    Returns:
+        A boolean series aligned to ``df_course``.
+
+    Raises:
+        KeyError: If either identifier column is missing.
     """
     return df_course[list(COURSE_IDENTIFIER_COLUMNS)].notna().all(axis=1)
 

@@ -217,6 +217,26 @@ class TestClassifyDuplicateGroups:
 
 
 class TestCourseIdentifierMask:
+    @pytest.mark.parametrize("missing_value", [None, pd.NA, float("nan")])
+    def test_notna_rejects_missing_sentinels_and_keeps_blanks(self, missing_value):
+        courses = pd.DataFrame(
+            {
+                "course_prefix": pd.Series(
+                    ["MATH", missing_value, "", "HIST"], dtype="object"
+                ),
+                "course_number": pd.Series(
+                    ["101", "201", "   ", missing_value], dtype="object"
+                ),
+            }
+        )
+
+        assert data_cleaning.course_rows_have_identifiers(courses).tolist() == [
+            True,
+            False,
+            True,
+            False,
+        ]
+
     def test_keeps_rows_only_when_prefix_and_number_are_present(self):
         courses = pd.DataFrame(
             {
