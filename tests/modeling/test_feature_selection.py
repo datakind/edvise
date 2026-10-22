@@ -23,25 +23,6 @@ def df():
     ).astype({"id": "string", "categorical_feature": "category"})
 
 
-# TODO: figure out why collinaer features col keeps raising errors / gives bad results
-# @pytest.mark.parametrize(
-#     ["non_feature_cols", "force_include_cols", "exp_dropped_cols"],
-#     [
-#         (
-#             ["id"],
-#             ["include_feature"],
-#             ["incomplete_feature", "zero_variance_feature", "high_collinear_feature"],
-#         ),
-#     ],
-# )
-# def test_select_features(df, non_feature_cols, force_include_cols, exp_dropped_cols):
-#     df_result = fs.select_features(
-#         df, non_feature_cols=non_feature_cols, force_include_cols=force_include_cols
-#     )
-#     assert df.columns.difference(df_result.columns).tolist() == exp_dropped_cols
-#     assert df_result.shape[0] == df.shape[0]
-
-
 @pytest.mark.parametrize(
     ["threshold", "exp_dropped_cols"],
     [
@@ -72,6 +53,7 @@ def test_select_features_caps_incomplete_threshold(df, caplog):
     assert "incomplete_feature" in dropped
     assert "partially_incomplete_feature" in dropped
     assert any("capping for feature selection" in msg for msg in caplog.messages)
+    assert not any("low_variance_threshold" in msg for msg in caplog.messages)
 
 
 def test_select_features_allows_stricter_incomplete_threshold(df):
@@ -88,17 +70,58 @@ def test_select_features_allows_stricter_incomplete_threshold(df):
     assert "partially_incomplete_feature" in dropped
 
 
-@pytest.mark.parametrize(
-    ["threshold", "exp_dropped_cols"],
-    [
-        (0.0, ["incomplete_feature", "zero_variance_feature"]),
-        (0.2, ["incomplete_feature", "low_variance_feature", "zero_variance_feature"]),
-    ],
-)
-def test_drop_low_variance_features(df, threshold, exp_dropped_cols):
-    df_result = fs.drop_low_variance_features(df, threshold=threshold)
-    assert df.columns.difference(df_result.columns).tolist() == exp_dropped_cols
+def test_drop_low_variance_features_drops_exact_constants(df):
+    """tol=0.99 drops a single value and keeps a column that is only 80% one value."""
+    df_result = fs.drop_low_variance_features(df)
+    dropped = set(df.columns.difference(df_result.columns))
+    assert "zero_variance_feature" in dropped
+    assert "low_variance_feature" in df_result.columns
+    # One non-null value in five rows is under 99% of the row total.
+    assert "incomplete_feature" in df_result.columns
     assert df_result.shape[0] == df.shape[0]
+
+
+def test_drop_low_variance_features_drops_constant_labels():
+    features = pd.DataFrame(
+        {
+            "const_label": pd.Series(["fall", "fall", "fall"], dtype="category"),
+            "const_bool": [True, True, True],
+            "grade": pd.Series(["A", "B", "A"], dtype="string"),
+        }
+    )
+    returned = fs.drop_low_variance_features(features)
+    assert returned.columns.tolist() == ["grade"]
+
+
+def test_drop_low_variance_features_counts_nulls_in_the_row_total():
+    """A repeated value must cover 99% of rows. Nulls stay in that total."""
+    mostly_null = pd.DataFrame(
+        {"mostly_null_constant": [1.0, np.nan, 1.0], "other": [1, 2, 3]}
+    )
+    assert fs.drop_low_variance_features(mostly_null).columns.tolist() == [
+        "mostly_null_constant",
+        "other",
+    ]
+    with_one_null = pd.DataFrame(
+        {"almost_constant": [1.0] * 99 + [np.nan], "other": range(100)}
+    )
+    assert fs.drop_low_variance_features(with_one_null).columns.tolist() == ["other"]
+
+
+def test_select_features_does_not_apply_variance_threshold(df, caplog):
+    with caplog.at_level("WARNING"):
+        result = fs.select_features(
+            df,
+            non_feature_cols=["id"],
+            force_include_cols=["include_feature"],
+            low_variance_threshold=0.2,
+            collinear_threshold=None,
+        )
+    assert "low_variance_feature" in result.columns
+    assert "zero_variance_feature" not in result.columns
+    assert any(
+        "deprecated" in message and "ignored" in message for message in caplog.messages
+    )
 
 
 def test_drop_collinear_features_iteratively():
