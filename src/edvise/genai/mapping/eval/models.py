@@ -1,4 +1,4 @@
-"""Gateway model slots for Step 2a bake-offs.
+"""Gateway model slots for Step 2a and Step 2b bake-offs.
 
 Each slot defaults to Databricks' hosted Foundation Model API id
 ``system.ai.claude-<family>-<version>`` (dots in the version become dashes,
