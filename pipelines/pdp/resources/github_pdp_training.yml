@@ -278,6 +278,8 @@ resources:
             - pypi:
                 package: scikit-learn==1.5.2
             - pypi:
+                package: feature-engine==1.9.4
+            - pypi:
                 package: missingno==0.5.2
             - pypi:
                 package: tomli==2.2.1
