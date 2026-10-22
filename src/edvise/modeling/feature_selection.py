@@ -29,7 +29,7 @@ def select_features(
     collinear_threshold: t.Optional[float] = 10.0,
 ) -> pd.DataFrame:
     """
-    Select features by dropping incomplete features, exact constant features,
+    Select features by dropping incomplete features, near-constant features,
     identical features, and variables with high correlations to others.
 
     Args:
@@ -39,8 +39,8 @@ def select_features(
         force_include_cols: list of features to force include in the final dataset.
         incomplete_threshold: Threshold for determining incomplete features.
             Values above ``MAX_INCOMPLETE_THRESHOLD`` (0.2) are capped.
-        low_variance_threshold: Accepted for existing configs. Exact-constant
-            dropping uses tol=1 and does not apply this variance cutoff.
+        low_variance_threshold: Accepted for existing configs. Near-constant
+            dropping uses tol=0.99 and does not apply this variance cutoff.
         collinear_threshold: Threshold for determining collinear features;
             if null, skip this selection step.
 
@@ -63,7 +63,7 @@ def select_features(
     )
     if low_variance_threshold != 0.0:
         LOGGER.warning(
-            "low_variance_threshold=%s is not applied; dropping exact constants only (tol=1)",
+            "low_variance_threshold=%s is not applied; dropping near-constants only (tol=0.99)",
             low_variance_threshold,
         )
     df_selected = (
@@ -75,7 +75,7 @@ def select_features(
         # If there are non-dummy categorical variables that get dropped here,
         # consider pre-processing into dummy variables for this reason.
         .pipe(drop_incomplete_features, threshold=incomplete_threshold)
-        # Exact constants only. Near-constant columns stay until tol is lowered.
+        # One value in at least 99% of rows, on every dtype.
         .pipe(drop_low_variance_features)
     )
     # Stable order so duplicate removal keeps the earliest column, not a random set member.
@@ -145,12 +145,11 @@ def drop_incomplete_features(
 
 def drop_low_variance_features(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Drop columns that have a single non-null value, on every dtype.
+    Drop columns where one value covers at least 99% of rows, on every dtype.
 
-    ``tol=1`` keeps near-constant columns (more than one distinct value). Lower
-    ``tol`` later, around 0.99, to drop columns that are almost one label.
-    Categorical columns with a distinct value for nearly every row are flagged
-    and kept.
+    A column whose most common value is under 99% of rows is kept. Nulls count
+    in that row total. Categorical columns with a distinct value for nearly
+    every row are flagged and kept.
     """
     # Lazy import: inference jobs load this module but do not select features.
     from feature_engine.selection import DropConstantFeatures
@@ -163,13 +162,13 @@ def drop_low_variance_features(df: pd.DataFrame) -> pd.DataFrame:
         )
     if df.shape[1] == 0:
         return df
-    selector = DropConstantFeatures(tol=1, missing_values="ignore")
+    selector = DropConstantFeatures(tol=0.99, missing_values="ignore")
     selector.fit(df)
     drop_cols = list(selector.features_to_drop_)
     if not drop_cols:
-        LOGGER.info("no constant features found")
+        LOGGER.info("no near-constant features found")
         return df
-    LOGGER.info("dropping %s constant features: %s", len(drop_cols), drop_cols)
+    LOGGER.info("dropping %s near-constant features: %s", len(drop_cols), drop_cols)
     return df.drop(columns=drop_cols)
 
 

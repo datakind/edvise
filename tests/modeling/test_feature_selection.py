@@ -89,11 +89,13 @@ def test_select_features_allows_stricter_incomplete_threshold(df):
 
 
 def test_drop_low_variance_features_drops_exact_constants(df):
-    """tol=1 drops a single non-null value and keeps a near-constant numeric."""
+    """tol=0.99 drops a single value and keeps a column that is only 80% one value."""
     df_result = fs.drop_low_variance_features(df)
     dropped = set(df.columns.difference(df_result.columns))
-    assert dropped == {"incomplete_feature", "zero_variance_feature"}
+    assert "zero_variance_feature" in dropped
     assert "low_variance_feature" in df_result.columns
+    # One non-null value in five rows is under 99% of the row total.
+    assert "incomplete_feature" in df_result.columns
     assert df_result.shape[0] == df.shape[0]
 
 
@@ -109,12 +111,19 @@ def test_drop_low_variance_features_drops_constant_labels():
     assert returned.columns.tolist() == ["grade"]
 
 
-def test_drop_low_variance_features_ignores_nulls_in_constant_column():
-    features = pd.DataFrame(
+def test_drop_low_variance_features_counts_nulls_in_the_row_total():
+    """A repeated value must cover 99% of rows. Nulls stay in that total."""
+    mostly_null = pd.DataFrame(
         {"mostly_null_constant": [1.0, np.nan, 1.0], "other": [1, 2, 3]}
     )
-    returned = fs.drop_low_variance_features(features)
-    assert returned.columns.tolist() == ["other"]
+    assert fs.drop_low_variance_features(mostly_null).columns.tolist() == [
+        "mostly_null_constant",
+        "other",
+    ]
+    with_one_null = pd.DataFrame(
+        {"almost_constant": [1.0] * 99 + [np.nan], "other": range(100)}
+    )
+    assert fs.drop_low_variance_features(with_one_null).columns.tolist() == ["other"]
 
 
 def test_drop_low_variance_features_flags_id_like_categoricals(df, caplog):
