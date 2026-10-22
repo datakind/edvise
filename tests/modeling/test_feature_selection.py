@@ -23,25 +23,6 @@ def df():
     ).astype({"id": "string", "categorical_feature": "category"})
 
 
-# TODO: figure out why collinaer features col keeps raising errors / gives bad results
-# @pytest.mark.parametrize(
-#     ["non_feature_cols", "force_include_cols", "exp_dropped_cols"],
-#     [
-#         (
-#             ["id"],
-#             ["include_feature"],
-#             ["incomplete_feature", "zero_variance_feature", "high_collinear_feature"],
-#         ),
-#     ],
-# )
-# def test_select_features(df, non_feature_cols, force_include_cols, exp_dropped_cols):
-#     df_result = fs.select_features(
-#         df, non_feature_cols=non_feature_cols, force_include_cols=force_include_cols
-#     )
-#     assert df.columns.difference(df_result.columns).tolist() == exp_dropped_cols
-#     assert df_result.shape[0] == df.shape[0]
-
-
 @pytest.mark.parametrize(
     ["threshold", "exp_dropped_cols"],
     [

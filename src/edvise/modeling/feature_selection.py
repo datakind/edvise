@@ -64,31 +64,20 @@ def select_features(
             "low_variance_threshold=%s is deprecated and ignored",
             low_variance_threshold,
         )
-    df_selected = (
-        # we'll add these columns back in later
+    screened = (
         df.drop(columns=non_feature_cols + force_include_cols)
-        # NOTE: we should create dummy variables for categoricals prior to running this
-        # if one of the dummies represents NaN, we won't drop the categoricals that have lots of nulls,
-        # but instead can capture any patterns that may relate to the nulls.
-        # If there are non-dummy categorical variables that get dropped here,
-        # consider pre-processing into dummy variables for this reason.
         .pipe(drop_incomplete_features, threshold=incomplete_threshold)
-        # One value in at least 99% of rows, on every dtype.
         .pipe(drop_low_variance_features)
     )
-    # Stable order so duplicate removal keeps the earliest column, not a random set member.
-    keep = set(df_selected.columns)
+    keep = set(screened.columns)
     keep.update(force_include_cols)
-    df_selected = df.loc[:, [col for col in df.columns if col in keep]]
+    df_selected = _columns_in_order(df, keep)
     if collinear_threshold is not None:
-        # multi-collinearity: it may not interfere with the model's performance
-        # but it does negatively affect the interpretation of the predictors
         for col in force_include_cols:
             if col not in df_selected.columns:
                 raise ValueError(
                     f"force include column '{col}' was dropped during prior feature selection steps!"
                 )
-        # Literal copies make VIF infinite. Remove them before the VIF loop.
         df_selected = drop_duplicate_features(
             df_selected,
             force_include_cols=force_include_cols,
@@ -99,9 +88,8 @@ def select_features(
             force_include_cols=force_include_cols,
         )
 
-    orig_feature_cols = set(df.columns) - set(non_feature_cols)
     selected_feature_cols = set(df_selected.columns)
-    keep_cols = set(non_feature_cols) | selected_feature_cols
+    orig_feature_cols = set(df.columns) - set(non_feature_cols)
     LOGGER.info(
         "selected %s out of %s (%s%%) feature columns: %s",
         len(selected_feature_cols),
@@ -109,8 +97,11 @@ def select_features(
         round(100.0 * len(selected_feature_cols) / len(orig_feature_cols), 1),
         selected_feature_cols,
     )
-    # maintain the original column order, in case that's meaningful
-    return df.loc[:, df.columns.isin(keep_cols)]
+    return _columns_in_order(df, set(non_feature_cols) | selected_feature_cols)
+
+
+def _columns_in_order(df: pd.DataFrame, names: Collection[str]) -> pd.DataFrame:
+    return df.loc[:, [col for col in df.columns if col in names]]
 
 
 def drop_incomplete_features(
@@ -129,16 +120,12 @@ def drop_incomplete_features(
     """
     frac_null = df.isna().sum(axis="index") / df.shape[0]
     incomplete_cols = frac_null.loc[frac_null.ge(threshold)].index.tolist()
-    if incomplete_cols:
-        LOGGER.info(
-            "dropping %s incomplete features: %s",
-            len(incomplete_cols),
-            incomplete_cols,
-        )
-        return df.drop(columns=incomplete_cols)
-    else:
-        LOGGER.info("no features found with a fraction of null values >= %s", threshold)
-        return df
+    return _drop_logged(
+        df,
+        incomplete_cols,
+        empty=f"no features found with a fraction of null values >= {threshold}",
+        found="dropping %s incomplete features: %s",
+    )
 
 
 def drop_low_variance_features(df: pd.DataFrame) -> pd.DataFrame:
@@ -155,12 +142,12 @@ def drop_low_variance_features(df: pd.DataFrame) -> pd.DataFrame:
         return df
     selector = DropConstantFeatures(tol=0.99, missing_values="ignore")
     selector.fit(df)
-    drop_cols = list(selector.features_to_drop_)
-    if not drop_cols:
-        LOGGER.info("no near-constant features found")
-        return df
-    LOGGER.info("dropping %s near-constant features: %s", len(drop_cols), drop_cols)
-    return df.drop(columns=drop_cols)
+    return _drop_logged(
+        df,
+        list(selector.features_to_drop_),
+        empty="no near-constant features found",
+        found="dropping %s near-constant features: %s",
+    )
 
 
 def drop_duplicate_features(
@@ -180,7 +167,7 @@ def drop_duplicate_features(
 
     forced = set(force_include_cols or [])
     drop_columns: list[str] = []
-    duplicate_descriptions: list[str] = []
+    described: list[str] = []
     selector = DropDuplicateFeatures(missing_values="ignore")
     for include, cast in (
         (_NUMBER_OR_BOOL, "float64"),
@@ -189,15 +176,13 @@ def drop_duplicate_features(
         columns = df.select_dtypes(include=include).columns.tolist()
         if len(columns) < 2:
             continue
-        # feature-engine keeps the first column of each identical group.
-        ordered = [col for col in columns if col in forced]
-        ordered.extend(col for col in columns if col not in forced)
-        position = {col: i for i, col in enumerate(ordered)}
+        ordered = [col for col in columns if col in forced] + [
+            col for col in columns if col not in forced
+        ]
         selector.fit(df.loc[:, ordered].astype(cast))
-        dropped = selector.features_to_drop_
         for group in selector.duplicated_feature_sets_:
-            kept = next(iter(group - dropped))
-            extras = sorted(group - {kept}, key=lambda col: position[col])
+            members = [col for col in ordered if col in group]
+            kept, extras = members[0], members[1:]
             forced_extras = [col for col in extras if col in forced]
             if kept in forced and forced_extras:
                 LOGGER.warning(
@@ -205,19 +190,31 @@ def drop_duplicate_features(
                     kept,
                     forced_extras,
                 )
-            for col in extras:
-                drop_columns.append(col)
-                duplicate_descriptions.append(f"{col} (duplicate of {kept})")
+            drop_columns.extend(extras)
+            described.extend(f"{col} (duplicate of {kept})" for col in extras)
 
-    if not drop_columns:
-        LOGGER.info("no duplicate features found")
-        return df
-    LOGGER.info(
-        "dropping %s duplicate features: %s",
-        len(drop_columns),
-        duplicate_descriptions,
+    return _drop_logged(
+        df,
+        drop_columns,
+        empty="no duplicate features found",
+        found="dropping %s duplicate features: %s",
+        detail=described,
     )
-    return df.drop(columns=drop_columns)
+
+
+def _drop_logged(
+    df: pd.DataFrame,
+    columns: list[str],
+    *,
+    empty: str,
+    found: str,
+    detail: list[str] | None = None,
+) -> pd.DataFrame:
+    if not columns:
+        LOGGER.info(empty)
+        return df
+    LOGGER.info(found, len(columns), detail if detail is not None else columns)
+    return df.drop(columns=columns)
 
 
 def drop_collinear_features_iteratively(
