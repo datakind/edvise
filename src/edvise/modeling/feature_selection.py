@@ -39,8 +39,8 @@ def select_features(
         force_include_cols: list of features to force include in the final dataset.
         incomplete_threshold: Threshold for determining incomplete features.
             Values above ``MAX_INCOMPLETE_THRESHOLD`` (0.2) are capped.
-        low_variance_threshold: Accepted for existing configs. Near-constant
-            dropping uses tol=0.99 and does not apply this variance cutoff.
+        low_variance_threshold: Deprecated and ignored. Kept so existing configs
+            still load. A non-zero value logs a warning and does not change selection.
         collinear_threshold: Threshold for determining collinear features;
             if null, skip this selection step.
 
@@ -63,7 +63,7 @@ def select_features(
     )
     if low_variance_threshold != 0.0:
         LOGGER.warning(
-            "low_variance_threshold=%s is not applied; dropping near-constants only (tol=0.99)",
+            "low_variance_threshold=%s is deprecated and ignored",
             low_variance_threshold,
         )
     df_selected = (

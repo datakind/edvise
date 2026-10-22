@@ -72,6 +72,7 @@ def test_select_features_caps_incomplete_threshold(df, caplog):
     assert "incomplete_feature" in dropped
     assert "partially_incomplete_feature" in dropped
     assert any("capping for feature selection" in msg for msg in caplog.messages)
+    assert not any("low_variance_threshold" in msg for msg in caplog.messages)
 
 
 def test_select_features_allows_stricter_incomplete_threshold(df):
@@ -147,7 +148,9 @@ def test_select_features_does_not_apply_variance_threshold(df, caplog):
         )
     assert "low_variance_feature" in result.columns
     assert "zero_variance_feature" not in result.columns
-    assert any("not applied" in message for message in caplog.messages)
+    assert any(
+        "deprecated" in message and "ignored" in message for message in caplog.messages
+    )
 
 
 def test_drop_collinear_features_iteratively():
