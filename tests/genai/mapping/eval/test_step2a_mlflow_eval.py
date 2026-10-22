@@ -529,7 +529,6 @@ def test_run_logs_comparison_params_and_diagnostic(
         "model_family": "sonnet",
         "model_version": "5",
         "gateway_model_id": "system.ai.claude-sonnet-5",
-        "prompt_variant": "batched",
         "catalog": "dev_sst_02",
         "n_reference_cases": "1",
         "target_reference_ids": "synthetic_coastal_cc",
