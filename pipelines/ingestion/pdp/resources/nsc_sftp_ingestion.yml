@@ -1,4 +1,4 @@
-# NSC/PDP SFTP automated ingestion: Git-sourced spark_python_task chain (01→02→03).
+# NSC/PDP SFTP automated ingestion: Git-sourced spark_python_task chain (01→02→03→04).
 # Prerequisites: Job parameter DB_workspace (Unity Catalog), matching UC tables/volumes,
 # Databricks secret scope/key (passed via DAB vars from GitHub Secrets at deploy),
 # and cluster egress for SFTP/APIs.
@@ -126,6 +126,36 @@ resources:
                 package: pyarrow>=17.0.0,<26  # CVE-2024-52338; 26 requires numpy>=2
             - pypi:
                 package: requests==2.32.5
+            - pypi:
+                package: pyyaml~=6.0
+            - pypi:
+                package: pydantic~=2.10
+
+        - task_key: register_webapp_batch
+          depends_on:
+            - task_key: per_institution_bronze_ingest
+          spark_python_task:
+            python_file: src/edvise/ingestion/nsc_sftp/scripts/04_register_webapp_batch.py
+            source: GIT
+            parameters:
+              - --DB_workspace
+              - "{{job.parameters.DB_workspace}}"
+              - --nsc_sftp_secret_scope
+              - "{{job.parameters.nsc_sftp_secret_scope}}"
+              - --sst_api_key_secret_key
+              - "{{job.parameters.sst_api_key_secret_key}}"
+          job_cluster_key: nsc-sftp-ingestion-cluster
+          libraries:
+            - pypi:
+                package: pandas==2.2.3
+            - pypi:
+                package: numpy==1.26.4
+            - pypi:
+                package: pyarrow>=17.0.0,<26  # CVE-2024-52338; 26 requires numpy>=2
+            - pypi:
+                package: requests==2.32.5
+            - pypi:
+                package: google-cloud-storage==2.19.0
             - pypi:
                 package: pyyaml~=6.0
             - pypi:

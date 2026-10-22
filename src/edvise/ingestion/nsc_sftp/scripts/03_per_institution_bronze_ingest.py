@@ -1,5 +1,8 @@
 """
-Ingest NEW plan rows to per-institution bronze volumes; update ingestion_manifest.
+Split NEW plan rows into per-institution CSVs on the NSC tmp volume.
+
+Does not write the bronze volume. Stage 04 registers the webapp batch and
+copies validated GCS objects to ``gcs_uploads/{batch_id}``.
 """
 
 from __future__ import annotations
@@ -31,7 +34,9 @@ from edvise.ingestion.nsc_sftp.constants import (
     COLUMN_RENAMES,
     MANIFEST_TABLE_PATH,
     PLAN_TABLE_PATH,
+    SFTP_TMP_DIR,
 )
+from edvise.ingestion.nsc_sftp.webapp_batch import split_csv_path
 from edvise.ingestion.nsc_sftp.helpers import (
     ensure_plan_table,
     group_dataframe_by_institution_id,
@@ -45,7 +50,6 @@ from edvise.ingestion.nsc_sftp.helpers import (
     update_manifest,
 )
 from edvise.utils.institution_naming import databricksify_inst_name
-from edvise.ingestion.nsc_sftp.sftp import output_file_name_from_sftp
 
 dbutils = runtime.get_dbutils()
 spark = runtime.get_spark()
@@ -196,7 +200,6 @@ for fp, meta in by_file.items():
                 ",".join(present_ids[:20]) or "none",
             )
         file_errors: list[str] = []
-        out_name = output_file_name_from_sftp(file_name)
 
         for pdp_id in inst_ids:
             try:
@@ -228,18 +231,23 @@ for fp, meta in by_file.items():
                             f"Bronze missing for {inst_name!r} ({prefix}): {bronze_err}"
                         ) from bronze_err
 
-                volume_dir = bronze_dir_cache[prefix]
-                full_path = os.path.join(volume_dir, out_name)
+                # bronze_dir_cache was filled above so a missing volume fails here.
+                # The institution slice itself is staged for stage 04, which
+                # copies validated GCS objects into gcs_uploads/{batch_id}.
+                full_path = split_csv_path(SFTP_TMP_DIR, fp, str(pdp_id), file_name)
+                os.makedirs(os.path.dirname(full_path), exist_ok=True)
                 if os.path.exists(full_path) and not force_reingest:
                     counts["institutions_skipped_existing"] += 1
                     skipped_rows.append(
-                        f"pdp_id={pdp_id} {inst_name}: already exists "
+                        f"pdp_id={pdp_id} {inst_name}: split already exists "
                         f"(set force_reingest=true to overwrite)"
                     )
                     continue
 
                 process_and_save_file(
-                    volume_dir=volume_dir, file_name=out_name, df=filtered
+                    volume_dir=os.path.dirname(full_path),
+                    file_name=os.path.basename(full_path),
+                    df=filtered,
                 )
                 counts["institutions_written"] += 1
                 ingested_rows.append(
@@ -263,7 +271,7 @@ for fp, meta in by_file.items():
                 spark,
                 MANIFEST_TABLE_PATH,
                 fp,
-                status="BRONZE_WRITTEN",
+                status="SPLIT_STAGED",
                 error_message=None,
                 run_id=run_id,
                 cohort=file_cohort,
