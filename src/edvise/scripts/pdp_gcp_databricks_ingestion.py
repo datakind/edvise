@@ -27,7 +27,7 @@ from edvise.utils.databricks import (
     get_spark_session_or_none,
     in_databricks,
 )
-from edvise.dataio.pdp_inference_inputs import materialize_pdp_batch_inputs
+from edvise.dataio.batch_gcs_inference_ingest import run_batch_gcs_inference_ingest
 from edvise.utils.gcs import (
     active_gcp_identity,
     download_gcs_uri_to_filename,
@@ -123,15 +123,38 @@ class DataIngestionTask:
     def run(self):
         batch_id = (getattr(self.args, "batch_id", None) or "").strip()
         if batch_id:
-            fpath_course, fpath_cohort, _landing_dir = materialize_pdp_batch_inputs(
+            # Same landing as ES, legacy, and GenAI. PDP does not start the
+            # upload-time bronze sync, so do not poll for it.
+            result = run_batch_gcs_inference_ingest(
                 db_workspace=self.args.DB_workspace,
                 databricks_institution_name=self.args.databricks_institution_name,
                 gcp_bucket_name=self.args.gcp_bucket_name,
                 batch_id=batch_id,
-                cohort_file_name=self.args.cohort_file_name,
-                course_file_name=self.args.course_file_name,
+                validated_blob_paths_json=json.dumps(
+                    [
+                        f"validated/{self.args.cohort_file_name}",
+                        f"validated/{self.args.course_file_name}",
+                    ]
+                ),
+                db_run_id=self.args.db_run_id,
                 storage_client=self.storage_client,
+                bronze_sync_wait_seconds=0,
             )
+            fpath_course = os.path.join(
+                result.bronze_batch_dir, self.args.course_file_name
+            )
+            fpath_cohort = os.path.join(
+                result.bronze_batch_dir, self.args.cohort_file_name
+            )
+            missing = [
+                path
+                for path in (fpath_course, fpath_cohort)
+                if not os.path.isfile(local_fs_path(path))
+            ]
+            if missing:
+                raise FileNotFoundError(
+                    "PDP batch folder is missing " + ", ".join(missing)
+                )
         else:
             bronze_root = (
                 f"/Volumes/{self.args.DB_workspace}/"
