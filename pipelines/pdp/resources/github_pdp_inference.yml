@@ -26,6 +26,8 @@ resources:
               - "{{job.parameters.gcp_bucket_name}}"
               - --model_name
               - "{{job.parameters.model_name}}"
+              - --batch_id
+              - "{{job.parameters.batch_id}}"
           job_cluster_key: edvise-pdp-inference-pipeline-cluster
           libraries:
             - pypi:
@@ -356,6 +358,8 @@ resources:
           default: inference
         - name: model_name
           default: miles_cc_retention_end_of_first_term
+        - name: batch_id
+          default: ""
       permissions:
         - group_name: ${var.datakind_group_to_manage_workflow} 
           level: CAN_MANAGE
