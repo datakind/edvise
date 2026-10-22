@@ -216,6 +216,40 @@ class TestClassifyDuplicateGroups:
         assert len(drop_idx) == 1
 
 
+class TestCourseIdentifierMask:
+    def test_keeps_rows_only_when_prefix_and_number_are_present(self):
+        courses = pd.DataFrame(
+            {
+                "course_prefix": ["MATH", "ENGL", None, "HIST", ""],
+                "course_number": ["101", None, "201", "110", "   "],
+            }
+        )
+
+        assert data_cleaning.course_rows_have_identifiers(courses).tolist() == [
+            True,
+            False,
+            False,
+            True,
+            True,
+        ]
+
+    def test_drop_course_rows_missing_identifiers_uses_the_shared_mask(self):
+        courses = pd.DataFrame(
+            {
+                "student_id": ["1", "1", "2"],
+                "course_prefix": ["MATH", None, "ENGL"],
+                "course_number": ["101", "102", "201"],
+                "academic_year": ["2024-25", "2024-25", "2024-25"],
+                "academic_term": ["FALL", "FALL", "SPRING"],
+            }
+        )
+
+        cleaned = data_cleaning.drop_course_rows_missing_identifiers(courses)
+
+        assert cleaned["student_id"].tolist() == ["1", "2"]
+        assert cleaned["academic_term"].tolist() == ["FALL", "SPRING"]
+
+
 class TestDropTrueDuplicateRows:
     @patch("edvise.utils.data_cleaning.LOGGER")
     def test_drops_specified_rows(self, mock_logger):

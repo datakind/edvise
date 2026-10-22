@@ -156,6 +156,18 @@ def strip_upper_strings_to_cats(series: pd.Series) -> pd.Series:
     return series.str.strip().str.upper().astype("category")
 
 
+COURSE_IDENTIFIER_COLUMNS = ("course_prefix", "course_number")
+
+
+def course_rows_have_identifiers(df_course: pd.DataFrame) -> pd.Series:
+    """Return rows that have both course prefix and course number.
+
+    Blank strings count as present. Only missing values are excluded, matching
+    the rows kept by :func:`drop_course_rows_missing_identifiers`.
+    """
+    return df_course[list(COURSE_IDENTIFIER_COLUMNS)].notna().all(axis=1)
+
+
 def drop_course_rows_missing_identifiers(df_course: pd.DataFrame) -> pd.DataFrame:
     """
     Drop rows from raw course dataset missing key course identifiers,
@@ -173,8 +185,7 @@ def drop_course_rows_missing_identifiers(df_course: pd.DataFrame) -> pd.DataFram
     students_before = df_course[student_id_col].nunique()
 
     # Identify rows missing either identifier
-    id_cols = ["course_prefix", "course_number"]
-    present_mask = df_course[id_cols].notna().all(axis=1)
+    present_mask = course_rows_have_identifiers(df_course)
     drop_mask = ~present_mask
     num_dropped_rows = int(drop_mask.sum())
     pct_dropped_rows = (
