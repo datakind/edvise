@@ -12,8 +12,6 @@ LOGGER = logging.getLogger(__name__)
 # Max fraction of nulls allowed when keeping a feature. Config may set a stricter
 # (lower) value; values above this cap are clamped for feature selection.
 MAX_INCOMPLETE_THRESHOLD = 0.2
-# A categorical is ID-like when nearly every non-null value is unique.
-_ID_LIKE_NUNIQUE_RATIO = 0.99
 # Compared together so 0/1 matches True/False. Kept separate from labels so "1" is not a copy of 1.
 _NUMBER_OR_BOOL = ("number", "boolean")
 _CATEGORICAL = ("string", "category", "object")
@@ -148,18 +146,11 @@ def drop_low_variance_features(df: pd.DataFrame) -> pd.DataFrame:
     Drop columns where one value covers at least 99% of rows, on every dtype.
 
     A column whose most common value is under 99% of rows is kept. Nulls count
-    in that row total. Categorical columns with a distinct value for nearly
-    every row are flagged and kept.
+    in that row total.
     """
     # Lazy import: inference jobs load this module but do not select features.
     from feature_engine.selection import DropConstantFeatures
 
-    id_like = _id_like_categorical_cols(df)
-    if id_like:
-        LOGGER.warning(
-            "ID-like categorical columns (nunique ≈ n rows), kept: %s",
-            id_like,
-        )
     if df.shape[1] == 0:
         return df
     selector = DropConstantFeatures(tol=0.99, missing_values="ignore")
@@ -170,19 +161,6 @@ def drop_low_variance_features(df: pd.DataFrame) -> pd.DataFrame:
         return df
     LOGGER.info("dropping %s near-constant features: %s", len(drop_cols), drop_cols)
     return df.drop(columns=drop_cols)
-
-
-def _id_like_categorical_cols(df: pd.DataFrame) -> list[str]:
-    """Categorical columns where nearly every non-null value is unique."""
-    categorical = df.select_dtypes(include=list(_CATEGORICAL))
-    if categorical.empty:
-        return []
-    non_null = categorical.notna().sum()
-    nunique = categorical.nunique(dropna=True)
-    id_like = (
-        (non_null > 1) & (nunique > 1) & (nunique / non_null >= _ID_LIKE_NUNIQUE_RATIO)
-    )
-    return [str(col) for col in categorical.columns[id_like.fillna(False)]]
 
 
 def drop_duplicate_features(

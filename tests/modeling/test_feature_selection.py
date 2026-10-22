@@ -127,16 +127,6 @@ def test_drop_low_variance_features_counts_nulls_in_the_row_total():
     assert fs.drop_low_variance_features(with_one_null).columns.tolist() == ["other"]
 
 
-def test_drop_low_variance_features_flags_id_like_categoricals(df, caplog):
-    with caplog.at_level("WARNING"):
-        returned = fs.drop_low_variance_features(df)
-    assert "id" in returned.columns
-    assert any(
-        "ID-like categorical columns" in message and "id" in message
-        for message in caplog.messages
-    )
-
-
 def test_select_features_does_not_apply_variance_threshold(df, caplog):
     with caplog.at_level("WARNING"):
         result = fs.select_features(
