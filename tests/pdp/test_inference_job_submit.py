@@ -168,6 +168,27 @@ def test_build_submit_run_body_from_minimal_fixture() -> None:
     assert "access_control_list" not in body
 
 
+def test_build_submit_run_body_omits_undeclared_batch_id() -> None:
+    """An older archive must not gain a batch_id job parameter at submit time."""
+    job = load_inference_job_definition(_FIXTURE)
+    body = build_submit_run_body(
+        job,
+        pipeline_version="87b641939205110d03ce8c300e68980327dd6732",
+        git_url="https://github.com/datakind/edvise",
+        run_name="test-run",
+        parameter_overrides={
+            "databricks_institution_name": "miles_cc",
+            "model_name": "retention_into_year_2_associates",
+            "DB_workspace": "dev_sst_02",
+            "batch_id": "5b2420f3103546ab90eb74d5df97de43",
+        },
+    )
+    names = [spec["name"] for spec in body.get("parameters", [])]
+    assert "batch_id" not in names
+    rendered = str(body["tasks"])
+    assert "batch_id" not in rendered
+
+
 def test_build_submit_run_body_uses_git_tag_for_release() -> None:
     job = load_inference_job_definition(_FIXTURE)
     body = build_submit_run_body(

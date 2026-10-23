@@ -2,7 +2,8 @@
 #
 # API-overridden job parameters mirror edvise_github_sourced_pdp_inference_pipeline plus:
 #   release_base_path, inference_parameters_json (optional archived-name overrides),
-#   term_filter (JSON list forwarded to child inf_prep).
+#   term_filter (JSON list forwarded to child inf_prep),
+#   batch_id (forwarded only when the archived child job declares it).
 #
 # Models trained in dev store pipeline_version as Git SHA; staging models store a release tag.
 resources:
@@ -73,6 +74,8 @@ resources:
               - "{{job.parameters.cohort_file_name}}"
               - --course_file_name
               - "{{job.parameters.course_file_name}}"
+              - --batch_id
+              - "{{job.parameters.batch_id}}"
               - --term_filter
               - "{{job.parameters.term_filter}}"
               - --gcp_bucket_name
@@ -121,6 +124,8 @@ resources:
               - "{{job.parameters.cohort_file_name}}"
               - --course_file_name
               - "{{job.parameters.course_file_name}}"
+              - --batch_id
+              - "{{job.parameters.batch_id}}"
               - --term_filter
               - "{{job.parameters.term_filter}}"
               - --gcp_bucket_name
@@ -182,6 +187,8 @@ resources:
         - name: cohort_file_name
           default: ""
         - name: course_file_name
+          default: ""
+        - name: batch_id
           default: ""
         - name: term_filter
           default: ""

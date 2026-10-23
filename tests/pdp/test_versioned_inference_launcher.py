@@ -384,6 +384,7 @@ def test_build_launcher_parameter_overrides_forwards_term_filter() -> None:
     overrides = build_launcher_parameter_overrides(args)
     assert overrides["term_filter"] == '["fall 2025-26", "spring 2025-26"]'
     assert overrides["db_run_id"] == "63046433822793"
+    assert "batch_id" not in overrides
 
 
 def test_build_launcher_parameter_overrides_omits_empty_term_filter() -> None:
@@ -408,3 +409,30 @@ def test_build_launcher_parameter_overrides_omits_empty_term_filter() -> None:
     )
     overrides = build_launcher_parameter_overrides(args)
     assert "term_filter" not in overrides
+    assert "batch_id" not in overrides
+
+
+def test_build_launcher_parameter_overrides_forwards_batch_id() -> None:
+    import argparse
+
+    from edvise.runtime.versioned_inference.cli import (
+        add_inference_trigger_args,
+        build_launcher_parameter_overrides,
+    )
+
+    parser = argparse.ArgumentParser()
+    add_inference_trigger_args(parser)
+    args = parser.parse_args(
+        [
+            "--databricks_institution_name",
+            "miles_cc",
+            "--model_name",
+            "retention",
+            "--DB_workspace",
+            "dev_sst_02",
+            "--batch_id",
+            "5b2420f3103546ab90eb74d5df97de43",
+        ]
+    )
+    overrides = build_launcher_parameter_overrides(args)
+    assert overrides["batch_id"] == "5b2420f3103546ab90eb74d5df97de43"
