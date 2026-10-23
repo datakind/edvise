@@ -39,7 +39,6 @@ def select_features(
     collinear_threshold: t.Optional[float] = 10.0,
     target_col: str | None = None,
     random_state: int | None = 0,
-    correlation_threshold: float = SMART_CORRELATION_THRESHOLD,
 ) -> pd.DataFrame:
     """
     Select features by dropping incomplete features, near-constant features,
@@ -66,8 +65,6 @@ def select_features(
             When missing, those steps are skipped and VIF falls back to dropping
             the highest inflation factor.
         random_state: Seed for mutual information and the smart-correlation model.
-        correlation_threshold: Absolute Spearman / Cramer's V above which a pair
-            is redundant. Feature-engine groups pairs strictly above this value.
 
     Returns:
         df with non_feature_cols, force_include_cols, and any other columns selected
@@ -129,7 +126,6 @@ def select_features(
             mis=mis,
             corrs=corrs,
             force_include_cols=force_include_cols,
-            threshold=correlation_threshold,
             random_state=seed,
         )
         df_selected = drop_collinear_features_iteratively(
@@ -177,10 +173,17 @@ def _require_feature_engine() -> None:
         )
 
 
-def _as_score_series(values: pd.Series | None) -> pd.Series:
-    if values is None:
-        return pd.Series(dtype="float64")
-    return values
+def _bound_scores(
+    aucs: pd.Series | None,
+    mis: pd.Series | None,
+    corrs: pd.Series | None,
+) -> tuple[pd.Series, pd.Series, pd.Series]:
+    empty = pd.Series(dtype="float64")
+    return (
+        empty if aucs is None else aucs,
+        empty if mis is None else mis,
+        empty if corrs is None else corrs,
+    )
 
 
 def _metric_value(series: pd.Series, column: str, default: float) -> float:
@@ -191,26 +194,20 @@ def _metric_value(series: pd.Series, column: str, default: float) -> float:
 
 
 def _keep_key(
-    column: str, aucs: pd.Series, mis: pd.Series, corrs: pd.Series
+    column: str,
+    aucs: pd.Series,
+    mis: pd.Series,
+    corrs: pd.Series,
+    *,
+    mi_first: bool = False,
 ) -> tuple[float, float, float]:
-    """Higher is better: AUC, then mutual information, then |Spearman|."""
-    return (
-        _metric_value(aucs, column, 0.5),
-        _metric_value(mis, column, 0.0),
-        abs(_metric_value(corrs, column, 0.0)),
-    )
-
-
-def _categorical_keep_key(
-    column: str, aucs: pd.Series, mis: pd.Series, corrs: pd.Series
-) -> tuple[float, float, float]:
-    """Higher is better for labels: mutual information, then AUC, then |Spearman|."""
-    mi, auc, spearman = (
-        _metric_value(mis, column, 0.0),
-        _metric_value(aucs, column, 0.5),
-        abs(_metric_value(corrs, column, 0.0)),
-    )
-    return (mi, auc, spearman)
+    """Higher is better. Numeric order is AUC, MI, |Spearman|; labels use MI first."""
+    auc = _metric_value(aucs, column, 0.5)
+    mi = _metric_value(mis, column, 0.0)
+    spearman = abs(_metric_value(corrs, column, 0.0))
+    if mi_first:
+        return (mi, auc, spearman)
+    return (auc, mi, spearman)
 
 
 def _keep_metric_series(
@@ -282,7 +279,6 @@ def drop_low_variance_features(df: pd.DataFrame) -> pd.DataFrame:
     in that row total.
     """
     # Lazy import: inference jobs load this module but do not select features.
-    _require_feature_engine()
     from feature_engine.selection import DropConstantFeatures
 
     if df.shape[1] == 0:
@@ -310,7 +306,6 @@ def drop_duplicate_features(
     Several matching force-included columns keep the earliest one in ``df``.
     """
     # Lazy import: inference jobs load this module but do not select features.
-    _require_feature_engine()
     from feature_engine.selection import DropDuplicateFeatures
 
     forced = set(force_include_cols or [])
@@ -378,29 +373,18 @@ def drop_smart_correlated_features(
     random_state: int = 0,
 ) -> pd.DataFrame:
     """
-    Drop pairwise-redundant numeric features, then redundant categoricals.
+    Drop pairwise-redundant columns before VIF.
 
-    Numeric and boolean columns go through feature-engine
+    Numeric and boolean columns use feature-engine 1.9.4
     ``SmartCorrelatedSelection(method="spearman", selection_method="model_performance",
-    scoring="roc_auc")`` on feature-engine 1.9.4. That release requires an
-    estimator for ``model_performance``, so the fit uses a random forest. The
-    package has no force-include flag, so
-    force-included columns are scored with the rest. ``target`` is the label
-    aligned to ``df``; it is not read from ``df`` when the column was already
-    removed. After ``fit``, repair puts a force-include back when the package
-    dropped it, and breaks univariate-AUC ties with mutual information then
-    absolute Spearman. Categorical columns skip the package and keep the higher-MI
-    column of a Cramer's V group.
+    scoring="roc_auc")``. That release requires an estimator, so the fit uses a
+    random forest. Force-included columns are scored with the rest, then put back
+    if the package dropped them. AUC ties break on mutual information, then
+    absolute Spearman. Categoricals skip the package and keep the higher-MI
+    column of a Cramer's V group. ``target`` is aligned to ``df`` because the
+    label is not a feature column.
     """
-    aucs = _as_score_series(aucs)
-    mis = _as_score_series(mis)
-    corrs = _as_score_series(corrs)
-    threshold = float(threshold)
-    if threshold <= 0.0 or threshold > 1.0:
-        raise ValueError(
-            f"correlation_threshold must be in (0, 1]. Got {threshold} instead."
-        )
-    # The target is not a feature, so it has usually already been removed from ``df``.
+    aucs, mis, corrs = _bound_scores(aucs, mis, corrs)
     y = target
     if y is None and target_col is not None and target_col in df.columns:
         y = df[target_col]
@@ -429,7 +413,7 @@ def drop_smart_correlated_features(
         mis=mis,
         corrs=corrs,
         force_include_cols=force_include_cols,
-        threshold=threshold,
+        threshold=float(threshold),
         random_state=random_state,
     )
     return drop_redundant_categoricals(
@@ -460,9 +444,7 @@ def repair_smart_correlated_groups(
     keep-score (AUC, mutual information, absolute Spearman) picks the survivor.
     A unique AUC winner chosen by the package is left alone.
     """
-    aucs = _as_score_series(aucs)
-    mis = _as_score_series(mis)
-    corrs = _as_score_series(corrs)
+    aucs, mis, corrs = _bound_scores(aucs, mis, corrs)
     forced = set(force_include_cols or [])
     drop: list[str] = []
     for kept, others in correlated_feature_dict.items():
@@ -520,37 +502,25 @@ def drop_redundant_categoricals(
     threshold: float = SMART_CORRELATION_THRESHOLD,
 ) -> pd.DataFrame:
     """Keep the higher-MI column of each Cramer's V group. Numeric columns stay."""
-    aucs = _as_score_series(aucs)
-    mis = _as_score_series(mis)
-    corrs = _as_score_series(corrs)
+    aucs, mis, corrs = _bound_scores(aucs, mis, corrs)
     columns = df.select_dtypes(include=_CATEGORICAL).columns.tolist()
     if len(columns) < 2:
         LOGGER.info("no categorical pairs to compare with Cramer's V")
         return df
 
-    from edvise.data_audit.eda import _cramers_v
-
-    groups = _cramers_v_groups(
-        df.loc[:, columns].astype("string"),
-        threshold=float(threshold),
-        association=_cramers_v,
-    )
     forced = set(force_include_cols or [])
     drop_columns: list[str] = []
     described: list[str] = []
-    for group in groups:
-        forced_members = [col for col in group if col in forced]
-        if forced_members:
-            rejected = [col for col in group if col not in forced]
-            kept = forced_members
-        else:
-            winner = max(
-                group, key=lambda col: _categorical_keep_key(col, aucs, mis, corrs)
-            )
-            kept = [winner]
-            rejected = [col for col in group if col != winner]
+    for group in _cramers_v_groups(
+        df.loc[:, columns].astype("string"), float(threshold)
+    ):
+        kept, rejected = _group_keeps(
+            group,
+            forced,
+            key=lambda col: _keep_key(col, aucs, mis, corrs, mi_first=True),
+        )
         drop_columns.extend(rejected)
-        described.extend(f"{col} (Cramer's V group of {kept[0]})" for col in rejected)
+        described.extend(f"{col} (Cramer's V group of {kept})" for col in rejected)
     return _drop_logged(
         df,
         drop_columns,
@@ -560,12 +530,24 @@ def drop_redundant_categoricals(
     )
 
 
-def _cramers_v_groups(
-    df: pd.DataFrame,
+def _group_keeps(
+    group: list[str],
+    forced: set[str],
     *,
-    threshold: float,
-    association: t.Callable[[pd.Series, pd.Series], float | None],
-) -> list[list[str]]:
+    key: t.Callable[[str], tuple[float, ...]],
+) -> tuple[str, list[str]]:
+    """Keep force-included members, otherwise the highest ``key``."""
+    forced_members = [col for col in group if col in forced]
+    if forced_members:
+        kept = forced_members[0]
+        return kept, [col for col in group if col not in forced]
+    winner = max(group, key=key)
+    return winner, [col for col in group if col != winner]
+
+
+def _cramers_v_groups(df: pd.DataFrame, threshold: float) -> list[list[str]]:
+    from edvise.data_audit.eda import _cramers_v
+
     columns = df.columns.tolist()
     parent = {col: col for col in columns}
 
@@ -575,16 +557,14 @@ def _cramers_v_groups(
             col = parent[col]
         return col
 
-    def union(left: str, right: str) -> None:
-        left_root, right_root = find(left), find(right)
-        if left_root != right_root:
-            parent[right_root] = left_root
-
     for i, left in enumerate(columns):
         for right in columns[i + 1 :]:
-            stat = association(df[left], df[right])
+            stat = _cramers_v(df[left], df[right])
             if stat is not None and stat > threshold:
-                union(left, right)
+                right_root = find(right)
+                left_root = find(left)
+                if left_root != right_root:
+                    parent[right_root] = left_root
 
     grouped: dict[str, list[str]] = {}
     for col in columns:
@@ -615,7 +595,7 @@ def _drop_smart_correlated_numeric(
         )
         return df
 
-    X = _imputed_numeric_frame(df.loc[:, columns])
+    X = _imputed_numeric_bool(df.loc[:, columns])
     labeled = y.notna()
     X = X.loc[labeled].replace([np.inf, -np.inf], np.nan).dropna(axis="index")
     y_fit = y.loc[X.index].astype(int)
@@ -662,28 +642,27 @@ def _drop_smart_correlated_numeric(
     )
 
 
-def _imputed_numeric_frame(df: pd.DataFrame) -> pd.DataFrame:
-    """Mean-impute numbers and mode-impute booleans so a model can score them."""
-    numeric_df = df.select_dtypes(include=["number"])
-    bool_df = df.select_dtypes(include=list(_BOOL))
+def _impute(frame: pd.DataFrame, strategy: str) -> pd.DataFrame:
+    imputer: sklearn.impute.SimpleImputer = sklearn.impute.SimpleImputer(
+        missing_values=np.nan, strategy=strategy
+    ).set_output(transform="pandas")  # type: ignore
+    imputed = imputer.fit_transform(frame)
+    assert isinstance(imputed, pd.DataFrame)
+    return imputed
+
+
+def _imputed_numeric_bool(df: pd.DataFrame) -> pd.DataFrame:
+    """Mean-impute numbers and mode-impute booleans. Other columns are omitted."""
     frames: list[pd.DataFrame] = []
-    if not numeric_df.empty:
-        imputer: sklearn.impute.SimpleImputer = sklearn.impute.SimpleImputer(
-            missing_values=np.nan, strategy="mean"
-        ).set_output(transform="pandas")  # type: ignore
-        imputed = imputer.fit_transform(numeric_df)
-        assert isinstance(imputed, pd.DataFrame)
-        frames.append(imputed)
-    if not bool_df.empty:
-        bool_imputer: sklearn.impute.SimpleImputer = sklearn.impute.SimpleImputer(
-            missing_values=np.nan, strategy="most_frequent"
-        ).set_output(transform="pandas")  # type: ignore
-        imputed_bool = bool_imputer.fit_transform(bool_df.astype("float64"))
-        assert isinstance(imputed_bool, pd.DataFrame)
-        frames.append(imputed_bool)
+    numeric = df.select_dtypes(include=["number"])
+    boolean = df.select_dtypes(include=list(_BOOL))
+    if not numeric.empty:
+        frames.append(_impute(numeric, "mean"))
+    if not boolean.empty:
+        frames.append(_impute(boolean.astype("float64"), "most_frequent"))
     if not frames:
         return pd.DataFrame(index=df.index)
-    return pd.concat(frames, axis=1).astype("float64")
+    return pd.concat(frames, axis=1)
 
 
 def apply_feature_family_quotas(
@@ -696,15 +675,14 @@ def apply_feature_family_quotas(
     corrs: pd.Series | None = None,
 ) -> pd.DataFrame:
     """Restore the best dropped member of any quota family that has no survivor."""
-    aucs = _as_score_series(aucs)
-    mis = _as_score_series(mis)
-    corrs = _as_score_series(corrs)
+    aucs, mis, corrs = _bound_scores(aucs, mis, corrs)
     selected = set(df_selected.columns)
     candidates = set(candidate_cols)
+    source_columns = set(df_source.columns)
     restore: list[str] = []
     for family, members in FEATURE_FAMILIES.items():
         present = [
-            col for col in members if col in candidates and col in df_source.columns
+            col for col in members if col in candidates and col in source_columns
         ]
         if not present or any(col in selected for col in present):
             continue
@@ -712,7 +690,6 @@ def apply_feature_family_quotas(
         restore.append(best)
         LOGGER.info("restoring '%s' so quota family '%s' is not empty", best, family)
     if not restore:
-        LOGGER.info("no quota family needed a feature restored")
         return df_selected
     return _columns_in_order(df_source, set(df_selected.columns) | set(restore))
 
@@ -768,43 +745,15 @@ def drop_collinear_features_iteratively(
         features not considered collinear according to a VIF threshold
     """
     np.seterr(divide="ignore", invalid="ignore")
-    force_include_cols = force_include_cols or []
-    aucs = _as_score_series(aucs)
-    mis = _as_score_series(mis)
-    corrs = _as_score_series(corrs)
-
-    # Identify numeric and boolean columns
-    numeric_df = df.select_dtypes(include=["number"])
-    bool_df = df.select_dtypes(include=list(_BOOL)).astype("Int64")
-
-    if numeric_df.empty and bool_df.empty:
+    aucs, mis, corrs = _bound_scores(aucs, mis, corrs)
+    # VIF cannot take nulls. Impute only the columns it will score.
+    df_features = _imputed_numeric_bool(df)
+    if df_features.empty:
         LOGGER.warning("no numeric columns found, so no collinear features to drop")
         return df
 
-    # Impute numeric features with mean because VIF function can't handle nulls
-    imputer: sklearn.impute.SimpleImputer = sklearn.impute.SimpleImputer(
-        missing_values=np.nan, strategy="mean"
-    ).set_output(transform="pandas")  # type: ignore
-    df_num_imputed = imputer.fit_transform(numeric_df)
-    assert isinstance(df_num_imputed, pd.DataFrame)
-
-    df_features = df_num_imputed.copy()
-
     n_features_dropped_so_far = 0
-
-    if not bool_df.empty:
-        bool_imputer: sklearn.impute.SimpleImputer = sklearn.impute.SimpleImputer(
-            missing_values=np.nan, strategy="most_frequent"
-        ).set_output(transform="pandas")  # type: ignore
-
-        df_bool_imputed = bool_imputer.fit_transform(bool_df)
-
-        assert isinstance(df_bool_imputed, pd.DataFrame)
-
-        df_features = pd.concat([df_features, df_bool_imputed], axis=1)
-
-    forced = set(force_include_cols)
-    warned_infinite = False
+    forced = set(force_include_cols or [])
     while True:
         if df_features.shape[1] < 2:
             LOGGER.info(
@@ -820,13 +769,6 @@ def drop_collinear_features_iteratively(
         if not uncentered_vif_dict:
             LOGGER.info("only force-included columns remain; stopping VIF")
             break
-        vif_values = list(uncentered_vif_dict.values())
-        if not warned_infinite and np.isinf(vif_values).all():
-            LOGGER.warning(
-                "all non-forced features have infinite VIF; "
-                "dropping the weakest keep-score one at a time"
-            )
-            warned_infinite = True
         eligible = {
             col: vif
             for col, vif in uncentered_vif_dict.items()
