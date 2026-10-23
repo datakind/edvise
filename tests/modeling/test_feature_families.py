@@ -1,17 +1,6 @@
-import tomllib
-from pathlib import Path
-
+from edvise.dataio.read import read_features_table
 from edvise.model_prep.target_associations import feature_family
 from edvise.modeling.feature_families import FEATURE_FAMILIES, quota_family
-
-_FEATURES_TABLE = (
-    Path(__file__).resolve().parents[2]
-    / "src"
-    / "edvise"
-    / "shared"
-    / "assets"
-    / "features_table.toml"
-)
 
 
 def test_quota_families_match_the_coverage_buckets() -> None:
@@ -36,7 +25,7 @@ def test_quota_family_is_separate_from_prefix_twins() -> None:
 
 
 def test_quota_columns_are_defined_in_the_features_table() -> None:
-    table = tomllib.loads(_FEATURES_TABLE.read_text())
+    table = read_features_table("shared/assets/features_table.toml")
     missing = [
         column
         for columns in FEATURE_FAMILIES.values()
