@@ -15,8 +15,12 @@ LOGGER = logging.getLogger(__name__)
 # Max fraction of nulls allowed when keeping a feature. Config may set a stricter
 # (lower) value; values above this cap are clamped for feature selection.
 MAX_INCOMPLETE_THRESHOLD = 0.2
+# Pinned with pyproject.toml and the training job libraries. 1.9.4 requires an
+# estimator for selection_method="model_performance" and records the kept column
+# as the key of correlated_feature_dict_.
+FEATURE_ENGINE_VERSION = "1.9.4"
 # |Spearman| / Cramer's V above this are one redundancy group. Matches
-# feature-engine SmartCorrelatedSelection's default, which uses a strict ">".
+# feature-engine 1.9.4 SmartCorrelatedSelection's default, which uses a strict ">".
 SMART_CORRELATION_THRESHOLD = 0.8
 # Compared together so 0/1 matches True/False. Kept separate from labels so "1" is not a copy of 1.
 _NUMBER_OR_BOOL = ("number", "boolean")
@@ -162,6 +166,17 @@ def _columns_in_order(df: pd.DataFrame, names: Collection[str]) -> pd.DataFrame:
     return df.loc[:, [col for col in df.columns if col in names]]
 
 
+def _require_feature_engine() -> None:
+    import feature_engine
+
+    found = feature_engine.__version__
+    if found != FEATURE_ENGINE_VERSION:
+        raise RuntimeError(
+            "feature selection requires feature-engine "
+            f"{FEATURE_ENGINE_VERSION}, found {found}"
+        )
+
+
 def _as_score_series(values: pd.Series | None) -> pd.Series:
     if values is None:
         return pd.Series(dtype="float64")
@@ -267,6 +282,7 @@ def drop_low_variance_features(df: pd.DataFrame) -> pd.DataFrame:
     in that row total.
     """
     # Lazy import: inference jobs load this module but do not select features.
+    _require_feature_engine()
     from feature_engine.selection import DropConstantFeatures
 
     if df.shape[1] == 0:
@@ -294,6 +310,7 @@ def drop_duplicate_features(
     Several matching force-included columns keep the earliest one in ``df``.
     """
     # Lazy import: inference jobs load this module but do not select features.
+    _require_feature_engine()
     from feature_engine.selection import DropDuplicateFeatures
 
     forced = set(force_include_cols or [])
@@ -365,8 +382,9 @@ def drop_smart_correlated_features(
 
     Numeric and boolean columns go through feature-engine
     ``SmartCorrelatedSelection(method="spearman", selection_method="model_performance",
-    scoring="roc_auc")`` with a random forest, which this feature-engine version
-    requires for ``model_performance``. The package has no force-include flag, so
+    scoring="roc_auc")`` on feature-engine 1.9.4. That release requires an
+    estimator for ``model_performance``, so the fit uses a random forest. The
+    package has no force-include flag, so
     force-included columns are scored with the rest. ``target`` is the label
     aligned to ``df``; it is not read from ``df`` when the column was already
     removed. After ``fit``, repair puts a force-include back when the package
@@ -585,6 +603,7 @@ def _drop_smart_correlated_numeric(
     threshold: float,
     random_state: int,
 ) -> pd.DataFrame:
+    _require_feature_engine()
     from feature_engine.selection import SmartCorrelatedSelection
     from sklearn.ensemble import RandomForestClassifier
 

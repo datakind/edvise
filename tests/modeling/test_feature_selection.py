@@ -5,6 +5,13 @@ import pytest
 from edvise.modeling import feature_selection as fs
 
 
+def test_feature_selection_uses_feature_engine_1_9_4():
+    import feature_engine
+
+    assert feature_engine.__version__ == "1.9.4"
+    assert fs.FEATURE_ENGINE_VERSION == "1.9.4"
+
+
 @pytest.fixture(scope="module")
 def df():
     return pd.DataFrame(
