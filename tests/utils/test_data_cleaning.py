@@ -253,6 +253,21 @@ class TestCourseIdentifierMask:
             True,
         ]
 
+    def test_treats_missing_text_as_absent(self):
+        courses = pd.DataFrame(
+            {
+                "course_prefix": ["MATH", " missing ", "HIST", "ENGL"],
+                "course_number": ["101", "201", "MISSING", "110"],
+            }
+        )
+
+        assert data_cleaning.course_rows_have_identifiers(courses).tolist() == [
+            True,
+            False,
+            False,
+            True,
+        ]
+
     def test_drop_course_rows_missing_identifiers_uses_the_shared_mask(self):
         courses = pd.DataFrame(
             {

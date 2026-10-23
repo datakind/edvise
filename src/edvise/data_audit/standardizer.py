@@ -147,10 +147,15 @@ class PDPCourseStandardizer:
 
 
 class ESCourseStandardizer:
-    """Edvise course rows: no extra standardization until school-specific steps exist."""
+    """Edvise course rows.
+
+    Null the ``MISSING`` sentinel, then drop rows whose course prefix or number
+    is empty. That identifier drop matches :class:`PDPCourseStandardizer`.
+    """
 
     def standardize(self, df: pd.DataFrame) -> pd.DataFrame:
-        return replace_missing_sentinel_with_null(df)
+        df = replace_missing_sentinel_with_null(df)
+        return drop_course_rows_missing_identifiers(df)
 
 
 class ESCohortStandardizer:
