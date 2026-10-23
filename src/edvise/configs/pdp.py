@@ -240,13 +240,6 @@ class FeaturesConfig(pyd.BaseModel):
             return value.strip().upper()
         return value
 
-    peak_covid_terms: set[tuple[str, str]] = pyd.Field(
-        default=constants.DEFAULT_PEAK_COVID_TERMS,
-        description=(
-            "Set of (academic year, academic term) pairs considered by institution "
-            "as 'peak' COVID, for use in control variables to account for pandemic effects"
-        ),
-    )
     key_course_subject_areas: t.Optional[t.List[t.Union[str, t.List[str]]]] = pyd.Field(
         default=None,
         description=(
@@ -418,7 +411,13 @@ class FeatureSelectionConfig(pyd.BaseModel):
             "Config may set a stricter (lower) value; values above 0.2 are capped."
         ),
     )
-    low_variance_threshold: float = 0.0
+    low_variance_threshold: float = pyd.Field(
+        default=0.0,
+        description=(
+            "Deprecated and ignored. Kept for compatibility with existing configs "
+            "and model cards. A non-zero value does not change feature selection."
+        ),
+    )
     collinear_threshold: t.Optional[float] = 10.0
 
     @pyd.field_validator("incomplete_threshold", mode="after")

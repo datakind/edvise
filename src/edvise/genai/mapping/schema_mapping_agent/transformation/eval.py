@@ -8,7 +8,7 @@ map_values / fill_constant / dependency checks, and execution_safe_rate vs
 execution_exact_rate.
 
 Output folders are `{base}_2b_{SHOT_TAG}` under ``…/genai_mapping/eval/`` on the target
-silver volume. ``SHOT_TAG`` is read from ``manifest.eval``.
+silver volume. ``SHOT_TAG`` is read from :mod:`edvise.genai.mapping.eval.models`.
 """
 
 import json
@@ -26,22 +26,26 @@ from edvise.genai.mapping.shared.databricks_ai_gateway import (
     create_openai_client_for_databricks_gateway,
 )
 
-from .schemas import TransformationMap
 from edvise.data_audit.schemas.raw_edvise_course import RawEdviseCourseDataSchema
 from edvise.data_audit.schemas.raw_edvise_student import RawEdviseStudentDataSchema
-from ..manifest.eval import (
-    MODELS,
+from edvise.genai.mapping.eval.gateway import run_once
+from edvise.genai.mapping.eval.models import MODELS, apply_eval_models_from_env
+from edvise.genai.mapping.eval.rates import f1 as _f1
+from edvise.genai.mapping.eval.rates import safe_div as _safe_div
+from edvise.genai.mapping.eval.paths import (
     _eval_run_root,
     _require_uc_catalog_for_eval,
     _resolve_gold_transformation_map_for_eval,
     _resolve_reference_transformation_map_for_eval,
     _resolve_target_mapping_manifest_for_eval,
     _resolve_target_schema_contract_for_eval,
-    apply_eval_models_from_env,
     folder_slug_2b,
-    run_once,
 )
-from .prompt import build_step2b_prompt, load_json
+
+from edvise.genai.mapping.shared.utilities import load_json
+
+from .prompt import build_step2b_prompt
+from .schemas import TransformationMap
 
 load_dotenv()
 
@@ -56,7 +60,7 @@ logger = logging.getLogger(__name__)
 # Set False to restore legacy dtype comparisons in eval CSVs and logs.
 IGNORE_OUTPUT_DTYPE_IN_T2B_SCORING = True
 
-# Institution configuration — keep in sync with manifest.eval defaults unless testing 2b only
+# Institution configuration — keep in sync with eval.models defaults unless testing 2b only
 TARGET_INSTITUTION = {
     "id": "synthetic_coastal_cc",
     "name": "Synthetic Coastal Community College",
@@ -66,16 +70,6 @@ REFERENCE_INSTITUTION = {
     "id": "synthetic_metro_research_uni",
     "name": "Synthetic Metro Research University",
 }
-
-
-def _safe_div(num: int, den: int) -> float | None:
-    return round(num / den, 3) if den else None
-
-
-def _f1(precision: float | None, recall: float | None) -> float | None:
-    if precision is None or recall is None or (precision + recall) == 0:
-        return None
-    return round(2 * precision * recall / (precision + recall), 3)
 
 
 def _get_plans_by_field(tm: dict, entity: str) -> dict[str, dict]:

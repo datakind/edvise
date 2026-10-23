@@ -97,6 +97,46 @@ def test_launcher_term_filter_overrides_empty_archived_default() -> None:
     assert values["term_filter"] == term_filter
 
 
+def test_batch_id_override_dropped_when_archive_does_not_declare_it() -> None:
+    """Older PDP archives have no batch_id parameter; the child submit must omit it."""
+    contract = [
+        ParameterSpec(
+            name="schema_type",
+            default="pdp",
+            referenced_by_tasks=["data_ingestion"],
+            default_explicit=True,
+        ),
+    ]
+    values = resolve_archived_parameter_values(
+        contract,
+        launcher_overrides={"schema_type": "pdp", "batch_id": "batch-1"},
+    )
+    assert "batch_id" not in values
+    assert values["schema_type"] == "pdp"
+
+
+def test_batch_id_override_applies_when_archive_declares_it() -> None:
+    contract = [
+        ParameterSpec(
+            name="batch_id",
+            default="",
+            referenced_by_tasks=["data_ingestion"],
+            default_explicit=True,
+        ),
+    ]
+    empty = resolve_archived_parameter_values(
+        contract,
+        launcher_overrides={"schema_type": "pdp"},
+    )
+    assert empty["batch_id"] == ""
+
+    values = resolve_archived_parameter_values(
+        contract,
+        launcher_overrides={"batch_id": "5b2420f3103546ab90eb74d5df97de43"},
+    )
+    assert values["batch_id"] == "5b2420f3103546ab90eb74d5df97de43"
+
+
 def test_resolve_archived_values_fails_when_required_missing() -> None:
     job = load_inference_job_definition(_FIXTURE)
     contract = build_parameter_contract(job)

@@ -27,6 +27,7 @@ VERSIONED_INFERENCE_LAUNCHER_JOB_PARAMETERS: tuple[str, ...] = (
     "git_url",
     "cohort_file_name",
     "course_file_name",
+    "batch_id",
     "term_filter",
     "gcp_bucket_name",
     "datakind_notification_email",
@@ -46,6 +47,7 @@ def build_versioned_inference_job_parameters(
     schema_type: str = "pdp",
     cohort_file_name: str = "",
     course_file_name: str = "",
+    batch_id: str = "",
     term_filter: str = "",
     gcp_bucket_name: str = "",
     datakind_notification_email: str = "",
@@ -67,7 +69,9 @@ def build_versioned_inference_job_parameters(
     explicit ``db_run_id``). By default the launcher sets ``db_run_id`` to the parent
     launcher job run id (``launcher_run_id`` / ``{{job.run_id}}``).
     ``term_filter`` is a JSON list string (e.g. ``'["fall 2025-26"]'``) forwarded to
-    child ``inf_prep``.
+    child ``inf_prep``. ``batch_id`` is forwarded to the child only when that
+    archived pipeline declares the parameter; older archives omit it and keep
+    their existing input path.
     """
     params: dict[str, str] = {
         "databricks_institution_name": databricks_institution_name.strip(),
@@ -87,6 +91,9 @@ def build_versioned_inference_job_parameters(
         "service_account_executer": service_account_executer.strip(),
         "datakind_group_to_manage_workflow": datakind_group_to_manage_workflow.strip(),
     }
+    batch_id_value = batch_id.strip()
+    if batch_id_value:
+        params["batch_id"] = batch_id_value
     term_filter_value = term_filter.strip()
     if term_filter_value:
         params["term_filter"] = term_filter_value

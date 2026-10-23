@@ -23,25 +23,6 @@ def df():
     ).astype({"id": "string", "categorical_feature": "category"})
 
 
-# TODO: figure out why collinaer features col keeps raising errors / gives bad results
-# @pytest.mark.parametrize(
-#     ["non_feature_cols", "force_include_cols", "exp_dropped_cols"],
-#     [
-#         (
-#             ["id"],
-#             ["include_feature"],
-#             ["incomplete_feature", "zero_variance_feature", "high_collinear_feature"],
-#         ),
-#     ],
-# )
-# def test_select_features(df, non_feature_cols, force_include_cols, exp_dropped_cols):
-#     df_result = fs.select_features(
-#         df, non_feature_cols=non_feature_cols, force_include_cols=force_include_cols
-#     )
-#     assert df.columns.difference(df_result.columns).tolist() == exp_dropped_cols
-#     assert df_result.shape[0] == df.shape[0]
-
-
 @pytest.mark.parametrize(
     ["threshold", "exp_dropped_cols"],
     [
@@ -72,6 +53,7 @@ def test_select_features_caps_incomplete_threshold(df, caplog):
     assert "incomplete_feature" in dropped
     assert "partially_incomplete_feature" in dropped
     assert any("capping for feature selection" in msg for msg in caplog.messages)
+    assert not any("low_variance_threshold" in msg for msg in caplog.messages)
 
 
 def test_select_features_allows_stricter_incomplete_threshold(df):
@@ -88,17 +70,58 @@ def test_select_features_allows_stricter_incomplete_threshold(df):
     assert "partially_incomplete_feature" in dropped
 
 
-@pytest.mark.parametrize(
-    ["threshold", "exp_dropped_cols"],
-    [
-        (0.0, ["incomplete_feature", "zero_variance_feature"]),
-        (0.2, ["incomplete_feature", "low_variance_feature", "zero_variance_feature"]),
-    ],
-)
-def test_drop_low_variance_features(df, threshold, exp_dropped_cols):
-    df_result = fs.drop_low_variance_features(df, threshold=threshold)
-    assert df.columns.difference(df_result.columns).tolist() == exp_dropped_cols
+def test_drop_low_variance_features_drops_exact_constants(df):
+    """tol=0.99 drops a single value and keeps a column that is only 80% one value."""
+    df_result = fs.drop_low_variance_features(df)
+    dropped = set(df.columns.difference(df_result.columns))
+    assert "zero_variance_feature" in dropped
+    assert "low_variance_feature" in df_result.columns
+    # One non-null value in five rows is under 99% of the row total.
+    assert "incomplete_feature" in df_result.columns
     assert df_result.shape[0] == df.shape[0]
+
+
+def test_drop_low_variance_features_drops_constant_labels():
+    features = pd.DataFrame(
+        {
+            "const_label": pd.Series(["fall", "fall", "fall"], dtype="category"),
+            "const_bool": [True, True, True],
+            "grade": pd.Series(["A", "B", "A"], dtype="string"),
+        }
+    )
+    returned = fs.drop_low_variance_features(features)
+    assert returned.columns.tolist() == ["grade"]
+
+
+def test_drop_low_variance_features_counts_nulls_in_the_row_total():
+    """A repeated value must cover 99% of rows. Nulls stay in that total."""
+    mostly_null = pd.DataFrame(
+        {"mostly_null_constant": [1.0, np.nan, 1.0], "other": [1, 2, 3]}
+    )
+    assert fs.drop_low_variance_features(mostly_null).columns.tolist() == [
+        "mostly_null_constant",
+        "other",
+    ]
+    with_one_null = pd.DataFrame(
+        {"almost_constant": [1.0] * 99 + [np.nan], "other": range(100)}
+    )
+    assert fs.drop_low_variance_features(with_one_null).columns.tolist() == ["other"]
+
+
+def test_select_features_does_not_apply_variance_threshold(df, caplog):
+    with caplog.at_level("WARNING"):
+        result = fs.select_features(
+            df,
+            non_feature_cols=["id"],
+            force_include_cols=["include_feature"],
+            low_variance_threshold=0.2,
+            collinear_threshold=None,
+        )
+    assert "low_variance_feature" in result.columns
+    assert "zero_variance_feature" not in result.columns
+    assert any(
+        "deprecated" in message and "ignored" in message for message in caplog.messages
+    )
 
 
 def test_drop_collinear_features_iteratively():
@@ -112,7 +135,7 @@ def test_drop_collinear_features_iteratively():
     assert returned_df.shape[0] == related_features.shape[0]
 
 
-def test_booleans_drop_collinear_features_iteratively():
+def test_drop_duplicate_features_bool_matches_numeric_twin():
     related_features = pd.DataFrame(
         {
             "A": [2, 12, 6.5, 4, 3.5],
@@ -120,11 +143,93 @@ def test_booleans_drop_collinear_features_iteratively():
             "numeric": [1, 0, 1, 0, 1],
         }
     )
-    returned_df = fs.drop_collinear_features_iteratively(
-        related_features, force_include_cols=[]
-    )
-    assert returned_df.columns.tolist() == ["A", "numeric"]
+    returned_df = fs.drop_duplicate_features(related_features, force_include_cols=[])
+    assert returned_df.columns.tolist() == ["A", "bool"]
     assert returned_df.shape[0] == related_features.shape[0]
+
+
+def test_drop_duplicate_features_drops_every_twin_set(caplog):
+    """Every identical pair is removed, including numeric-only frames and categoricals."""
+    features = pd.DataFrame(
+        {
+            "a": [1, 2, 3, 4],
+            "a_copy": [1, 2, 3, 4],
+            "b": [8, 1, 3, 5],
+            "b_copy": [8, 1, 3, 5],
+            "color": pd.Series(["red", "blue", "red", "green"], dtype="category"),
+            "color_copy": pd.Series(["red", "blue", "red", "green"], dtype="string"),
+        }
+    )
+    with caplog.at_level("INFO"):
+        returned_df = fs.drop_duplicate_features(features)
+    assert returned_df.columns.tolist() == ["a", "b", "color"]
+    summary = next(
+        message for message in caplog.messages if message.startswith("dropping")
+    )
+    assert "a_copy (duplicate of a)" in summary
+    assert "b_copy (duplicate of b)" in summary
+    assert "color_copy (duplicate of color)" in summary
+
+
+def test_drop_duplicate_features_distinguishes_null_positions():
+    features = pd.DataFrame(
+        {
+            "a": [1.0, np.nan, 3.0],
+            "same": [1.0, np.nan, 3.0],
+            "different": [1.0, 2.0, 3.0],
+        }
+    )
+    returned_df = fs.drop_duplicate_features(features)
+    assert returned_df.columns.tolist() == ["a", "different"]
+
+
+def test_drop_duplicate_features_prefers_force_include_over_earlier_twin():
+    features = pd.DataFrame(
+        {"copy": [1, 2, 3], "original": [1, 2, 3], "other": [3, 1, 2]}
+    )
+    returned_df = fs.drop_duplicate_features(features, force_include_cols=["original"])
+    assert returned_df.columns.tolist() == ["original", "other"]
+
+
+def test_drop_duplicate_features_warns_when_force_includes_match(caplog):
+    features = pd.DataFrame(
+        {
+            "keep_me": [1, 2, 3, 4],
+            "also_forced": [1, 2, 3, 4],
+            "other": [4, 1, 3, 2],
+        }
+    )
+    with caplog.at_level("WARNING"):
+        returned_df = fs.drop_duplicate_features(
+            features, force_include_cols=["also_forced", "keep_me"]
+        )
+    assert returned_df.columns.tolist() == ["keep_me", "other"]
+    assert any(
+        "Duplicate force-included columns" in message for message in caplog.messages
+    )
+
+
+def test_select_features_drops_identical_columns_before_vif():
+    """Identical numerics are removed even when the frame has no boolean column.
+
+    A copy that reached VIF would be dropped together with its twin, because both
+    have infinite VIF. Keeping the earlier column shows the duplicate step ran first.
+    """
+    features = pd.DataFrame(
+        {
+            "a": [1, 2, 3, 4, 5],
+            "a_copy": [1, 2, 3, 4, 5],
+            "b": [5, 1, 4, 2, 3],
+            "b_copy": [5, 1, 4, 2, 3],
+            "c": [0, 1, 0, 1, 0],
+        }
+    )
+    returned_df = fs.select_features(
+        features,
+        force_include_cols=["b_copy"],
+        collinear_threshold=1e12,
+    )
+    assert returned_df.columns.tolist() == ["a", "b_copy", "c"]
 
 
 def test_drop_collinear_features_iteratively_force_include():

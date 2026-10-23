@@ -13,6 +13,10 @@ Workspace root defaults to
 When ``[postprocessing].enabled`` is false or absent in the project config TOML, or the
 workspace file is missing, this script exits successfully without running school code.
 
+After a successful ``run_type=train`` school postprocess, a legacy school with
+``[modeling.bias_mitigation]`` set gets its model card written here. Training skips
+that card so the PDF can include the threshold artifact this step logs.
+
 ``run_type=predict``: ``--config_file_path`` from ``data_ingestion``;
 ``--job_root_dir`` must match ``inference_h2o`` (CSV under ``ext/inference_output``).
 
@@ -180,6 +184,109 @@ def resolve_ssi_postprocessing_py(
     if not py.is_file():
         return None, institution_base
     return py, institution_base
+
+
+def should_defer_model_card_to_postprocessing(
+    *,
+    schema_type: str,
+    cfg: Any,
+    postprocessing_enabled: bool,
+    postprocess_script_exists: bool,
+) -> bool:
+    """Training writes the card later only for a legacy bias-mitigation school."""
+    from edvise.configs.legacy import bias_mitigation_is_configured
+
+    return (
+        schema_type == "legacy"
+        and bias_mitigation_is_configured(cfg)
+        and postprocessing_enabled
+        and postprocess_script_exists
+    )
+
+
+def legacy_postprocess_script_exists(args: argparse.Namespace) -> bool:
+    """True when the school ``postprocessing.py`` training would hand off to is present."""
+    inst = (getattr(args, "databricks_institution_name", None) or "").strip()
+    raw_model = (getattr(args, "model_name", None) or "").strip()
+    model_name = normalize_legacy_uc_model_short_name(
+        raw_model,
+        workspace=(getattr(args, "DB_workspace", None) or ""),
+        institution=inst,
+    )
+    try:
+        root = resolve_ssi_pipelines_workspace_root(
+            ds_run_as=getattr(args, "ds_run_as", None),
+            workspace_root=getattr(args, "ssi_pipelines_workspace_root", None),
+        )
+        py_file, _ = resolve_ssi_postprocessing_py(
+            inst,
+            model_name,
+            workspace_root=root,
+        )
+    except (ValueError, OSError) as exc:
+        LOGGER.warning(
+            "Could not confirm school postprocessing.py; the model card stays in training. %s",
+            exc,
+        )
+        return False
+    return py_file is not None
+
+
+def write_model_card_after_bias_mitigation(
+    config_file_path: str,
+    *,
+    catalog: str,
+) -> None:
+    """Publish the legacy model card after school postprocessing has logged its artifact."""
+    from edvise.configs.legacy import bias_mitigation_is_configured
+    from edvise.modeling.registration import get_model_name_from_config
+    from edvise.reporting.model_card.h2o_legacy import H2OLegacyModelCard
+
+    cfg = dataio.read.read_config(
+        config_file_path,
+        schema=configs.legacy.LegacyProjectConfig,
+    )
+    if not bias_mitigation_is_configured(cfg):
+        LOGGER.info(
+            "Skipping postprocessing model card; [modeling.bias_mitigation] is not set."
+        )
+        return
+    if cfg.preprocessing is None:
+        raise RuntimeError(
+            "preprocessing config is required to generate the legacy model card."
+        )
+    catalog = (catalog or "").strip()
+    if not catalog:
+        raise RuntimeError(
+            "DB_workspace is required to publish the legacy model card after postprocessing."
+        )
+    model_name = get_model_name_from_config(
+        preprocessing=cfg.preprocessing,
+        institution_id=cfg.institution_id,
+    )
+    LOGGER.info(
+        "Generating legacy model card after postprocessing for model %s",
+        model_name,
+    )
+    try:
+        from edvise.modeling.post_mitigation_bias import log_post_mitigation_group_bias
+
+        log_post_mitigation_group_bias(cfg)
+    except Exception as exc:
+        LOGGER.warning(
+            "Post-mitigation group FNR was not logged; the model card will keep "
+            "the pre-mitigation plots. [%s] %s",
+            type(exc).__name__,
+            exc,
+        )
+    card = H2OLegacyModelCard(
+        config=cfg,
+        catalog=catalog,
+        model_name=model_name,
+    )
+    card.build()
+    card.reload_card()
+    card.export_to_pdf()
 
 
 def main() -> None:
@@ -362,6 +469,11 @@ def main() -> None:
         ", ".join(f"{k}={v!r}" for k, v in run_kwargs.items()),
     )
     run(**run_kwargs)
+    if args.run_type == "train":
+        write_model_card_after_bias_mitigation(
+            effective_config,
+            catalog=args.DB_workspace,
+        )
 
 
 if __name__ == "__main__":
