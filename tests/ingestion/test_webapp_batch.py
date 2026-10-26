@@ -17,6 +17,7 @@ from edvise.ingestion.nsc_sftp.webapp_batch import (
     pair_plan_rows,
     plan_registration,
     register_pair,
+    remove_staged_fingerprint,
     split_csv_path,
 )
 from edvise.utils.gcs import SUCCESS_FILENAME
@@ -138,6 +139,39 @@ def test_fingerprints_ready_ignores_missing_splits() -> None:
         "fp-cohort"
     ]
     assert fingerprints_ready_to_close(rows, set()) == []
+
+
+def test_remove_staged_fingerprint_deletes_download_and_splits(tmp_path: Path) -> None:
+    fingerprint = "abc123"
+    other = "def456"
+    name = "cohort.csv"
+    download = tmp_path / f"{fingerprint}__{name}"
+    download.write_text("full", encoding="utf-8")
+    split = tmp_path / "splits" / fingerprint / "1600"
+    split.mkdir(parents=True)
+    (split / name).write_text("slice", encoding="utf-8")
+    other_download = tmp_path / f"{other}__{name}"
+    other_download.write_text("keep", encoding="utf-8")
+    other_split = tmp_path / "splits" / other / "1600"
+    other_split.mkdir(parents=True)
+    (other_split / name).write_text("keep", encoding="utf-8")
+
+    removed = remove_staged_fingerprint(str(tmp_path), fingerprint, name)
+
+    assert download.exists() is False
+    assert (tmp_path / "splits" / fingerprint).exists() is False
+    assert other_download.is_file()
+    assert (other_split / name).is_file()
+    assert removed == [str(download), str(tmp_path / "splits" / fingerprint)]
+
+
+def test_remove_staged_fingerprint_missing_is_noop(tmp_path: Path) -> None:
+    assert remove_staged_fingerprint(str(tmp_path), "abc123", "cohort.csv") == []
+
+
+def test_remove_staged_fingerprint_rejects_unsafe_fingerprint(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="Unsafe file_fingerprint"):
+        remove_staged_fingerprint(str(tmp_path), "../etc", "cohort.csv")
 
 
 def test_external_bucket_and_signed_url() -> None:

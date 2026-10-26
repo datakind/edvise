@@ -7,6 +7,7 @@ the validated GCS objects are copied to ``gcs_uploads/{batch_id}/``.
 from __future__ import annotations
 
 import os
+import shutil
 from dataclasses import dataclass
 from typing import Any, Mapping, Optional, Sequence
 from urllib.parse import urlparse
@@ -59,6 +60,56 @@ def split_csv_path(
     """Per-institution CSV path under the NSC tmp volume."""
     out_name = output_file_name_from_sftp(source_file_name)
     return os.path.join(tmp_dir, "splits", file_fingerprint, str(pdp_id), out_name)
+
+
+def _safe_path_segment(value: str, label: str) -> str:
+    segment = str(value or "").strip()
+    if (
+        not segment
+        or segment in {".", ".."}
+        or "/" in segment
+        or "\\" in segment
+        or os.path.basename(segment) != segment
+    ):
+        raise ValueError(f"Unsafe {label}: {value!r}")
+    return segment
+
+
+def _path_inside(parent: str, path: str) -> bool:
+    parent_real = os.path.realpath(parent)
+    path_real = os.path.realpath(path)
+    try:
+        return os.path.commonpath([parent_real, path_real]) == parent_real
+    except ValueError:
+        return False
+
+
+def remove_staged_fingerprint(
+    tmp_dir: str, file_fingerprint: str, file_name: str
+) -> list[str]:
+    """Delete one closed fingerprint's SFTP download and institution splits.
+
+    The download is ``{tmp_dir}/{fingerprint}__{file_name}``. Splits are the
+    directory ``{tmp_dir}/splits/{fingerprint}/``. Missing paths are skipped.
+    """
+    fp = _safe_path_segment(file_fingerprint, "file_fingerprint")
+    removed: list[str] = []
+    name = str(file_name or "").strip()
+    if name:
+        safe_name = _safe_path_segment(name, "file_name")
+        download = os.path.join(tmp_dir, f"{fp}__{safe_name}")
+        if not _path_inside(tmp_dir, download):
+            raise ValueError(f"Refusing to delete outside staging volume: {download}")
+        if os.path.isfile(download):
+            os.remove(download)
+            removed.append(download)
+    split_root = os.path.join(tmp_dir, "splits", fp)
+    if not _path_inside(tmp_dir, split_root):
+        raise ValueError(f"Refusing to delete outside staging volume: {split_root}")
+    if os.path.isdir(split_root):
+        shutil.rmtree(split_root)
+        removed.append(split_root)
+    return removed
 
 
 @dataclass(frozen=True)

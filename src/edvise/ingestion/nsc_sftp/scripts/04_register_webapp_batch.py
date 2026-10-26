@@ -3,7 +3,8 @@ Register SPLIT_STAGED cohort/course pairs as webapp batches.
 
 Copies validated GCS objects into bronze_volume/gcs_uploads/{batch_id} and
 marks the SFTP manifest BRONZE_WRITTEN only after every on-disk split for that
-file is in a materialized batch.
+file is in a materialized batch. After that status is written, the fingerprint's
+SFTP download and splits directory are removed from the staging volume.
 """
 
 from __future__ import annotations
@@ -47,6 +48,7 @@ from edvise.ingestion.nsc_sftp.webapp_batch import (  # noqa: E402
     fingerprints_ready_to_close,
     pair_plan_rows,
     register_pair,
+    remove_staged_fingerprint,
     split_csv_path,
 )
 from edvise.utils.institution_naming import databricksify_inst_name  # noqa: E402
@@ -134,6 +136,43 @@ def _materialized_keys() -> set[tuple[str, str, str]]:
     return keys
 
 
+def _remove_bronze_written_staging() -> tuple[list[str], list[str]]:
+    """Delete staging files for fingerprints already marked BRONZE_WRITTEN.
+
+    Runs after the manifest update, and again on a later run if a delete failed.
+    """
+    rows = (
+        spark.table(MANIFEST_TABLE_PATH)
+        .where(F.col("status") == F.lit("BRONZE_WRITTEN"))
+        .select("file_fingerprint", "file_name")
+        .distinct()
+        .collect()
+    )
+    removed: list[str] = []
+    errors: list[str] = []
+    for row in rows:
+        fingerprint = str(row["file_fingerprint"] or "")
+        file_name = str(row["file_name"] or "")
+        if not fingerprint:
+            continue
+        try:
+            removed.extend(
+                remove_staged_fingerprint(SFTP_TMP_DIR, fingerprint, file_name)
+            )
+        except Exception as exc:
+            errors.append(f"{fingerprint}: {exc}")
+            logger.exception("failed to remove staged files for %s", fingerprint)
+    return removed, errors
+
+
+def _log_staging_cleanup(removed: list[str], errors: list[str]) -> str:
+    if removed:
+        log_section(logger, "Removed staging", removed)
+    if errors:
+        log_section(logger, "Staging cleanup failed", errors)
+    return f"REMOVED={len(removed)};CLEANUP_FAILED={len(errors)}"
+
+
 if not spark.catalog.tableExists(PLAN_TABLE_PATH):
     runtime.notebook_exit(dbutils, "NO_PLAN_TABLE")
 if not spark.catalog.tableExists(MANIFEST_TABLE_PATH):
@@ -158,7 +197,8 @@ plan_rows = (
     .collect()
 )
 if not plan_rows:
-    runtime.notebook_exit(dbutils, "NO_SPLIT_STAGED")
+    cleanup = _log_staging_cleanup(*_remove_bronze_written_staging())
+    runtime.notebook_exit(dbutils, f"NO_SPLIT_STAGED;{cleanup}")
 
 row_dicts = [row.asDict() for row in plan_rows]
 pairs, problems = pair_plan_rows(row_dicts, tmp_dir=SFTP_TMP_DIR)
@@ -239,7 +279,8 @@ for fingerprint in fingerprints_ready_to_close(close_rows, _materialized_keys())
 
 log_section(logger, "Registered", written)
 log_section(logger, "Failed", failed)
+cleanup = _log_staging_cleanup(*_remove_bronze_written_staging())
 runtime.notebook_exit(
     dbutils,
-    f"REGISTERED={len(written)};FAILED={len(failed)};UNPAIRED={len(problems)}",
+    f"REGISTERED={len(written)};FAILED={len(failed)};UNPAIRED={len(problems)};{cleanup}",
 )
