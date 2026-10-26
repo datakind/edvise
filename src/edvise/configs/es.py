@@ -495,7 +495,13 @@ class FeatureSelectionConfig(pyd.BaseModel):
             "Config may set a stricter (lower) value; values above 0.2 are capped."
         ),
     )
-    low_variance_threshold: float = 0.0
+    low_variance_threshold: float = pyd.Field(
+        default=0.0,
+        description=(
+            "Deprecated and ignored. Kept for compatibility with existing configs "
+            "and model cards. A non-zero value does not change feature selection."
+        ),
+    )
     collinear_threshold: t.Optional[float] = 10.0
 
     @pyd.field_validator("incomplete_threshold", mode="after")

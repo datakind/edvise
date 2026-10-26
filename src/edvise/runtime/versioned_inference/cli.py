@@ -88,6 +88,14 @@ def add_inference_trigger_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--cohort_file_name", default="")
     parser.add_argument("--course_file_name", default="")
     parser.add_argument(
+        "--batch_id",
+        default="",
+        help=(
+            "Webapp batch id. Forwarded to the child only when the archived "
+            "pipeline declares batch_id; older archives ignore it."
+        ),
+    )
+    parser.add_argument(
         "--term_filter",
         default="",
         help=(
@@ -131,6 +139,7 @@ def build_launcher_parameter_overrides(args: argparse.Namespace) -> dict[str, st
     for key in (
         "cohort_file_name",
         "course_file_name",
+        "batch_id",
         "term_filter",
         "gcp_bucket_name",
         "datakind_notification_email",
@@ -204,7 +213,6 @@ def add_es_inference_trigger_args(parser: argparse.ArgumentParser) -> None:
         default="false",
         help='When "true", require GenAI snapshot under es/{version}/genai/.',
     )
-    parser.add_argument("--batch_id", default="")
     parser.add_argument("--validated_blob_paths_json", default="")
     parser.add_argument("--config_file_name", default="")
     parser.add_argument("--genai_inputs_toml_path", default="")
