@@ -9,7 +9,12 @@
 #     Auto modes select every complete cohort/course pair that shares the target
 #     calendar date (YYYYMMDD), not only the newest timestamp.
 # Testing: force_reingest=true resets manifest/selected/plan for the selected pair and
-# overwrites existing bronze CSVs (use with latest or manual).
+# overwrites existing bronze CSVs (use with latest or manual). Files must still be in
+# the SFTP ./receive folder.
+# Batch trial without SFTP: registration_only=true plus cohort_csv_path and course_csv_path.
+# Point both paths at one school's bronze CSVs. Stage 04 reads the PDP id from the
+# institution column and looks up inst_id and name in SST. Stages 01–03 exit immediately.
+# The manifest is not changed. Both CSV basenames must share a 14-digit stamp.
 
 resources:
   jobs:
@@ -37,6 +42,12 @@ resources:
           default: ""
         - name: course_file_name
           default: ""
+        - name: registration_only
+          default: "false"
+        - name: cohort_csv_path
+          default: ""
+        - name: course_csv_path
+          default: ""
 
       tasks:
         - task_key: sftp_receive_scan
@@ -56,6 +67,8 @@ resources:
               - "{{job.parameters.cohort_file_name}}"
               - --course_file_name
               - "{{job.parameters.course_file_name}}"
+              - --registration_only
+              - "{{job.parameters.registration_only}}"
           job_cluster_key: nsc-sftp-ingestion-cluster
           libraries:
             - pypi:
@@ -86,6 +99,8 @@ resources:
               - "{{job.parameters.nsc_sftp_secret_scope}}"
               - --sst_api_key_secret_key
               - "{{job.parameters.sst_api_key_secret_key}}"
+              - --registration_only
+              - "{{job.parameters.registration_only}}"
           job_cluster_key: nsc-sftp-ingestion-cluster
           libraries:
             - pypi:
@@ -116,6 +131,8 @@ resources:
               - "{{job.parameters.sst_api_key_secret_key}}"
               - --force_reingest
               - "{{job.parameters.force_reingest}}"
+              - --registration_only
+              - "{{job.parameters.registration_only}}"
           job_cluster_key: nsc-sftp-ingestion-cluster
           libraries:
             - pypi:
@@ -144,6 +161,12 @@ resources:
               - "{{job.parameters.nsc_sftp_secret_scope}}"
               - --sst_api_key_secret_key
               - "{{job.parameters.sst_api_key_secret_key}}"
+              - --registration_only
+              - "{{job.parameters.registration_only}}"
+              - --cohort_csv_path
+              - "{{job.parameters.cohort_csv_path}}"
+              - --course_csv_path
+              - "{{job.parameters.course_csv_path}}"
           job_cluster_key: nsc-sftp-ingestion-cluster
           libraries:
             - pypi:
