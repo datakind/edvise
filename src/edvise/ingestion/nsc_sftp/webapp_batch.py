@@ -6,6 +6,7 @@ the validated GCS objects are copied to ``gcs_uploads/{batch_id}/``.
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import shutil
@@ -21,6 +22,8 @@ from edvise.ingestion.nsc_sftp.file_selection import (
 )
 from edvise.ingestion.nsc_sftp.sftp import output_file_name_from_sftp
 from edvise.utils.gcs import SUCCESS_FILENAME
+
+LOGGER = logging.getLogger(__name__)
 
 
 def batch_name_for_stamp(stamp: str) -> str:
@@ -246,10 +249,8 @@ def select_tmp_registration_pair(paths: Sequence[str]) -> tuple[str, str]:
     return roles["cohort"], roles["course"]
 
 
-def trial_pdp_id(
-    cohort_ids: Sequence[str], course_ids: Sequence[str]
-) -> tuple[str, int]:
-    """Pick one shared PDP id. Combined NSC files contain more than one."""
+def shared_pdp_ids(cohort_ids: Sequence[str], course_ids: Sequence[str]) -> list[str]:
+    """Return every PDP id shared by a cohort file and its course file, sorted."""
     cohort = sorted({str(value).strip() for value in cohort_ids if str(value).strip()})
     course = sorted({str(value).strip() for value in course_ids if str(value).strip()})
     if not cohort:
@@ -259,7 +260,15 @@ def trial_pdp_id(
             "Cohort and course CSVs must contain the same PDP ids. "
             f"Got cohort={cohort}, course={course}."
         )
-    return cohort[0], len(cohort)
+    return cohort
+
+
+def trial_pdp_id(
+    cohort_ids: Sequence[str], course_ids: Sequence[str]
+) -> tuple[str, int]:
+    """Pick the first shared PDP id. Combined NSC files contain more than one."""
+    ids = shared_pdp_ids(cohort_ids, course_ids)
+    return ids[0], len(ids)
 
 
 def single_pdp_id(cohort_ids: Sequence[str], course_ids: Sequence[str]) -> str:
@@ -483,12 +492,28 @@ def register_pair(
     if decision.error:
         raise RuntimeError(decision.error)
 
+    LOGGER.info(
+        "registration plan inst_id=%s batch_name=%s upload=%s create_batch=%s existing_batch_id=%s",
+        pair.inst_id,
+        batch_name,
+        list(decision.upload_names) or "none",
+        decision.create_batch,
+        decision.batch_id or "none",
+    )
+    if not decision.upload_names:
+        LOGGER.info(
+            "Skipping upload and validate-sftp for inst_id=%s; files already valid: %s",
+            pair.inst_id,
+            [pair.cohort_file_name, pair.course_file_name],
+        )
+
     bucket = external_bucket_name(db_workspace, pair.inst_id)
     split_paths = {
         pair.cohort_file_name: pair.cohort_split_path,
         pair.course_file_name: pair.course_split_path,
     }
     for name in decision.upload_names:
+        LOGGER.info("Uploading inst_id=%s file=%s", pair.inst_id, name)
         with open(split_paths[name], "rb") as handle:
             payload = handle.read()
         signed_url = get_upload_url(client, pair.inst_id, name)  # type: ignore[arg-type]
@@ -508,7 +533,18 @@ def register_pair(
             )
             if not already_there:
                 raise
-        validate_sftp_upload(client, pair.inst_id, name)  # type: ignore[arg-type]
+        LOGGER.info("Calling validate-sftp inst_id=%s file=%s", pair.inst_id, name)
+        try:
+            validate_sftp_upload(client, pair.inst_id, name)  # type: ignore[arg-type]
+        except Exception as exc:
+            LOGGER.error(
+                "validate-sftp failed inst_id=%s file=%s error=%s",
+                pair.inst_id,
+                name,
+                exc,
+            )
+            raise
+        LOGGER.info("validate-sftp passed inst_id=%s file=%s", pair.inst_id, name)
 
     if decision.create_batch:
         created = create_institution_batch(
@@ -524,8 +560,20 @@ def register_pair(
                 f"Batch {batch_name} attached {sorted(attached)}, expected {sorted(expected)}."
             )
         batch_id = str(created.get("batch_id") or "")
+        LOGGER.info(
+            "Created batch inst_id=%s batch_name=%s batch_id=%s",
+            pair.inst_id,
+            batch_name,
+            batch_id or "none",
+        )
     else:
         batch_id = decision.batch_id
+        LOGGER.info(
+            "Reusing batch inst_id=%s batch_name=%s batch_id=%s",
+            pair.inst_id,
+            batch_name,
+            batch_id or "none",
+        )
     if not batch_id:
         raise RuntimeError(f"Batch {batch_name} did not return a batch_id.")
     batch_id = assert_safe_volume_segment("batch_id", batch_id)

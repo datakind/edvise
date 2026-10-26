@@ -23,6 +23,7 @@ from edvise.ingestion.nsc_sftp.webapp_batch import (
     select_tmp_registration_pair,
     single_pdp_id,
     split_csv_path,
+    shared_pdp_ids,
     trial_pdp_id,
 )
 from edvise.utils.gcs import SUCCESS_FILENAME
@@ -197,6 +198,13 @@ def test_select_tmp_registration_pair_uses_newest_stamp() -> None:
     assert selected == (cohort, course)
 
 
+def test_shared_pdp_ids_returns_every_school() -> None:
+    assert shared_pdp_ids(["1700", "1600", "1600"], ["1600", "1700"]) == [
+        "1600",
+        "1700",
+    ]
+
+
 def test_trial_pdp_id_picks_one_school_from_a_combined_file() -> None:
     assert trial_pdp_id(["1700", "1600"], ["1600", "1700"]) == ("1600", 2)
 
@@ -263,7 +271,7 @@ def test_build_registration_only_pair_rejects_missing_file(tmp_path: Path) -> No
 
 
 def test_register_pair_reuses_batch_and_copies(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     cohort = tmp_path / "cohort.csv"
     course = tmp_path / "course.csv"
@@ -314,12 +322,21 @@ def test_register_pair_reuses_batch_and_copies(
     monkeypatch.setattr(
         "edvise.ingestion.nsc_sftp.webapp_batch.copy_validated_batch_inputs", _copy
     )
-    result = register_pair(
-        mock.Mock(),
-        pair,
-        db_workspace="dev_sst_02",
-        bronze_dir=str(tmp_path / "bronze"),
-    )
+    with caplog.at_level("INFO"):
+        result = register_pair(
+            mock.Mock(),
+            pair,
+            db_workspace="dev_sst_02",
+            bronze_dir=str(tmp_path / "bronze"),
+        )
     assert result["batch_id"] == "batch123"
     assert result["status"] == "BRONZE_MATERIALIZED"
     assert batch_dir_has_inputs(result["bronze_path"], COHORT, COURSE)
+    text = caplog.text
+    assert f"Calling validate-sftp inst_id=abc file={COHORT}" in text
+    assert f"validate-sftp passed inst_id=abc file={COHORT}" in text
+    assert f"validate-sftp passed inst_id=abc file={COURSE}" in text
+    assert (
+        "Created batch inst_id=abc batch_name=nsc_20250618030630 batch_id=batch123"
+        in text
+    )

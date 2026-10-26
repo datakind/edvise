@@ -59,10 +59,11 @@ from edvise.ingestion.nsc_sftp.webapp_batch import (  # noqa: E402
     pair_plan_rows,
     register_pair,
     select_tmp_registration_pair,
+    shared_pdp_ids,
     split_csv_path,
     tmp_original_file_name,
-    trial_pdp_id,
 )
+from edvise.utils.gcs import assert_safe_volume_segment  # noqa: E402
 from edvise.utils.institution_naming import databricksify_inst_name  # noqa: E402
 
 dbutils = runtime.get_dbutils()
@@ -216,49 +217,70 @@ if runtime.job_param_bool("registration_only", False):
     _, course_ids = extract_institution_ids(
         course_csv_path, renames=COLUMN_RENAMES, inst_col_pattern=inst_col_pattern
     )
-    pdp_id, pdp_count = trial_pdp_id(cohort_ids, course_ids)
+    pdp_ids = shared_pdp_ids(cohort_ids, course_ids)
     logger.info(
-        "registration_only files cohort=%s course=%s; using pdp_id=%s of %s",
+        "registration_only files cohort=%s course=%s; registering %s pdp_id(s): %s",
         cohort_csv_path,
         course_csv_path,
-        pdp_id,
-        pdp_count,
+        len(pdp_ids),
+        pdp_ids,
     )
-    inst_id, institution_name = resolve_sst_institution(api_client, pdp_id)
     stamp = extract_file_stamp(tmp_original_file_name(cohort_csv_path))
     slice_dir = os.path.join(SFTP_TMP_DIR, "registration_only", stamp)
     os.makedirs(slice_dir, exist_ok=True)
-    pair = build_registration_only_pair(
-        cohort_csv_path=_one_school_slice(cohort_csv_path, pdp_id, slice_dir),
-        course_csv_path=_one_school_slice(course_csv_path, pdp_id, slice_dir),
-        inst_id=inst_id,
-        pdp_id=pdp_id,
-        institution_name=institution_name,
-    )
     _ensure_registration_table()
-    logger.info(
-        "registration_only: inst_id=%s pdp_id=%s stamp=%s cohort=%s course=%s",
-        pair.inst_id,
-        pair.pdp_id,
-        pair.stamp,
-        pair.cohort_split_path,
-        pair.course_split_path,
-    )
-    result = _register_one(pair)
-    logger.info(
-        "Registered pdp_id=%s %s batch_id=%s batch_name=%s -> %s",
-        pair.pdp_id,
-        pair.institution_name,
-        result["batch_id"],
-        result["batch_name"],
-        result["bronze_path"],
-    )
+    written: list[str] = []
+    failed: list[str] = []
+    for pdp_id in pdp_ids:
+        school_dir = os.path.join(
+            slice_dir, assert_safe_volume_segment("pdp_id", pdp_id)
+        )
+        os.makedirs(school_dir, exist_ok=True)
+        try:
+            inst_id, institution_name = resolve_sst_institution(api_client, pdp_id)
+            pair = build_registration_only_pair(
+                cohort_csv_path=_one_school_slice(cohort_csv_path, pdp_id, school_dir),
+                course_csv_path=_one_school_slice(course_csv_path, pdp_id, school_dir),
+                inst_id=inst_id,
+                pdp_id=pdp_id,
+                institution_name=institution_name,
+            )
+            logger.info(
+                "registration_only: inst_id=%s pdp_id=%s stamp=%s cohort=%s course=%s",
+                pair.inst_id,
+                pair.pdp_id,
+                pair.stamp,
+                pair.cohort_split_path,
+                pair.course_split_path,
+            )
+            result = _register_one(pair)
+        except Exception as exc:
+            failed.append(f"pdp_id={pdp_id}: {exc}")
+            logger.exception("registration_only failed for pdp_id=%s", pdp_id)
+            continue
+        written.append(
+            f"pdp_id={pair.pdp_id} {pair.institution_name} "
+            f"batch_id={result['batch_id']} batch_name={result['batch_name']} "
+            f"-> {result['bronze_path']}"
+        )
+        logger.info(
+            "Registered pdp_id=%s %s batch_id=%s batch_name=%s -> %s",
+            pair.pdp_id,
+            pair.institution_name,
+            result["batch_id"],
+            result["batch_name"],
+            result["bronze_path"],
+        )
+    log_section(logger, "Registered", written)
+    log_section(logger, "Failed", failed)
+    if failed:
+        raise RuntimeError(
+            f"registration_only registered {len(written)} of {len(pdp_ids)}. "
+            + " | ".join(failed)
+        )
     runtime.notebook_exit(
         dbutils,
-        "REGISTERED=1;"
-        f"BATCH_ID={result['batch_id']};"
-        f"BATCH_NAME={result['batch_name']};"
-        f"PATH={result['bronze_path']}",
+        f"REGISTERED={len(written)};" + ";".join(written),
     )
 
 if not spark.catalog.tableExists(PLAN_TABLE_PATH):
