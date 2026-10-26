@@ -360,6 +360,9 @@ def build_parse_institution_term_contracts_with_semantic_checks(
 
     ``run_by_dataset`` should be the same mapping passed to the batch term user payload
     (keys per dataset, values include ``raw_table_profile``).
+
+    Hook-group and ``hitl_flag`` checks inside the term parser raise ``ValueError``.
+    ``call_with_retry`` only retries ``ValidationError``, so those are converted here.
     """
     from edvise.genai.mapping.identity_agent.term_normalization.prompt import (
         parse_institution_term_contracts_with_hitl,
@@ -368,7 +371,13 @@ def build_parse_institution_term_contracts_with_semantic_checks(
     def parse(
         raw: str | bytes | dict,
     ) -> tuple[InstitutionTermContract, list[HITLItem]]:
-        inst, items = parse_institution_term_contracts_with_hitl(raw)
+        try:
+            inst, items = parse_institution_term_contracts_with_hitl(raw)
+        except ValidationError:
+            raise
+        except ValueError as e:
+            raise_term_semantic_validation_error_if_any([str(e)])
+            raise AssertionError("unreachable") from e
         raise_term_semantic_validation_error_if_any(
             collect_term_semantic_validation_errors(inst, run_by_dataset)
             + collect_term_year_semantics_hitl_coverage_errors(inst, items)
