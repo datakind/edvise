@@ -49,6 +49,10 @@ dbutils = runtime.get_dbutils()
 spark = runtime.get_spark()
 logger = runtime.get_logger(__name__)
 
+if runtime.job_param_bool("registration_only", False):
+    logger.info("registration_only=true; skipping SFTP scan")
+    runtime.notebook_exit(dbutils, "REGISTRATION_ONLY")
+
 
 def _stage01_exit_message(
     *,

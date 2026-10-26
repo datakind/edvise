@@ -55,6 +55,10 @@ dbutils = runtime.get_dbutils()
 spark = runtime.get_spark()
 logger = runtime.get_logger(__name__)
 
+if runtime.job_param_bool("registration_only", False):
+    logger.info("registration_only=true; skipping bronze split")
+    runtime.notebook_exit(dbutils, "REGISTRATION_ONLY")
+
 api_client = runtime.require_edvise_api_client(dbutils)
 force_reingest = runtime.job_param_bool("force_reingest", False)
 

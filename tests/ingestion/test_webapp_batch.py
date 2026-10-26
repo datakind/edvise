@@ -8,9 +8,11 @@ from unittest import mock
 import pytest
 
 from edvise.ingestion.nsc_sftp.webapp_batch import (
+    REGISTRATION_ONLY_FINGERPRINT,
     InstitutionPair,
     batch_dir_has_inputs,
     batch_name_for_stamp,
+    build_registration_only_pair,
     bucket_from_signed_url,
     external_bucket_name,
     fingerprints_ready_to_close,
@@ -18,7 +20,10 @@ from edvise.ingestion.nsc_sftp.webapp_batch import (
     plan_registration,
     register_pair,
     remove_staged_fingerprint,
+    select_tmp_registration_pair,
+    single_pdp_id,
     split_csv_path,
+    trial_pdp_id,
 )
 from edvise.utils.gcs import SUCCESS_FILENAME
 
@@ -178,6 +183,83 @@ def test_external_bucket_and_signed_url() -> None:
     assert external_bucket_name("dev_sst_02", "ABC") == "dev_abc"
     url = "https://storage.googleapis.com/dev_abc/unvalidated/file.csv?X-Goog-Algorithm=GOOG4"
     assert bucket_from_signed_url(url) == "dev_abc"
+
+
+def test_select_tmp_registration_pair_uses_newest_stamp() -> None:
+    older_cohort = f"fp__AO1600_AR_DEIDENTIFIED_STUDYID_{STAMP}.csv"
+    older_course = f"fp__AO1600_COURSE_LEVEL_AR_DEIDENTIFIED_STUDYID_{STAMP}.csv"
+    newer = "20260922090900"
+    cohort = f"{'a' * 64}__AO1600_AR_DEIDENTIFIED_STUDYID_{newer}.csv"
+    course = f"{'b' * 64}__AO1600_COURSE_LEVEL_AR_DEIDENTIFIED_STUDYID_{newer}.csv"
+    selected = select_tmp_registration_pair(
+        [older_cohort, older_course, course, cohort, "notes.txt"]
+    )
+    assert selected == (cohort, course)
+
+
+def test_trial_pdp_id_picks_one_school_from_a_combined_file() -> None:
+    assert trial_pdp_id(["1700", "1600"], ["1600", "1700"]) == ("1600", 2)
+
+
+def test_single_pdp_id_accepts_one_shared_id() -> None:
+    assert single_pdp_id(["1600"], ["1600"]) == "1600"
+
+
+def test_single_pdp_id_rejects_combined_file() -> None:
+    with pytest.raises(ValueError, match="one institution"):
+        single_pdp_id(["1600", "1700"], ["1600", "1700"])
+
+
+def test_single_pdp_id_rejects_mismatched_files() -> None:
+    with pytest.raises(ValueError, match="same PDP id"):
+        single_pdp_id(["1600"], ["1700"])
+
+
+def test_build_registration_only_pair_uses_existing_csvs(tmp_path: Path) -> None:
+    cohort = tmp_path / COHORT
+    course = tmp_path / COURSE
+    cohort.write_text("a\n", encoding="utf-8")
+    course.write_text("b\n", encoding="utf-8")
+    pair = build_registration_only_pair(
+        cohort_csv_path=str(cohort),
+        course_csv_path=str(course),
+        inst_id="abc",
+        pdp_id="1600",
+        institution_name="Miles CC",
+    )
+    assert pair.stamp == STAMP
+    assert pair.cohort_file_name == COHORT
+    assert pair.course_file_name == COURSE
+    assert pair.cohort_split_path == str(cohort)
+    assert pair.course_split_path == str(course)
+    assert pair.cohort_fingerprint == REGISTRATION_ONLY_FINGERPRINT
+    assert pair.course_fingerprint == REGISTRATION_ONLY_FINGERPRINT
+
+
+def test_build_registration_only_pair_rejects_mismatched_stamps(tmp_path: Path) -> None:
+    cohort = tmp_path / COHORT
+    course = tmp_path / COURSE.replace(STAMP, "20260101010101")
+    cohort.write_text("a\n", encoding="utf-8")
+    course.write_text("b\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="share a 14-digit stamp"):
+        build_registration_only_pair(
+            cohort_csv_path=str(cohort),
+            course_csv_path=str(course),
+            inst_id="abc",
+            pdp_id="1600",
+            institution_name="Miles CC",
+        )
+
+
+def test_build_registration_only_pair_rejects_missing_file(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError, match="Cohort CSV not found"):
+        build_registration_only_pair(
+            cohort_csv_path=str(tmp_path / COHORT),
+            course_csv_path=str(tmp_path / COURSE),
+            inst_id="abc",
+            pdp_id="1600",
+            institution_name="Miles CC",
+        )
 
 
 def test_register_pair_reuses_batch_and_copies(

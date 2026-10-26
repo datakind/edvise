@@ -3,13 +3,13 @@ Register SPLIT_STAGED cohort/course pairs as webapp batches.
 
 Copies validated GCS objects into bronze_volume/gcs_uploads/{batch_id} and
 marks the SFTP manifest BRONZE_WRITTEN only after every on-disk split for that
-file is in a materialized batch. After that status is written, the fingerprint's
-SFTP download and splits directory are removed from the staging volume.
+file is in a materialized batch. Staging files in default/tmp are left in place.
 """
 
 from __future__ import annotations
 
 import os
+import re
 import sys
 from datetime import datetime, timezone
 
@@ -33,23 +33,35 @@ from pyspark.sql import types as T  # noqa: E402
 
 from edvise.ingestion.nsc_sftp.constants import (  # noqa: E402
     CATALOG,
+    COLUMN_RENAMES,
     DEFAULT_SCHEMA,
+    INSTITUTION_COLUMN_PATTERN,
     MANIFEST_TABLE_PATH,
     PLAN_TABLE_PATH,
     SFTP_TMP_DIR,
 )
 from edvise.ingestion.nsc_sftp.file_selection import extract_file_stamp  # noqa: E402
 from edvise.ingestion.nsc_sftp.helpers import (  # noqa: E402
+    extract_institution_ids,
+    group_dataframe_by_institution_id,
+    load_staged_csv,
     log_section,
+    process_and_save_file,
     resolve_bronze_volume_dir,
+    resolve_sst_institution,
     update_manifest,
 )
+from edvise.ingestion.nsc_sftp.sftp import output_file_name_from_sftp  # noqa: E402
 from edvise.ingestion.nsc_sftp.webapp_batch import (  # noqa: E402
+    InstitutionPair,
+    build_registration_only_pair,
     fingerprints_ready_to_close,
     pair_plan_rows,
     register_pair,
-    remove_staged_fingerprint,
+    select_tmp_registration_pair,
     split_csv_path,
+    tmp_original_file_name,
+    trial_pdp_id,
 )
 from edvise.utils.institution_naming import databricksify_inst_name  # noqa: E402
 
@@ -136,42 +148,118 @@ def _materialized_keys() -> set[tuple[str, str, str]]:
     return keys
 
 
-def _remove_bronze_written_staging() -> tuple[list[str], list[str]]:
-    """Delete staging files for fingerprints already marked BRONZE_WRITTEN.
+def _register_one(pair: InstitutionPair) -> dict[str, str]:
+    prefix = databricksify_inst_name(pair.institution_name)
+    now = datetime.now(timezone.utc).isoformat()
+    base_row = {
+        "inst_id": pair.inst_id,
+        "stamp": pair.stamp,
+        "pdp_id": pair.pdp_id,
+        "institution_name": pair.institution_name,
+        "cohort_file_name": pair.cohort_file_name,
+        "course_file_name": pair.course_file_name,
+        "cohort_fingerprint": pair.cohort_fingerprint,
+        "course_fingerprint": pair.course_fingerprint,
+        "batch_id": "",
+        "batch_name": "",
+        "bronze_path": "",
+        "status": "FAILED",
+        "error_message": "",
+        "updated_at": now,
+    }
+    try:
+        bronze_dir = resolve_bronze_volume_dir(spark, CATALOG, prefix)
+        result = register_pair(
+            api_client,
+            pair,
+            db_workspace=db_workspace,
+            bronze_dir=bronze_dir,
+        )
+    except Exception as exc:
+        base_row["error_message"] = str(exc)[:8000]
+        _upsert_registration(base_row)
+        raise
+    base_row.update(result)
+    base_row["error_message"] = ""
+    _upsert_registration(base_row)
+    return result
 
-    Runs after the manifest update, and again on a later run if a delete failed.
-    """
-    rows = (
-        spark.table(MANIFEST_TABLE_PATH)
-        .where(F.col("status") == F.lit("BRONZE_WRITTEN"))
-        .select("file_fingerprint", "file_name")
-        .distinct()
-        .collect()
+
+def _one_school_slice(source_path: str, pdp_id: str, dest_dir: str) -> str:
+    """Write one PDP id's rows from a tmp download. Upload name drops the fingerprint."""
+    inst_col_pattern = re.compile(INSTITUTION_COLUMN_PATTERN, re.IGNORECASE)
+    inst_col, _ids = extract_institution_ids(
+        source_path, renames=COLUMN_RENAMES, inst_col_pattern=inst_col_pattern
     )
-    removed: list[str] = []
-    errors: list[str] = []
-    for row in rows:
-        fingerprint = str(row["file_fingerprint"] or "")
-        file_name = str(row["file_name"] or "")
-        if not fingerprint:
-            continue
-        try:
-            removed.extend(
-                remove_staged_fingerprint(SFTP_TMP_DIR, fingerprint, file_name)
-            )
-        except Exception as exc:
-            errors.append(f"{fingerprint}: {exc}")
-            logger.exception("failed to remove staged files for %s", fingerprint)
-    return removed, errors
+    if not inst_col:
+        raise ValueError(f"No institution id column in {source_path}")
+    frame = load_staged_csv(source_path, renames=COLUMN_RENAMES, inst_col=inst_col)
+    grouped = group_dataframe_by_institution_id(frame, inst_col, [pdp_id])
+    filtered = grouped.get(pdp_id)
+    if filtered is None or filtered.empty:
+        raise ValueError(f"No rows for pdp_id={pdp_id} in {source_path}")
+    out_name = output_file_name_from_sftp(tmp_original_file_name(source_path))
+    return process_and_save_file(dest_dir, out_name, filtered)
 
 
-def _log_staging_cleanup(removed: list[str], errors: list[str]) -> str:
-    if removed:
-        log_section(logger, "Removed staging", removed)
-    if errors:
-        log_section(logger, "Staging cleanup failed", errors)
-    return f"REMOVED={len(removed)};CLEANUP_FAILED={len(errors)}"
-
+if runtime.job_param_bool("registration_only", False):
+    downloads = [
+        os.path.join(SFTP_TMP_DIR, name)
+        for name in os.listdir(SFTP_TMP_DIR)
+        if os.path.isfile(os.path.join(SFTP_TMP_DIR, name))
+    ]
+    cohort_csv_path, course_csv_path = select_tmp_registration_pair(downloads)
+    inst_col_pattern = re.compile(INSTITUTION_COLUMN_PATTERN, re.IGNORECASE)
+    _, cohort_ids = extract_institution_ids(
+        cohort_csv_path, renames=COLUMN_RENAMES, inst_col_pattern=inst_col_pattern
+    )
+    _, course_ids = extract_institution_ids(
+        course_csv_path, renames=COLUMN_RENAMES, inst_col_pattern=inst_col_pattern
+    )
+    pdp_id, pdp_count = trial_pdp_id(cohort_ids, course_ids)
+    logger.info(
+        "registration_only files cohort=%s course=%s; using pdp_id=%s of %s",
+        cohort_csv_path,
+        course_csv_path,
+        pdp_id,
+        pdp_count,
+    )
+    inst_id, institution_name = resolve_sst_institution(api_client, pdp_id)
+    stamp = extract_file_stamp(tmp_original_file_name(cohort_csv_path))
+    slice_dir = os.path.join(SFTP_TMP_DIR, "registration_only", stamp)
+    os.makedirs(slice_dir, exist_ok=True)
+    pair = build_registration_only_pair(
+        cohort_csv_path=_one_school_slice(cohort_csv_path, pdp_id, slice_dir),
+        course_csv_path=_one_school_slice(course_csv_path, pdp_id, slice_dir),
+        inst_id=inst_id,
+        pdp_id=pdp_id,
+        institution_name=institution_name,
+    )
+    _ensure_registration_table()
+    logger.info(
+        "registration_only: inst_id=%s pdp_id=%s stamp=%s cohort=%s course=%s",
+        pair.inst_id,
+        pair.pdp_id,
+        pair.stamp,
+        pair.cohort_split_path,
+        pair.course_split_path,
+    )
+    result = _register_one(pair)
+    logger.info(
+        "Registered pdp_id=%s %s batch_id=%s batch_name=%s -> %s",
+        pair.pdp_id,
+        pair.institution_name,
+        result["batch_id"],
+        result["batch_name"],
+        result["bronze_path"],
+    )
+    runtime.notebook_exit(
+        dbutils,
+        "REGISTERED=1;"
+        f"BATCH_ID={result['batch_id']};"
+        f"BATCH_NAME={result['batch_name']};"
+        f"PATH={result['bronze_path']}",
+    )
 
 if not spark.catalog.tableExists(PLAN_TABLE_PATH):
     runtime.notebook_exit(dbutils, "NO_PLAN_TABLE")
@@ -197,8 +285,7 @@ plan_rows = (
     .collect()
 )
 if not plan_rows:
-    cleanup = _log_staging_cleanup(*_remove_bronze_written_staging())
-    runtime.notebook_exit(dbutils, f"NO_SPLIT_STAGED;{cleanup}")
+    runtime.notebook_exit(dbutils, "NO_SPLIT_STAGED")
 
 row_dicts = [row.asDict() for row in plan_rows]
 pairs, problems = pair_plan_rows(row_dicts, tmp_dir=SFTP_TMP_DIR)
@@ -279,8 +366,7 @@ for fingerprint in fingerprints_ready_to_close(close_rows, _materialized_keys())
 
 log_section(logger, "Registered", written)
 log_section(logger, "Failed", failed)
-cleanup = _log_staging_cleanup(*_remove_bronze_written_staging())
 runtime.notebook_exit(
     dbutils,
-    f"REGISTERED={len(written)};FAILED={len(failed)};UNPAIRED={len(problems)};{cleanup}",
+    f"REGISTERED={len(written)};FAILED={len(failed)};UNPAIRED={len(problems)}",
 )

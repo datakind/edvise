@@ -7,12 +7,15 @@ the validated GCS objects are copied to ``gcs_uploads/{batch_id}/``.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 from dataclasses import dataclass
 from typing import Any, Mapping, Optional, Sequence
 from urllib.parse import urlparse
 
 from edvise.ingestion.nsc_sftp.file_selection import (
+    COHORT_MARKER,
+    COURSE_MARKER,
     classify_pdp_file_role,
     extract_file_stamp,
 )
@@ -199,6 +202,149 @@ class InstitutionPair:
     course_fingerprint: str
     cohort_split_path: str
     course_split_path: str
+
+
+REGISTRATION_ONLY_FINGERPRINT = "registration_only"
+_TMP_FINGERPRINT_PREFIX = re.compile(r"^[0-9a-f]{64}__(.+)$", re.IGNORECASE)
+
+
+def tmp_original_file_name(path: str) -> str:
+    """Drop a ``{fingerprint}__`` prefix from a ``default/tmp`` download name."""
+    base = os.path.basename(path)
+    match = _TMP_FINGERPRINT_PREFIX.match(base)
+    return match.group(1) if match else base
+
+
+def select_tmp_registration_pair(paths: Sequence[str]) -> tuple[str, str]:
+    """Return the cohort and course paths for the newest stamp in ``default/tmp``.
+
+    Only file paths are considered. Names may be the original NSC basename or
+    ``{fingerprint}__{basename}``.
+    """
+    by_stamp: dict[str, dict[str, str]] = {}
+    for path in paths:
+        name = tmp_original_file_name(path)
+        role = classify_pdp_file_role(name)
+        if role is None:
+            continue
+        try:
+            stamp = extract_file_stamp(name)
+        except ValueError:
+            continue
+        by_stamp.setdefault(stamp, {})[role] = path
+    complete = sorted(
+        stamp
+        for stamp, roles in by_stamp.items()
+        if "cohort" in roles and "course" in roles
+    )
+    if not complete:
+        raise FileNotFoundError(
+            "No cohort and course pair in default/tmp. "
+            "Expected NSC files ending in a 14-digit stamp."
+        )
+    roles = by_stamp[complete[-1]]
+    return roles["cohort"], roles["course"]
+
+
+def trial_pdp_id(
+    cohort_ids: Sequence[str], course_ids: Sequence[str]
+) -> tuple[str, int]:
+    """Pick one shared PDP id. Combined NSC files contain more than one."""
+    cohort = sorted({str(value).strip() for value in cohort_ids if str(value).strip()})
+    course = sorted({str(value).strip() for value in course_ids if str(value).strip()})
+    if not cohort:
+        raise ValueError("Cohort CSV has no PDP ids.")
+    if course != cohort:
+        raise ValueError(
+            "Cohort and course CSVs must contain the same PDP ids. "
+            f"Got cohort={cohort}, course={course}."
+        )
+    return cohort[0], len(cohort)
+
+
+def single_pdp_id(cohort_ids: Sequence[str], course_ids: Sequence[str]) -> str:
+    """Return the one PDP id shared by a registration-only cohort and course file."""
+    cohort = sorted({str(value).strip() for value in cohort_ids if str(value).strip()})
+    course = sorted({str(value).strip() for value in course_ids if str(value).strip()})
+    if len(cohort) != 1:
+        raise ValueError(
+            "registration_only needs a file for one institution. "
+            f"The cohort CSV has {len(cohort)} PDP id(s). "
+            "Point cohort_csv_path at one school's bronze CSV, not the combined NSC file."
+        )
+    if course != cohort:
+        raise ValueError(
+            "Cohort and course CSVs must contain the same PDP id. "
+            f"Got cohort={cohort}, course={course}."
+        )
+    return cohort[0]
+
+
+def build_registration_only_pair(
+    *,
+    cohort_csv_path: str,
+    course_csv_path: str,
+    inst_id: str,
+    pdp_id: str,
+    institution_name: str,
+) -> InstitutionPair:
+    """Build one pair from existing CSVs, without the SFTP manifest or tmp splits.
+
+    Both basenames must carry the same 14-digit delivery stamp. The manifest is
+    not involved; callers should not mark files ``BRONZE_WRITTEN`` from this pair.
+    """
+    cohort_csv_path = cohort_csv_path.strip()
+    course_csv_path = course_csv_path.strip()
+    inst_id = inst_id.strip()
+    pdp_id = pdp_id.strip()
+    institution_name = institution_name.strip()
+    missing = [
+        label
+        for label, value in (
+            ("cohort_csv_path", cohort_csv_path),
+            ("course_csv_path", course_csv_path),
+            ("registration_inst_id", inst_id),
+            ("registration_pdp_id", pdp_id),
+            ("registration_institution_name", institution_name),
+        )
+        if not value
+    ]
+    if missing:
+        raise ValueError("registration_only requires " + ", ".join(missing) + ".")
+    if not os.path.isfile(cohort_csv_path):
+        raise FileNotFoundError(f"Cohort CSV not found: {cohort_csv_path}")
+    if not os.path.isfile(course_csv_path):
+        raise FileNotFoundError(f"Course CSV not found: {course_csv_path}")
+
+    cohort_name = os.path.basename(cohort_csv_path)
+    course_name = os.path.basename(course_csv_path)
+    if classify_pdp_file_role(cohort_name) != "cohort":
+        raise ValueError(
+            f"cohort_csv_path is not a cohort file (expected {COHORT_MARKER}): {cohort_name}"
+        )
+    if classify_pdp_file_role(course_name) != "course":
+        raise ValueError(
+            f"course_csv_path is not a course file (expected {COURSE_MARKER}): {course_name}"
+        )
+    cohort_stamp = extract_file_stamp(cohort_name)
+    course_stamp = extract_file_stamp(course_name)
+    if cohort_stamp != course_stamp:
+        raise ValueError(
+            "Cohort and course files must share a 14-digit stamp. "
+            f"Got cohort={cohort_stamp}, course={course_stamp}."
+        )
+    return InstitutionPair(
+        inst_id=inst_id,
+        pdp_id=pdp_id,
+        institution_name=institution_name,
+        stamp=cohort_stamp,
+        cohort_file_name=output_file_name_from_sftp(cohort_name),
+        course_file_name=output_file_name_from_sftp(course_name),
+        cohort_fingerprint=REGISTRATION_ONLY_FINGERPRINT,
+        course_fingerprint=REGISTRATION_ONLY_FINGERPRINT,
+        cohort_split_path=cohort_csv_path,
+        course_split_path=course_csv_path,
+    )
 
 
 def pair_plan_rows(
