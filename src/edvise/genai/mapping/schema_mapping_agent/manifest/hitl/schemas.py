@@ -92,6 +92,13 @@ class SMAFailureMode(str, Enum):
     # Options: close-match column candidates from training.column_details,
     # each as a complete FieldMappingRecord with the corrected column set.
 
+    ILLEGAL_COLUMN = "illegal_column"
+    # source_column exists but is disallowed for this target.
+    # CONFERRAL_USES_IA_TERM_COLUMN: do not offer another `_edvise_term_*` column;
+    # option 1 is a conferral datetime or a raw term code Step 2b can parse.
+    # TERM_TARGET_SHOULD_USE_IA_NORMALIZED_COLUMN: option 1 is the required
+    # `_edvise_term_*` column named in the validation error. Do not rank by name similarity.
+
     JOIN_STRUCTURE = "join_structure"
     # Join keys missing, wrong, or unresolvable across base/lookup tables.
     # Includes MISSING_COLUMN_ALIAS — options may include a column_alias correction.

@@ -607,13 +607,14 @@ wheels = [
 
 [[package]]
 name = "edvise"
-version = "1.18.0"
+version = "1.21.0"
 source = { editable = "." }
 dependencies = [
     { name = "databricks-connect", version = "16.1.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "databricks-connect", version = "16.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "databricks-sdk" },
     { name = "faker" },
+    { name = "feature-engine" },
     { name = "google-cloud-storage" },
     { name = "h2o" },
     { name = "ipywidgets" },
@@ -659,6 +660,7 @@ requires-dist = [
     { name = "databricks-connect", specifier = "~=16.0" },
     { name = "databricks-sdk", specifier = "~=0.38.0" },
     { name = "faker", specifier = "==33.1.0" },
+    { name = "feature-engine", specifier = "==1.9.4" },
     { name = "google-cloud-storage", specifier = "==2.19.0" },
     { name = "h2o", specifier = "==3.46.0.7" },
     { name = "ipywidgets", specifier = "~=8.1" },
@@ -754,6 +756,22 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/20/b5/23b216d9d985a956623b6bd12d4086b60f0059b27799f23016af04a74ea1/fastjsonschema-2.21.2.tar.gz", hash = "sha256:b1eb43748041c880796cd077f1a07c3d94e93ae84bba5ed36800a33554ae05de", size = 374130, upload-time = "2025-08-14T18:49:36.666Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/cb/a8/20d0723294217e47de6d9e2e40fd4a9d2f7c4b6ef974babd482a59743694/fastjsonschema-2.21.2-py3-none-any.whl", hash = "sha256:1c797122d0a86c5cace2e54bf4e819c36223b552017172f32c5c024a6b77e463", size = 24024, upload-time = "2025-08-14T18:49:34.776Z" },
+]
+
+[[package]]
+name = "feature-engine"
+version = "1.9.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "pandas" },
+    { name = "scikit-learn" },
+    { name = "scipy" },
+    { name = "statsmodels" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/2b/9d/802c7c4a3f1b8a988e7370b377f426eba7e5ed51a42019973a8063ea5532/feature_engine-1.9.4.tar.gz", hash = "sha256:4ee817b9a557f9670636deb417689645e54fc2391c2f14fbe0ef4f185fd1ab17", size = 150914, upload-time = "2026-02-27T13:47:20.883Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5c/92/698f823c1e0a4affe75d8dc6685639b82c65241bdda1f04f6a69fd162119/feature_engine-1.9.4-py3-none-any.whl", hash = "sha256:a1181dcb25fc906cc74dd4f2947c49a71012a727d30a4505f2418419c83ace9e", size = 243548, upload-time = "2026-02-27T13:47:19.457Z" },
 ]
 
 [[package]]

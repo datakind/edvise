@@ -24,14 +24,15 @@ from openai.types.chat.chat_completion_message_param import ChatCompletionMessag
 
 from edvise.genai.mapping.shared.utilities import (
     disable_mlflow_side_effects_for_openai_gateway,
+    disable_openai_autolog_for_gateway,
 )
 
 MLFLOW_AI_GATEWAY_ON_WORKSPACE_PATH: Final[str] = "/ai-gateway/mlflow/v1"
 
 GENAI_MAPPING_UC_SCHEMA: Final[str] = "genai_mapping"
 
-DEFAULT_GATEWAY_CLAUDE_SONNET_MODEL_ID: str = "claude-sonnet-edvise-genai"
-DEFAULT_GATEWAY_CLAUDE_HAIKU_MODEL_ID: str = "claude-haiku-edvise-genai"
+DEFAULT_GATEWAY_CLAUDE_SONNET_MODEL_ID: str = "claude-sonnet-5-5-edvise-genai"
+DEFAULT_GATEWAY_CLAUDE_HAIKU_MODEL_ID: str = "claude-haiku-5-5-edvise-genai"
 
 
 def build_uc_gateway_model_id(catalog: str, model_name: str) -> str:
@@ -349,14 +350,20 @@ def create_openai_client_for_databricks_gateway(
     *,
     api_key: str | None = None,
     base_url: str | None = None,
+    disable_tracing: bool = True,
 ) -> OpenAI:
     """
     Build an :class:`openai.OpenAI` client pointed at the Databricks gateway.
 
     If ``api_key`` is omitted, :func:`require_databricks_token` is used.
     If ``base_url`` is omitted, :func:`resolve_ai_gateway_base_url` is used.
+    ``disable_tracing=False`` leaves MLflow tracing on for ``mlflow.genai.evaluate``
+    and disables only OpenAI autologging.
     """
-    disable_mlflow_tracing_for_openai_gateway_client()
+    if disable_tracing:
+        disable_mlflow_tracing_for_openai_gateway_client()
+    else:
+        disable_openai_autolog_for_gateway()
     key = api_key if api_key is not None else require_databricks_token()
     url = base_url if base_url is not None else resolve_ai_gateway_base_url()
     return OpenAI(api_key=key, base_url=url)
@@ -591,7 +598,7 @@ def is_retryable_openai_gateway_error(exc: BaseException) -> bool:
 
 def gateway_run_once_error_text_is_retryable(error_text: str) -> bool:
     """
-    Best-effort match for :func:`~edvise.genai.mapping.schema_mapping_agent.manifest.eval.run_once`
+    Best-effort match for :func:`~edvise.genai.mapping.eval.gateway.run_once`
     failure strings (``HTTP 403: ...``) when exceptions are swallowed into a dict.
     """
     if not error_text:

@@ -76,7 +76,6 @@ def test_aggregate_skips_missing_department_columns():
             "term_rank_noncore": [1, 1],
             "term_is_core": [True, True],
             "term_is_noncore": [False, False],
-            "term_in_peak_covid": [False, False],
             "term_degree": ["A.S.", "A.S."],
             "course_id": ["c1", "c2"],
             "course_passed": [True, True],

@@ -4,7 +4,6 @@ from collections.abc import Collection
 
 import numpy as np
 import pandas as pd
-import sklearn.feature_selection
 import sklearn.impute
 from statsmodels.stats.outliers_influence import variance_inflation_factor
 
@@ -13,6 +12,9 @@ LOGGER = logging.getLogger(__name__)
 # Max fraction of nulls allowed when keeping a feature. Config may set a stricter
 # (lower) value; values above this cap are clamped for feature selection.
 MAX_INCOMPLETE_THRESHOLD = 0.2
+# Compared together so 0/1 matches True/False. Kept separate from labels so "1" is not a copy of 1.
+_NUMBER_OR_BOOL = ("number", "boolean")
+_CATEGORICAL = ("string", "category", "object")
 
 
 def select_features(
@@ -25,8 +27,8 @@ def select_features(
     collinear_threshold: t.Optional[float] = 10.0,
 ) -> pd.DataFrame:
     """
-    Select features by dropping incomplete features, low variance features,
-    and variables with high correlations to others.
+    Select features by dropping incomplete features, near-constant features,
+    identical features, and variables with high correlations to others.
 
     Args:
         df: dataframe of features to select
@@ -35,7 +37,8 @@ def select_features(
         force_include_cols: list of features to force include in the final dataset.
         incomplete_threshold: Threshold for determining incomplete features.
             Values above ``MAX_INCOMPLETE_THRESHOLD`` (0.2) are capped.
-        low_variance_threshold: Threshold for determining low-variance features.
+        low_variance_threshold: Deprecated and ignored. Kept so existing configs
+            still load. A non-zero value logs a warning and does not change selection.
         collinear_threshold: Threshold for determining collinear features;
             if null, skip this selection step.
 
@@ -56,38 +59,37 @@ def select_features(
     LOGGER.info(
         "force including %s columns: %s", len(force_include_cols), force_include_cols
     )
-    df_selected = (
-        # we'll add these columns back in later
+    if low_variance_threshold != 0.0:
+        LOGGER.warning(
+            "low_variance_threshold=%s is deprecated and ignored",
+            low_variance_threshold,
+        )
+    screened = (
         df.drop(columns=non_feature_cols + force_include_cols)
-        # NOTE: we should create dummy variables for categoricals prior to running this
-        # if one of the dummies represents NaN, we won't drop the categoricals that have lots of nulls,
-        # but instead can capture any patterns that may relate to the nulls.
-        # If there are non-dummy categorical variables that get dropped here,
-        # consider pre-processing into dummy variables for this reason.
         .pipe(drop_incomplete_features, threshold=incomplete_threshold)
-        # NOTE: only removing features with variance == 0.0 by default
-        # since features with low but non-zero variance may still be predictive
-        .pipe(drop_low_variance_features, threshold=low_variance_threshold)
+        .pipe(drop_low_variance_features)
     )
-    sel_incl_feature_cols = list(set(df_selected.columns.tolist() + force_include_cols))
-    df_selected = df.loc[:, sel_incl_feature_cols]
+    keep = set(screened.columns)
+    keep.update(force_include_cols)
+    df_selected = _columns_in_order(df, keep)
     if collinear_threshold is not None:
-        # multi-collinearity: it may not interfere with the model's performance
-        # but it does negatively affect the interpretation of the predictors
         for col in force_include_cols:
             if col not in df_selected.columns:
                 raise ValueError(
                     f"force include column '{col}' was dropped during prior feature selection steps!"
                 )
+        df_selected = drop_duplicate_features(
+            df_selected,
+            force_include_cols=force_include_cols,
+        )
         df_selected = drop_collinear_features_iteratively(
             df_selected,
             threshold=collinear_threshold,
             force_include_cols=force_include_cols,
         )
 
-    orig_feature_cols = set(df.columns) - set(non_feature_cols)
     selected_feature_cols = set(df_selected.columns)
-    keep_cols = set(non_feature_cols) | selected_feature_cols
+    orig_feature_cols = set(df.columns) - set(non_feature_cols)
     LOGGER.info(
         "selected %s out of %s (%s%%) feature columns: %s",
         len(selected_feature_cols),
@@ -95,8 +97,11 @@ def select_features(
         round(100.0 * len(selected_feature_cols) / len(orig_feature_cols), 1),
         selected_feature_cols,
     )
-    # maintain the original column order, in case that's meaningful
-    return df.loc[:, df.columns.isin(keep_cols)]
+    return _columns_in_order(df, set(non_feature_cols) | selected_feature_cols)
+
+
+def _columns_in_order(df: pd.DataFrame, names: Collection[str]) -> pd.DataFrame:
+    return df.loc[:, [col for col in df.columns if col in names]]
 
 
 def drop_incomplete_features(
@@ -115,64 +120,101 @@ def drop_incomplete_features(
     """
     frac_null = df.isna().sum(axis="index") / df.shape[0]
     incomplete_cols = frac_null.loc[frac_null.ge(threshold)].index.tolist()
-    if incomplete_cols:
-        LOGGER.info(
-            "dropping %s incomplete features: %s",
-            len(incomplete_cols),
-            incomplete_cols,
-        )
-        return df.drop(columns=incomplete_cols)
-    else:
-        LOGGER.info("no features found with a fraction of null values >= %s", threshold)
+    return _drop_logged(
+        df,
+        incomplete_cols,
+        empty=f"no features found with a fraction of null values >= {threshold}",
+        found="dropping %s incomplete features: %s",
+    )
+
+
+def drop_low_variance_features(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Drop columns where one value covers at least 99% of rows, on every dtype.
+
+    A column whose most common value is under 99% of rows is kept. Nulls count
+    in that row total.
+    """
+    # Lazy import: inference jobs load this module but do not select features.
+    from feature_engine.selection import DropConstantFeatures
+
+    if df.shape[1] == 0:
         return df
+    selector = DropConstantFeatures(tol=0.99, missing_values="ignore")
+    selector.fit(df)
+    return _drop_logged(
+        df,
+        list(selector.features_to_drop_),
+        empty="no near-constant features found",
+        found="dropping %s near-constant features: %s",
+    )
 
 
-def drop_low_variance_features(
-    df: pd.DataFrame, *, threshold: float = 0.0
+def drop_duplicate_features(
+    df: pd.DataFrame,
+    *,
+    force_include_cols: t.Optional[Collection[str]] = None,
 ) -> pd.DataFrame:
     """
-    Drop columns with low or no variance, according to a threshold.
+    Drop identical features, keeping a force-included column when one is in the group.
 
-    Args:
-        df
-        threshold: Variance of values below which columns are dropped from ``df`` .
-
-    Returns:
-        ``df`` without the low-variance columns
+    Numeric and boolean columns are compared together, so a boolean that repeats a
+    0/1 numeric column is removed. Categorical columns are compared together.
+    Several matching force-included columns keep the earliest one in ``df``.
     """
-    df_numeric = df.select_dtypes(include="number")
-    column_contains_inf = np.isinf(df_numeric).any()
-    if column_contains_inf.any():
-        inf_cols = df_numeric.columns[column_contains_inf].tolist()  # type: ignore
-        LOGGER.error(
-            "Columns %s contain infinite values -- remove and try again!", inf_cols
-        )
-        raise ValueError()
+    # Lazy import: inference jobs load this module but do not select features.
+    from feature_engine.selection import DropDuplicateFeatures
 
-    selector = (
-        sklearn.feature_selection.VarianceThreshold(threshold=threshold)
-        .fit(df_numeric)
-    )  # fmt: skip
-    df_categorical = df.select_dtypes(include=["string", "category", "boolean"])
-    constant_value_cols = {
-        col
-        for col, nunique in df_categorical.nunique().eq(1).to_dict().items()
-        if nunique == 1
-    }
-    low_variance_cols = list(
-        set(df_numeric.columns) - set(selector.get_feature_names_out())
-        | constant_value_cols
+    forced = set(force_include_cols or [])
+    drop_columns: list[str] = []
+    described: list[str] = []
+    selector = DropDuplicateFeatures(missing_values="ignore")
+    for include, cast in (
+        (_NUMBER_OR_BOOL, "float64"),
+        (_CATEGORICAL, "string"),
+    ):
+        columns = df.select_dtypes(include=include).columns.tolist()
+        if len(columns) < 2:
+            continue
+        ordered = [col for col in columns if col in forced] + [
+            col for col in columns if col not in forced
+        ]
+        selector.fit(df.loc[:, ordered].astype(cast))
+        for group in selector.duplicated_feature_sets_:
+            members = [col for col in ordered if col in group]
+            kept, extras = members[0], members[1:]
+            forced_extras = [col for col in extras if col in forced]
+            if kept in forced and forced_extras:
+                LOGGER.warning(
+                    "Duplicate force-included columns found: keeping '%s', dropping: %s",
+                    kept,
+                    forced_extras,
+                )
+            drop_columns.extend(extras)
+            described.extend(f"{col} (duplicate of {kept})" for col in extras)
+
+    return _drop_logged(
+        df,
+        drop_columns,
+        empty="no duplicate features found",
+        found="dropping %s duplicate features: %s",
+        detail=described,
     )
-    if low_variance_cols:
-        LOGGER.info(
-            "dropping %s low-variance features: %s",
-            len(low_variance_cols),
-            low_variance_cols,
-        )
-        return df.drop(columns=low_variance_cols)
-    else:
-        LOGGER.info("no features found with variance < %s", threshold)
+
+
+def _drop_logged(
+    df: pd.DataFrame,
+    columns: list[str],
+    *,
+    empty: str,
+    found: str,
+    detail: list[str] | None = None,
+) -> pd.DataFrame:
+    if not columns:
+        LOGGER.info(empty)
         return df
+    LOGGER.info(found, len(columns), detail if detail is not None else columns)
+    return df.drop(columns=columns)
 
 
 def drop_collinear_features_iteratively(
@@ -247,46 +289,6 @@ def drop_collinear_features_iteratively(
         assert isinstance(df_bool_imputed, pd.DataFrame)
 
         df_features = pd.concat([df_features, df_bool_imputed], axis=1)
-
-        # Identify duplicated columns (perfect duplicates)
-        duplicated_mask = df_features.T.duplicated(keep=False)
-        duplicated_cols = df_features.columns[duplicated_mask].tolist()
-
-        if duplicated_cols:
-            grouped = df_features[duplicated_cols].T.groupby(
-                lambda x: tuple(df_features[x].values), sort=False
-            )
-            for _, group in grouped:
-                dup_cols = list(group.index)
-                if len(dup_cols) <= 1:
-                    continue
-
-            # Prefer to keep force-included columns
-            force_included = [col for col in dup_cols if col in force_include_cols]
-            if force_included:
-                keep_col = force_included[0]
-            else:
-                keep_col = dup_cols[0]
-
-            drop_cols = [col for col in dup_cols if col != keep_col]
-
-            if len(force_included) == 1 and len(dup_cols) > 1:
-                LOGGER.info(
-                    "Duplicate columns found: kept force-included '%s', dropped: %s",
-                    keep_col,
-                    drop_cols,
-                )
-
-            if len(force_included) > 1:
-                LOGGER.warning(
-                    "Duplicate force-included columns found: keeping '%s', dropping: %s",
-                    keep_col,
-                    [col for col in force_included if col != keep_col],
-                )
-
-            df_features = df_features.drop(columns=drop_cols)
-            df = df.drop(columns=drop_cols, errors="ignore")
-            n_features_dropped_so_far += len(drop_cols)
 
     # calculate initial VIFs for features that aren't force-included
     uncentered_vif_dict = {

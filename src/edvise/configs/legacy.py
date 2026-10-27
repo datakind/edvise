@@ -556,7 +556,13 @@ class FeatureSelectionConfig(pyd.BaseModel):
             "Config may set a stricter (lower) value; values above 0.2 are capped."
         ),
     )
-    low_variance_threshold: float = 0.0
+    low_variance_threshold: float = pyd.Field(
+        default=0.0,
+        description=(
+            "Deprecated and ignored. Kept for compatibility with existing configs "
+            "and model cards. A non-zero value does not change feature selection."
+        ),
+    )
     collinear_threshold: t.Optional[float] = 10.0
 
     @pyd.field_validator("incomplete_threshold", mode="after")
@@ -659,6 +665,24 @@ class BiasMitigationConfig(pyd.BaseModel):
     custom_threshold: float = pyd.Field(
         default=0.5,
         description="Threshold for student group based on bias considerations.",
+    )
+
+
+def bias_mitigation_is_configured(cfg: t.Any) -> bool:
+    """True when a legacy config sets a dual-threshold bias-mitigation rule."""
+    modeling = getattr(cfg, "modeling", None)
+    mitigation = (
+        getattr(modeling, "bias_mitigation", None) if modeling is not None else None
+    )
+    if mitigation is None:
+        return False
+    group = getattr(mitigation, "student_group", None)
+    threshold = getattr(mitigation, "custom_threshold", None)
+    return (
+        isinstance(group, str)
+        and bool(group.strip())
+        and isinstance(threshold, (int, float))
+        and not isinstance(threshold, bool)
     )
 
 

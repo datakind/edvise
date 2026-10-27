@@ -27,6 +27,7 @@ from edvise.utils.databricks import (
     get_spark_session_or_none,
     in_databricks,
 )
+from edvise.dataio.batch_gcs_inference_ingest import run_batch_gcs_inference_ingest
 from edvise.utils.gcs import (
     active_gcp_identity,
     download_gcs_uri_to_filename,
@@ -120,14 +121,54 @@ class DataIngestionTask:
             return None, None
 
     def run(self):
-        bronze_root = (
-            f"/Volumes/{self.args.DB_workspace}/"
-            f"{self.args.databricks_institution_name}_bronze/bronze_volume"
-        )
-        landing_dir = os.path.join(bronze_root, "inference_inputs", self.args.db_run_id)
-        os.makedirs(local_fs_path(landing_dir), exist_ok=True)
-
-        fpath_course, fpath_cohort = self.download_data_from_gcs(landing_dir)
+        batch_id = (getattr(self.args, "batch_id", None) or "").strip()
+        if batch_id:
+            # Same landing as ES, legacy, and GenAI. PDP does not start the
+            # upload-time bronze sync, so do not poll for it.
+            result = run_batch_gcs_inference_ingest(
+                db_workspace=self.args.DB_workspace,
+                databricks_institution_name=self.args.databricks_institution_name,
+                gcp_bucket_name=self.args.gcp_bucket_name,
+                batch_id=batch_id,
+                validated_blob_paths_json=json.dumps(
+                    [
+                        f"validated/{self.args.cohort_file_name}",
+                        f"validated/{self.args.course_file_name}",
+                    ]
+                ),
+                db_run_id=self.args.db_run_id,
+                storage_client=self.storage_client,
+                bronze_sync_wait_seconds=0,
+            )
+            fpath_course = os.path.join(
+                result.bronze_batch_dir, self.args.course_file_name
+            )
+            fpath_cohort = os.path.join(
+                result.bronze_batch_dir, self.args.cohort_file_name
+            )
+            missing = [
+                path
+                for path in (fpath_course, fpath_cohort)
+                if not os.path.isfile(local_fs_path(path))
+            ]
+            if missing:
+                raise FileNotFoundError(
+                    "PDP batch folder is missing " + ", ".join(missing)
+                )
+        else:
+            bronze_root = (
+                f"/Volumes/{self.args.DB_workspace}/"
+                f"{self.args.databricks_institution_name}_bronze/bronze_volume"
+            )
+            landing_dir = os.path.join(
+                bronze_root, "inference_inputs", self.args.db_run_id
+            )
+            os.makedirs(local_fs_path(landing_dir), exist_ok=True)
+            logging.info(
+                "No batch_id; landing inputs in %s",
+                landing_dir,
+            )
+            fpath_course, fpath_cohort = self.download_data_from_gcs(landing_dir)
 
         # Always publish so data_audit can interpolate these task values. Empty
         # strings fall back to training-config filenames in pick_existing_path.
@@ -171,6 +212,14 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument("--gcp_bucket_name", required=True)
     parser.add_argument("--custom_schemas_path", required=False)
     parser.add_argument("--model_name", required=True)
+    parser.add_argument(
+        "--batch_id",
+        default="",
+        help=(
+            "Webapp batch UUID. When set, inputs land in "
+            "gcs_uploads/{batch_id}/ instead of inference_inputs/{db_run_id}/."
+        ),
+    )
     # parser.add_argument("--config_file_path", required=False)
 
     return parser.parse_args()
@@ -196,12 +245,17 @@ if __name__ == "__main__":
         payload={"gcp_bucket_name": args.gcp_bucket_name},
     )
 
-    # Ensure inference_inputs exists before listdir/imports
-    base_inputs = f"/Volumes/{args.DB_workspace}/{args.databricks_institution_name}_bronze/bronze_volume/inference_inputs"
-    os.makedirs(local_fs_path(base_inputs), exist_ok=True)
-    logging.info(
-        "Files in inference inputs path: %s", os.listdir(local_fs_path(base_inputs))
-    )
+    # Older runs without batch_id still land under inference_inputs/{db_run_id}.
+    if not (args.batch_id or "").strip():
+        base_inputs = (
+            f"/Volumes/{args.DB_workspace}/"
+            f"{args.databricks_institution_name}_bronze/bronze_volume/inference_inputs"
+        )
+        os.makedirs(local_fs_path(base_inputs), exist_ok=True)
+        logging.info(
+            "Files in inference inputs path: %s",
+            os.listdir(local_fs_path(base_inputs)),
+        )
 
     # Optional dynamic imports for converters/schemas
     for name, attr, desc in [

@@ -1,5 +1,8 @@
 """Calendar effects of preprocessing.features.first_term_of_year."""
 
+import logging
+from types import SimpleNamespace
+
 import pandas as pd
 import pytest
 
@@ -7,6 +10,7 @@ from edvise.targets import shared
 from edvise.utils.academic_terms import (
     academic_term_order,
     cohort_term_sort_ranks,
+    log_configured_first_term_of_year,
 )
 
 
@@ -15,6 +19,33 @@ def test_academic_term_order():
     assert academic_term_order("SUMMER") == ("SUMMER", "FALL", "WINTER", "SPRING")
     with pytest.raises(ValueError, match="FALL"):
         academic_term_order("WINTER")
+
+
+def test_log_configured_first_term_of_year(caplog: pytest.LogCaptureFixture):
+    cfg = SimpleNamespace(
+        preprocessing=SimpleNamespace(
+            features=SimpleNamespace(first_term_of_year="summer")
+        )
+    )
+    with caplog.at_level(logging.INFO):
+        term = log_configured_first_term_of_year(cfg, logger=logging.getLogger("test"))
+    assert term == "SUMMER"
+    assert (
+        "first_term_of_year=SUMMER (preprocessing.features); "
+        "terms within one academic year run SUMMER -> FALL -> WINTER -> SPRING"
+        in caplog.text
+    )
+
+
+def test_log_configured_first_term_of_year_defaults_when_unset(
+    caplog: pytest.LogCaptureFixture,
+):
+    with caplog.at_level(logging.INFO):
+        term = log_configured_first_term_of_year(
+            SimpleNamespace(preprocessing=None), logger=logging.getLogger("test")
+        )
+    assert term == "FALL"
+    assert "first_term_of_year=FALL (default)" in caplog.text
 
 
 def test_cohort_labels_sort_summer_first_when_summer_starts_the_year():

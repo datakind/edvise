@@ -2,17 +2,17 @@ import os
 
 import pytest
 
-from edvise.genai.mapping.schema_mapping_agent.manifest import eval as manifest_eval
+from edvise.genai.mapping.eval import models as eval_models
 
 
 @pytest.fixture
 def restore_models():
-    orig = list(manifest_eval.MODELS)
+    orig = list(eval_models.MODELS)
     prev = os.environ.get("EDVISE_EVAL_MODELS")
     try:
         yield
     finally:
-        manifest_eval.MODELS[:] = orig
+        eval_models.MODELS[:] = orig
         if prev is None:
             os.environ.pop("EDVISE_EVAL_MODELS", None)
         else:
@@ -21,14 +21,14 @@ def restore_models():
 
 def test_apply_eval_models_from_env_sonnet_slug(restore_models):
     os.environ["EDVISE_EVAL_MODELS"] = "sonnet"
-    manifest_eval.apply_eval_models_from_env()
-    assert manifest_eval.MODELS == ["claude-sonnet-test-genai-ai-data-cleaning"]
+    eval_models.apply_eval_models_from_env()
+    assert eval_models.MODELS == ["claude-sonnet-test-genai-ai-data-cleaning"]
 
 
 def test_apply_eval_models_from_env_order_and_dedupe(restore_models):
     os.environ["EDVISE_EVAL_MODELS"] = "haiku, sonnet, haiku"
-    manifest_eval.apply_eval_models_from_env()
-    assert manifest_eval.MODELS == [
+    eval_models.apply_eval_models_from_env()
+    assert eval_models.MODELS == [
         "claude-haiku-test-genai-data-cleaning",
         "claude-sonnet-test-genai-ai-data-cleaning",
     ]
@@ -37,11 +37,11 @@ def test_apply_eval_models_from_env_order_and_dedupe(restore_models):
 def test_apply_eval_models_from_env_unknown_raises(restore_models):
     os.environ["EDVISE_EVAL_MODELS"] = "gpt-4"
     with pytest.raises(ValueError, match="unknown entry"):
-        manifest_eval.apply_eval_models_from_env()
+        eval_models.apply_eval_models_from_env()
 
 
 def test_apply_eval_models_from_env_noop_when_unset(restore_models):
     os.environ.pop("EDVISE_EVAL_MODELS", None)
-    before = list(manifest_eval.MODELS)
-    manifest_eval.apply_eval_models_from_env()
-    assert manifest_eval.MODELS == before
+    before = list(eval_models.MODELS)
+    eval_models.apply_eval_models_from_env()
+    assert eval_models.MODELS == before

@@ -25,6 +25,7 @@ from edvise.data_audit.standardizer import (
     PDPCohortStandardizer,
     PDPCourseStandardizer,
 )
+from edvise.utils.academic_terms import log_configured_first_term_of_year
 from edvise.utils.databricks import get_spark_session
 from edvise.utils.data_cleaning import handling_duplicates, resolve_misjoin_merge_key
 
@@ -184,6 +185,7 @@ class PDPDataAuditTask:
 
         # Logs cohort year and terms and academic year and terms, grouped and sorted
 
+        log_configured_first_term_of_year(self.cfg, logger=LOGGER)
         LOGGER.info(
             " Listing grouped cohort year and terms and academic year and terms for raw cohort and course data files: "
         )

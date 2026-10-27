@@ -253,8 +253,9 @@ class FieldMappingRecord(StrictBaseModel):
         ge=0.0,
         le=1.0,
         description=(
-            "Agent confidence in the proposed mapping. "
-            "1.0 for human-authored cold-start records and confirmed unmappable fields. "
+            "Agent confidence in the mapping decision, including a decision to leave the field unmapped. "
+            "1.0 for human-authored cold-start records. Model scores follow the Step 2a "
+            "CONFIDENCE SCORING bands. "
             "Drives HITL gate threshold — low confidence triggers mandatory review."
         ),
     )
