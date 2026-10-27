@@ -105,14 +105,14 @@ def test_pair_plan_rows_and_split_path() -> None:
             "file_name": COHORT,
             "institution_id": "1600",
             "inst_id": "insthex",
-            "institution_name": "Miles CC",
+            "institution_name": "Monkey CC",
         },
         {
             "file_fingerprint": "fp-course",
             "file_name": COURSE,
             "institution_id": "1600",
             "inst_id": "insthex",
-            "institution_name": "Miles CC",
+            "institution_name": "Monkey CC",
         },
     ]
     pairs, problems = pair_plan_rows(rows, tmp_dir="/tmp/nsc")
@@ -218,7 +218,7 @@ def test_build_registration_only_pair_uses_existing_csvs(tmp_path: Path) -> None
         course_csv_path=str(course),
         inst_id="abc",
         pdp_id="1600",
-        institution_name="Miles CC",
+        institution_name="Monkey CC",
     )
     assert pair.stamp == STAMP
     assert pair.cohort_file_name == COHORT
@@ -240,7 +240,7 @@ def test_build_registration_only_pair_rejects_mismatched_stamps(tmp_path: Path) 
             course_csv_path=str(course),
             inst_id="abc",
             pdp_id="1600",
-            institution_name="Miles CC",
+            institution_name="Monkey CC",
         )
 
 
@@ -251,7 +251,7 @@ def test_build_registration_only_pair_rejects_missing_file(tmp_path: Path) -> No
             course_csv_path=str(tmp_path / COURSE),
             inst_id="abc",
             pdp_id="1600",
-            institution_name="Miles CC",
+            institution_name="Monkey CC",
         )
 
 
@@ -265,7 +265,7 @@ def test_register_pair_reuses_batch_and_copies(
     pair = InstitutionPair(
         inst_id="abc",
         pdp_id="1600",
-        institution_name="Miles CC",
+        institution_name="Monkey CC",
         stamp=STAMP,
         cohort_file_name=COHORT,
         course_file_name=COURSE,
