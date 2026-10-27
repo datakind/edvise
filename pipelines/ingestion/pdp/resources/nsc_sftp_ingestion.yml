@@ -10,6 +10,11 @@
 #     calendar date (YYYYMMDD), not only the newest timestamp.
 # Testing: force_reingest=true resets manifest/selected/plan for the selected pair and
 # overwrites existing bronze CSVs (use with latest or manual).
+#
+# Daily schedule is set per target in databricks.yml (America/New_York):
+# prod/staging 11:00, dev 12:00. Job defaults stay
+# file_selection_mode=skip_ingested and force_reingest=false.
+# skip_ingested exits successfully when every pair is already BRONZE_WRITTEN.
 
 resources:
   jobs:
