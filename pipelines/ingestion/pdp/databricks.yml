@@ -44,6 +44,12 @@ targets:
     resources:
       jobs:
         nsc_sftp_automated_ingestion:
+          # One hour after staging. Development mode pauses schedules unless
+          # this resource sets pause_status: UNPAUSED.
+          schedule:
+            quartz_cron_expression: "0 0 12 ? * MON"
+            timezone_id: America/New_York
+            pause_status: UNPAUSED
           git_source:
             git_url: https://github.com/datakind/edvise
             git_provider: gitHub
@@ -59,6 +65,11 @@ targets:
     resources:
       jobs:
         nsc_sftp_automated_ingestion:
+          # Staging first; dev follows at 12:00 America/New_York.
+          schedule:
+            quartz_cron_expression: "0 0 11 ? * MON"
+            timezone_id: America/New_York
+            pause_status: UNPAUSED
           git_source:
             git_url: https://github.com/datakind/edvise
             git_provider: gitHub
