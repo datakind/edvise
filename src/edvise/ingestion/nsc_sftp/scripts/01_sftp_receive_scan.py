@@ -109,6 +109,11 @@ try:
         if force_reingest
         else bronze_written_file_names(spark),
     )
+    if not selected_pairs:
+        logger.info(
+            "All discovered cohort/course pairs are already BRONZE_WRITTEN; exiting."
+        )
+        runtime.notebook_exit(dbutils, "ALREADY_INGESTED")
     selected_date = selected_pairs[0].date
     log_section(
         logger,

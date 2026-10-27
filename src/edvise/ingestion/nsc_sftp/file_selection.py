@@ -108,6 +108,8 @@ def select_file_pairs(
 
     ``skip_ingested`` uses the newest date that still has at least one pair not
     fully present in ``ingested_file_names`` (typically BRONZE_WRITTEN names).
+    It returns an empty list when every discovered pair is already ingested so
+    a scheduled run can exit successfully.
     """
     cohort_file_name = (cohort_file_name or "").strip()
     course_file_name = (course_file_name or "").strip()
@@ -163,10 +165,7 @@ def select_file_pairs(
         p for p in pairs if not ({p.cohort_file_name, p.course_file_name} <= done)
     ]
     if not eligible:
-        raise FileNotFoundError(
-            "All discovered cohort/course pairs are already BRONZE_WRITTEN in "
-            f"ingestion_manifest. stamps={[p.stamp for p in pairs]}"
-        )
+        return [], mode_norm
     target_date = max(p.date for p in eligible)
     # Same-day deliveries: select every still-pending pair for that date.
     chosen = _pairs_on_date(eligible, target_date)
