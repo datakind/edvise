@@ -9,13 +9,12 @@
 #     Auto modes select every complete cohort/course pair that shares the target
 #     calendar date (YYYYMMDD), not only the newest timestamp.
 # Testing: force_reingest=true resets manifest/selected/plan for the selected pair and
-# overwrites existing bronze CSVs (use with latest or manual). Files must still be in
-# the SFTP ./receive folder.
-# Batch trial without SFTP: registration_only=true. Stage 04 reads the newest
-# cohort/course pair in default/tmp (including {fingerprint}__ downloads),
-# registers every school in that pair as nsc_{stamp}, and continues if one
-# school fails. The task fails after the loop when any school failed.
-# Stages 01–03 exit immediately. The manifest is not changed.
+# overwrites existing bronze CSVs (use with latest or manual).
+#
+# Daily schedule is set per target in databricks.yml (America/New_York):
+# prod/staging 11:00, dev 12:00. Job defaults stay
+# file_selection_mode=skip_ingested and force_reingest=false.
+# skip_ingested exits successfully when every pair is already BRONZE_WRITTEN.
 
 resources:
   jobs:
