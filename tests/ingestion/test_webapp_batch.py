@@ -21,10 +21,8 @@ from edvise.ingestion.nsc_sftp.webapp_batch import (
     register_pair,
     remove_staged_fingerprint,
     select_tmp_registration_pair,
-    single_pdp_id,
-    split_csv_path,
     shared_pdp_ids,
-    trial_pdp_id,
+    split_csv_path,
 )
 from edvise.utils.gcs import SUCCESS_FILENAME
 
@@ -205,22 +203,9 @@ def test_shared_pdp_ids_returns_every_school() -> None:
     ]
 
 
-def test_trial_pdp_id_picks_one_school_from_a_combined_file() -> None:
-    assert trial_pdp_id(["1700", "1600"], ["1600", "1700"]) == ("1600", 2)
-
-
-def test_single_pdp_id_accepts_one_shared_id() -> None:
-    assert single_pdp_id(["1600"], ["1600"]) == "1600"
-
-
-def test_single_pdp_id_rejects_combined_file() -> None:
-    with pytest.raises(ValueError, match="one institution"):
-        single_pdp_id(["1600", "1700"], ["1600", "1700"])
-
-
-def test_single_pdp_id_rejects_mismatched_files() -> None:
-    with pytest.raises(ValueError, match="same PDP id"):
-        single_pdp_id(["1600"], ["1700"])
+def test_shared_pdp_ids_rejects_mismatched_files() -> None:
+    with pytest.raises(ValueError, match="same PDP ids"):
+        shared_pdp_ids(["1600"], ["1700"])
 
 
 def test_build_registration_only_pair_uses_existing_csvs(tmp_path: Path) -> None:

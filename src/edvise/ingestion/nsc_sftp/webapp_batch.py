@@ -263,32 +263,6 @@ def shared_pdp_ids(cohort_ids: Sequence[str], course_ids: Sequence[str]) -> list
     return cohort
 
 
-def trial_pdp_id(
-    cohort_ids: Sequence[str], course_ids: Sequence[str]
-) -> tuple[str, int]:
-    """Pick the first shared PDP id. Combined NSC files contain more than one."""
-    ids = shared_pdp_ids(cohort_ids, course_ids)
-    return ids[0], len(ids)
-
-
-def single_pdp_id(cohort_ids: Sequence[str], course_ids: Sequence[str]) -> str:
-    """Return the one PDP id shared by a registration-only cohort and course file."""
-    cohort = sorted({str(value).strip() for value in cohort_ids if str(value).strip()})
-    course = sorted({str(value).strip() for value in course_ids if str(value).strip()})
-    if len(cohort) != 1:
-        raise ValueError(
-            "registration_only needs a file for one institution. "
-            f"The cohort CSV has {len(cohort)} PDP id(s). "
-            "Point cohort_csv_path at one school's bronze CSV, not the combined NSC file."
-        )
-    if course != cohort:
-        raise ValueError(
-            "Cohort and course CSVs must contain the same PDP id. "
-            f"Got cohort={cohort}, course={course}."
-        )
-    return cohort[0]
-
-
 def build_registration_only_pair(
     *,
     cohort_csv_path: str,
