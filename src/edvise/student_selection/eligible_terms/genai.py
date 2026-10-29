@@ -1,5 +1,8 @@
 """Project a raw GenAI batch onto the columns eligible-term listing expects.
 
+Legacy projection will live beside this module. The shared listing function
+stays in edvise-api.
+
 The listing step runs before schema-mapping execute, so only the onboarded identity
 term contract, grain contract, ``inputs.toml`` filenames, and a promoted term-hook
 module are available. This projects course rows to ``academic_term`` and

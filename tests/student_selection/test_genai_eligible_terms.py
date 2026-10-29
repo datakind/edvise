@@ -5,7 +5,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from edvise.student_selection.genai_eligible_terms import (
+from edvise.student_selection.eligible_terms.genai import (
     BatchInputFrame,
     GenaiTermProjectionError,
     project_genai_eligible_terms,
