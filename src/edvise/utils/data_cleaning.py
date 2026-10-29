@@ -156,6 +156,34 @@ def strip_upper_strings_to_cats(series: pd.Series) -> pd.Series:
     return series.str.strip().str.upper().astype("category")
 
 
+COURSE_IDENTIFIER_COLUMNS = ("course_prefix", "course_number")
+
+
+def course_rows_have_identifiers(df_course: pd.DataFrame) -> pd.Series:
+    """Return whether each course row has both identifiers.
+
+    A row is kept when ``course_prefix`` and ``course_number`` are both
+    non-null after the ``MISSING`` sentinel is treated as null. Blank strings
+    count as present. This is the mask used by
+    :func:`drop_course_rows_missing_identifiers` and by eligible-term selection.
+
+    Args:
+        df_course: Course rows containing ``course_prefix`` and ``course_number``.
+
+    Returns:
+        A boolean series aligned to ``df_course``.
+
+    Raises:
+        KeyError: If either identifier column is missing.
+    """
+    identifiers = df_course.loc[:, list(COURSE_IDENTIFIER_COLUMNS)]
+    present = [
+        replace_missing_sentinel(identifiers[column]).notna()
+        for column in COURSE_IDENTIFIER_COLUMNS
+    ]
+    return pd.concat(present, axis=1).all(axis=1)
+
+
 def drop_course_rows_missing_identifiers(df_course: pd.DataFrame) -> pd.DataFrame:
     """
     Drop rows from raw course dataset missing key course identifiers,
@@ -163,18 +191,18 @@ def drop_course_rows_missing_identifiers(df_course: pd.DataFrame) -> pd.DataFram
     from students' enrollments at *other* institutions -- not wanted here!
     """
     # HACK: infer the correct student id col in raw data from the data itself
-    student_id_col = (
-        "student_guid"
-        if "student_guid" in df_course.columns
-        else "study_id"
-        if "study_id" in df_course.columns
-        else "student_id"
+    student_id_col = next(
+        (
+            column
+            for column in ("student_guid", "study_id", "student_id", "learner_id")
+            if column in df_course.columns
+        ),
+        "student_id",
     )
     students_before = df_course[student_id_col].nunique()
 
     # Identify rows missing either identifier
-    id_cols = ["course_prefix", "course_number"]
-    present_mask = df_course[id_cols].notna().all(axis=1)
+    present_mask = course_rows_have_identifiers(df_course)
     drop_mask = ~present_mask
     num_dropped_rows = int(drop_mask.sum())
     pct_dropped_rows = (
