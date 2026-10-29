@@ -74,7 +74,7 @@ def _grain(course_pk: list[str] | None = None) -> dict:
 def _files() -> list[BatchInputFrame]:
     return [
         BatchInputFrame(
-            "people_export.csv",
+            "person.csv",
             pd.DataFrame(
                 {
                     "SID": [1, 2, 3],
@@ -84,7 +84,7 @@ def _files() -> list[BatchInputFrame]:
             ),
         ),
         BatchInputFrame(
-            "class_list.csv",
+            "enroll.csv",
             pd.DataFrame(
                 {
                     "SID": [1, 2, 2, 3],
@@ -112,7 +112,7 @@ def _contract() -> dict:
     }
 
 
-def test_project_unknown_files_onto_term_columns() -> None:
+def test_project_named_datasets_onto_term_columns() -> None:
     students, courses = project_genai_eligible_terms(
         _files(),
         _contract(),
@@ -418,17 +418,21 @@ def test_configured_course_file_missing_columns_is_not_replaced() -> None:
         )
 
 
-def test_ambiguous_files_are_not_guessed() -> None:
+def test_ambiguous_dataset_names_are_not_guessed() -> None:
     with pytest.raises(GenaiTermProjectionError, match="Multiple batch files"):
         project_genai_eligible_terms(
             [
                 BatchInputFrame(
-                    "a.csv",
+                    "enroll.csv",
                     pd.DataFrame({"sid": ["1"], "term_code": ["2024FA"]}),
                 ),
                 BatchInputFrame(
-                    "b.csv",
+                    "enroll_spring.csv",
                     pd.DataFrame({"sid": ["2"], "term_code": ["2024SP"]}),
+                ),
+                BatchInputFrame(
+                    "person.csv",
+                    pd.DataFrame({"sid": ["1"], "entry_term": ["Fall 2022"]}),
                 ),
             ],
             _contract(),

@@ -10,7 +10,7 @@ frames to ``resolve_eligible_inference_terms``.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, NamedTuple
 
@@ -18,7 +18,7 @@ import pandas as pd
 from pydantic import ValidationError
 
 from edvise.data_audit.custom_cleaning import normalize_columns
-from edvise.dataio.filename_matching import filename_match_score, filename_match_tokens
+from edvise.dataio.filename_matching import filename_match_score
 from edvise.genai.mapping.identity_agent.term_normalization.schemas import (
     InstitutionTermContract,
     TermOrderConfig,
@@ -64,10 +64,9 @@ def project_genai_eligible_terms(
     ``year_extractor*`` and ``season_extractor*`` from ``hook_modules_root``.
     A missing or unimportable hook fails; this does not invent a parser.
 
-    Which contract is the course dataset comes from ``row_selection_required``.
-    Uploaded files are bound with :func:`filename_match_score` against the
-    configured names. A file whose name does not match is used only when it is
-    the only upload that has that dataset's columns.
+    ``row_selection_required`` chooses the course-grain dataset. Files for a
+    dataset are resolved by that dataset's name, the same key in the grain
+    contract and ``inputs.toml``, using :func:`filename_match_score`.
     """
     term = _parse_term_contract(term_contract)
     grain_datasets = _grain_datasets(grain_contract)
@@ -82,20 +81,30 @@ def project_genai_eligible_terms(
     normalized_files = [
         BatchInputFrame(item.name, _snake_case_frame(item.frame)) for item in files
     ]
-    course_frames, student_frames = _assign_role_frames(
+    claimed: set[int] = set()
+    course_grain = grain_datasets.get(course_name, {})
+    student_grain = grain_datasets.get(student_name, {})
+    course_frames = _frames_for_dataset(
         normalized_files,
-        course_name=course_name,
-        student_name=student_name,
-        course_config=course_config,
-        student_config=student_config,
-        course_grain=grain_datasets.get(course_name, {}),
-        student_grain=grain_datasets.get(student_name, {}),
+        course_name,
         dataset_files=dataset_files,
+        term_columns=_term_source_columns(course_config),
+        grain=course_grain,
+        claimed=claimed,
+    )
+    student_term_columns = (
+        _term_source_columns(student_config) if student_config is not None else []
+    )
+    student_frames = _frames_for_dataset(
+        normalized_files,
+        student_name,
+        dataset_files=dataset_files,
+        term_columns=student_term_columns,
+        grain=student_grain,
+        claimed=claimed,
     )
     courses = _concat_frames(course_frames)
     students = _concat_frames(student_frames)
-    course_grain = grain_datasets.get(course_name, {})
-    student_grain = grain_datasets.get(student_name, {})
     id_column = _output_student_id_column(student_id_col)
 
     courses = _project_term_labels(
@@ -106,7 +115,7 @@ def project_genai_eligible_terms(
         dataset_label=f"Course dataset {course_name!r}",
         hook_modules_root=hook_modules_root,
     )
-    course_id = _require_learner_column(courses, course_grain, course_name, "Course")
+    course_id = _require_learner_column(courses, course_grain, course_name)
     courses = _with_student_id(courses, course_id, id_column)
 
     if student_config is not None:
@@ -118,9 +127,7 @@ def project_genai_eligible_terms(
             dataset_label=f"Student dataset {student_name!r}",
             hook_modules_root=hook_modules_root,
         )
-    student_id = _require_learner_column(
-        students, student_grain, student_name, "Student"
-    )
+    student_id = _require_learner_column(students, student_grain, student_name)
     students = _with_student_id(students, student_id, id_column)
     return students, courses
 
@@ -154,197 +161,119 @@ def _select_datasets(
     term: InstitutionTermContract,
     grain_datasets: Mapping[str, Mapping[str, Any]],
 ) -> tuple[str, str]:
-    """Pick the course-grain dataset and the student dataset."""
+    """Pick the course-grain dataset name and the student dataset name."""
     names = list(term.datasets)
-    with_term = [name for name in names if term.datasets[name].term_config is not None]
     course_pool = [
         name
-        for name in with_term
+        for name in names
         if _row_selection_required(grain_datasets.get(name, {})) is True
-    ] or with_term
-    course_name = _pick_named_dataset(
+        and term.datasets[name].term_config is not None
+    ]
+    if not course_pool:
+        course_pool = [
+            name for name in names if term.datasets[name].term_config is not None
+        ]
+    course_name = _one_dataset(
         course_pool,
-        "course",
-        grain_datasets,
         missing="Identity term contract does not identify a course-grain dataset.",
         ambiguous="Identity term contract has more than one course-grain dataset.",
-        prefer_longer_key=True,
     )
-    student_pool = [name for name in names if name != course_name]
-    person_grain = [
+    student_pool = [
         name
-        for name in student_pool
-        if _row_selection_required(grain_datasets.get(name, {})) is False
+        for name in names
+        if name != course_name
+        and _row_selection_required(grain_datasets.get(name, {})) is False
     ]
-    if person_grain:
-        student_pool = person_grain
-    student_name = _pick_named_dataset(
+    if not student_pool:
+        student_pool = [name for name in names if name != course_name]
+    student_name = _one_dataset(
         student_pool,
-        "student",
-        grain_datasets,
         missing="Identity term contract does not identify a student dataset.",
         ambiguous="Identity term contract has more than one student dataset.",
-        prefer_longer_key=False,
     )
     return course_name, student_name
 
 
-def _pick_named_dataset(
-    pool: Sequence[str],
-    role: str,
-    grain_datasets: Mapping[str, Mapping[str, Any]],
-    *,
-    missing: str,
-    ambiguous: str,
-    prefer_longer_key: bool,
-) -> str:
-    named = [name for name in pool if role in filename_match_tokens(name)]
-    if len(named) == 1:
-        return named[0]
-    if len(named) > 1:
-        exact = [
-            name for name in named if filename_match_tokens(name) == frozenset({role})
-        ]
-        if len(exact) == 1:
-            return exact[0]
-        raise GenaiTermProjectionError(ambiguous)
+def _one_dataset(pool: Sequence[str], *, missing: str, ambiguous: str) -> str:
     if len(pool) == 1:
         return pool[0]
-    if prefer_longer_key and len(pool) > 1:
-        ranked = sorted(
-            pool,
-            key=lambda name: len(_primary_key(grain_datasets.get(name, {}))),
-            reverse=True,
-        )
-        longest = len(_primary_key(grain_datasets.get(ranked[0], {})))
-        second = len(_primary_key(grain_datasets.get(ranked[1], {})))
-        if longest > second:
-            return ranked[0]
     if not pool:
         raise GenaiTermProjectionError(missing)
-    raise GenaiTermProjectionError(ambiguous if len(pool) > 1 else missing)
+    raise GenaiTermProjectionError(ambiguous)
 
 
-def _assign_role_frames(
+def _frames_for_dataset(
     files: Sequence[BatchInputFrame],
+    dataset_name: str,
     *,
-    course_name: str,
-    student_name: str,
-    course_config: TermOrderConfig,
-    student_config: TermOrderConfig | None,
-    course_grain: Mapping[str, Any],
-    student_grain: Mapping[str, Any],
     dataset_files: Mapping[str, Sequence[str]] | None,
-) -> tuple[list[pd.DataFrame], list[pd.DataFrame]]:
-    """Bind course first, then the student file from whatever is still unclaimed.
-
-    A course file also carries a learner id, so it is claimed before the student
-    file is chosen. Both roles use the same column check.
-    """
-    course_terms = _term_source_columns(course_config)
-    student_terms = (
-        _term_source_columns(student_config) if student_config is not None else []
-    )
-    roles = {
-        course_name.casefold(): ("course", course_terms, course_grain),
-        student_name.casefold(): ("student", student_terms, student_grain),
-    }
-    frames: dict[str, list[pd.DataFrame]] = {"course": [], "student": []}
-    claimed: set[int] = set()
-    if dataset_files:
-        for index, item in enumerate(files):
-            dataset = _dataset_for_filename(item.name, dataset_files)
-            if dataset is None:
-                continue
-            role = roles.get(dataset.casefold())
-            if role is None:
-                claimed.add(index)
-                continue
-            role_name, term_columns, grain = role
-            _require_role_columns(item, role_name, term_columns, grain)
-            frames[role_name].append(item.frame)
-            claimed.add(index)
-
-    if not frames["course"]:
-        chosen = _unique_unclaimed(
-            files,
-            claimed,
-            eligible=lambda item: _has_role_columns(item, course_terms, course_grain),
-            role="course",
-        )
-        if chosen is None:
-            raise GenaiTermProjectionError(
-                "Batch is missing a course file with term columns: "
-                + ", ".join(course_terms)
-                + "."
-            )
-        frames["course"].append(files[chosen].frame)
-        claimed.add(chosen)
-    if not frames["student"]:
-        chosen = _unique_unclaimed(
-            files,
-            claimed,
-            eligible=lambda item: _has_role_columns(item, student_terms, student_grain),
-            role="student",
-        )
-        if chosen is None:
-            raise GenaiTermProjectionError(
-                "Batch is missing a student file with a learner id column."
-            )
-        frames["student"].append(files[chosen].frame)
-        claimed.add(chosen)
-    return frames["course"], frames["student"]
-
-
-def _unique_unclaimed(
-    files: Sequence[BatchInputFrame],
-    claimed: set[int],
-    *,
-    eligible: Callable[[BatchInputFrame], bool],
-    role: str,
-) -> int | None:
-    matches = [
-        index
-        for index, item in enumerate(files)
-        if index not in claimed and eligible(item)
-    ]
-    if not matches:
-        return None
-    if len(matches) > 1:
-        names = ", ".join(files[index].name for index in matches)
-        raise GenaiTermProjectionError(
-            f"Multiple batch files match the {role} dataset in the identity "
-            f"term contract: {names}."
-        )
-    return matches[0]
-
-
-def _has_role_columns(
-    item: BatchInputFrame,
     term_columns: Sequence[str],
     grain: Mapping[str, Any],
-) -> bool:
-    return _learner_column(item.frame.columns, grain) is not None and all(
-        column in item.frame.columns for column in term_columns
-    )
+    claimed: set[int],
+) -> list[pd.DataFrame]:
+    """Resolve uploads for one dataset name and record them as claimed."""
+    frames: list[pd.DataFrame] = []
+    for needle in _configured_names(dataset_name, dataset_files):
+        index = _match_dataset_file(files, dataset_name, needle, claimed)
+        item = files[index]
+        _require_dataset_file(item, dataset_name, term_columns, grain)
+        frames.append(item.frame)
+        claimed.add(index)
+    return frames
 
 
-def _require_role_columns(
+def _configured_names(
+    dataset_name: str, dataset_files: Mapping[str, Sequence[str]] | None
+) -> list[str]:
+    if dataset_files:
+        for key, paths in dataset_files.items():
+            if key.casefold() == dataset_name.casefold() and paths:
+                return [str(path) for path in paths]
+    return [dataset_name]
+
+
+def _match_dataset_file(
+    files: Sequence[BatchInputFrame],
+    dataset_name: str,
+    needle: str,
+    claimed: set[int],
+) -> int:
+    scored = [
+        (score, index)
+        for index, item in enumerate(files)
+        if index not in claimed
+        and (score := filename_match_score(needle, item.name, dataset_key=dataset_name))
+        is not None
+    ]
+    if not scored:
+        raise GenaiTermProjectionError(
+            f"No batch file matches dataset {dataset_name!r} ({Path(needle).name})."
+        )
+    best = max(score for score, _index in scored)
+    winners = [index for score, index in scored if score == best]
+    if len(winners) != 1:
+        names = ", ".join(files[index].name for index in winners)
+        raise GenaiTermProjectionError(
+            f"Multiple batch files match dataset {dataset_name!r}: {names}."
+        )
+    return winners[0]
+
+
+def _require_dataset_file(
     item: BatchInputFrame,
-    role: str,
+    dataset_name: str,
     term_columns: Sequence[str],
     grain: Mapping[str, Any],
 ) -> None:
-    label = "Course" if role == "course" else "Student"
     if term_columns:
         _require_columns(
             item,
             term_columns,
-            f"{label} file {item.name!r} is missing term columns",
+            f"Dataset {dataset_name!r} file {item.name!r} is missing term columns",
         )
     if _learner_column(item.frame.columns, grain) is None:
         raise GenaiTermProjectionError(
-            f"{label} file {item.name!r} is missing the learner id column."
+            f"Dataset {dataset_name!r} file {item.name!r} is missing the learner id column."
         )
 
 
@@ -422,7 +351,6 @@ def _require_learner_column(
     frame: pd.DataFrame,
     grain: Mapping[str, Any],
     dataset_name: str,
-    role: str,
 ) -> str:
     column = _learner_column(frame.columns, grain)
     if column is not None:
@@ -434,8 +362,7 @@ def _require_learner_column(
         else "learner_id, student_id, or study_id"
     )
     raise GenaiTermProjectionError(
-        f"{role} file for dataset {dataset_name!r} is missing learner id column "
-        f"{expected}."
+        f"Dataset {dataset_name!r} is missing learner id column {expected}."
     )
 
 
@@ -465,13 +392,6 @@ def _term_source_columns(config: TermOrderConfig) -> list[str]:
     raise GenaiTermProjectionError("Identity term contract is missing a term column.")
 
 
-def _primary_key(grain: Mapping[str, Any]) -> list[str]:
-    raw = grain.get("post_clean_primary_key") or []
-    if not isinstance(raw, list):
-        return []
-    return [str(convert_to_snake_case(str(column))) for column in raw]
-
-
 def _row_selection_required(grain: Mapping[str, Any]) -> bool | None:
     value = grain.get("row_selection_required")
     if isinstance(value, bool):
@@ -492,25 +412,3 @@ def _snake_case_frame(frame: pd.DataFrame) -> pd.DataFrame:
     out = frame.copy()
     out.columns = normalized
     return out
-
-
-def _dataset_for_filename(
-    filename: str, dataset_files: Mapping[str, Sequence[str]]
-) -> str | None:
-    scored: list[tuple[int, str]] = []
-    for dataset, paths in dataset_files.items():
-        best: int | None = None
-        for path in paths:
-            score = filename_match_score(str(path), filename, dataset_key=str(dataset))
-            if score is None:
-                continue
-            if best is None or score > best:
-                best = score
-        if best is not None:
-            scored.append((best, str(dataset)))
-    if not scored:
-        return None
-    scored.sort(key=lambda item: item[0], reverse=True)
-    if len(scored) > 1 and scored[0][0] == scored[1][0]:
-        return None
-    return scored[0][1]
