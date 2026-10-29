@@ -75,7 +75,6 @@ def _files() -> list[BatchInputFrame]:
     return [
         BatchInputFrame(
             "people_export.csv",
-            ("UNKNOWN",),
             pd.DataFrame(
                 {
                     "SID": [1, 2, 3],
@@ -86,7 +85,6 @@ def _files() -> list[BatchInputFrame]:
         ),
         BatchInputFrame(
             "class_list.csv",
-            ("UNKNOWN",),
             pd.DataFrame(
                 {
                     "SID": [1, 2, 2, 3],
@@ -138,12 +136,10 @@ def test_quarter_sessions_share_one_season_label() -> None:
         [
             BatchInputFrame(
                 "person.csv",
-                ("UNKNOWN",),
                 pd.DataFrame({"SID": [1, 2]}),
             ),
             BatchInputFrame(
                 "enroll.csv",
-                ("UNKNOWN",),
                 pd.DataFrame(
                     {
                         "SID": [1, 1, 2],
@@ -176,12 +172,10 @@ def test_academic_year_prefix_rolls_spring_forward() -> None:
         [
             BatchInputFrame(
                 "person.csv",
-                ("UNKNOWN",),
                 pd.DataFrame({"sid": ["1"]}),
             ),
             BatchInputFrame(
                 "enroll.csv",
-                ("UNKNOWN",),
                 pd.DataFrame({"sid": ["1"], "term_code": ["2017SR"]}),
             ),
         ],
@@ -214,12 +208,10 @@ def test_split_year_and_season_columns() -> None:
         [
             BatchInputFrame(
                 "person.csv",
-                ("UNKNOWN",),
                 pd.DataFrame({"sid": ["1"]}),
             ),
             BatchInputFrame(
                 "enroll.csv",
-                ("UNKNOWN",),
                 pd.DataFrame(
                     {"sid": ["1"], "Term Year": [2024], "Term Season": ["Fall"]}
                 ),
@@ -321,12 +313,10 @@ def test_promoted_hook_labels_nonstandard_terms(tmp_path: Path) -> None:
         [
             BatchInputFrame(
                 "person.csv",
-                ("UNKNOWN",),
                 pd.DataFrame({"SID": [1]}),
             ),
             BatchInputFrame(
                 "enroll.csv",
-                ("UNKNOWN",),
                 pd.DataFrame({"SID": [1], "TERM_CODE": ["FA19"]}),
             ),
         ],
@@ -380,17 +370,15 @@ def test_missing_hook_file_fails(tmp_path: Path) -> None:
         )
 
 
-def test_configured_filenames_override_schema_tags() -> None:
+def test_configured_filenames_bind_the_files() -> None:
     _students, courses = project_genai_eligible_terms(
         [
             BatchInputFrame(
                 "roster.csv",
-                ("STUDENT",),
                 pd.DataFrame({"sid": ["1"], "term_code": ["2024FA"]}),
             ),
             BatchInputFrame(
                 "people.csv",
-                ("COURSE",),
                 pd.DataFrame({"sid": ["1"], "entry_term": ["Fall 2022"]}),
             ),
         ],
@@ -414,12 +402,10 @@ def test_configured_course_file_missing_columns_is_not_replaced() -> None:
             [
                 BatchInputFrame(
                     "roster.csv",
-                    ("UNKNOWN",),
                     pd.DataFrame({"sid": ["1"]}),
                 ),
                 BatchInputFrame(
                     "other.csv",
-                    ("UNKNOWN",),
                     pd.DataFrame({"sid": ["1"], "term_code": ["2024FA"]}),
                 ),
             ],
@@ -438,12 +424,10 @@ def test_ambiguous_files_are_not_guessed() -> None:
             [
                 BatchInputFrame(
                     "a.csv",
-                    ("UNKNOWN",),
                     pd.DataFrame({"sid": ["1"], "term_code": ["2024FA"]}),
                 ),
                 BatchInputFrame(
                     "b.csv",
-                    ("UNKNOWN",),
                     pd.DataFrame({"sid": ["2"], "term_code": ["2024SP"]}),
                 ),
             ],
