@@ -305,3 +305,63 @@ def test_evaluate_bias_skips_missing_student_group_cols(
 
     assert "disability_status" in caplog.text
     assert "military_status" in caplog.text
+
+
+def test_evaluate_bias_skips_all_null_student_group_cols(
+    mock_helpers, mock_mlflow, caplog, monkeypatch
+):
+    df = pd.DataFrame(
+        {
+            "split": ["test", "test", "test", "test"],
+            "gender": ["F", "F", "M", "M"],
+            "first_gen": [pd.NA, pd.NA, pd.NA, pd.NA],
+            "target": [1, 0, 1, 0],
+            "pred": [1, 0, 0, 1],
+            "pred_prob": [0.9, 0.2, 0.3, 0.8],
+        }
+    )
+    logged_groups: list[str] = []
+
+    def capture_group_metrics(group_metrics, split_name, group_col):
+        logged_groups.append(group_col)
+
+    monkeypatch.setattr(
+        bias_detection, "log_group_metrics_to_mlflow", capture_group_metrics
+    )
+    monkeypatch.setattr(bias_detection, "flag_bias", lambda fnr_data: [])
+    monkeypatch.setattr(
+        bias_detection, "aggregate_bias_scores", lambda *args, **kwargs: {}
+    )
+    monkeypatch.setattr(
+        bias_detection, "log_bias_scores_to_mlflow", lambda *args, **kwargs: None
+    )
+
+    with caplog.at_level("WARNING"):
+        bias_detection.evaluate_bias(
+            df,
+            student_group_cols=["gender", "first_gen"],
+            pos_label=1,
+            target_col="target",
+            pred_col="pred",
+            pred_prob_col="pred_prob",
+        )
+
+    assert "first_gen" in caplog.text
+    assert "all values are null" in caplog.text
+    assert logged_groups == ["gender", "gender"]
+
+
+def test_log_group_metrics_to_mlflow_skips_empty(monkeypatch, caplog):
+    logged: list[tuple] = []
+
+    monkeypatch.setattr(
+        mlflow,
+        "log_artifact",
+        lambda *args, **kwargs: logged.append((args, kwargs)),
+    )
+
+    with caplog.at_level("INFO"):
+        bias_detection.log_group_metrics_to_mlflow([], "bias_test", "gender")
+
+    assert logged == []
+    assert "Skipping empty group metrics artifact" in caplog.text
