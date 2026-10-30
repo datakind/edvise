@@ -640,3 +640,88 @@ def fetch_institution_by_pdp_id(client: EdviseAPIClient, pdp_id: str) -> dict[st
     data = cast(dict[str, Any], resp.json())
     client.institution_cache[pid] = data
     return data
+
+
+def _authorized_request(
+    client: EdviseAPIClient,
+    method: str,
+    path: str,
+    *,
+    timeout: float = 60,
+    **kwargs: Any,
+) -> requests.Response:
+    """Call the Edvise API with the app JWT, refreshing once on 401."""
+    _ensure_auth(client)
+    url = (
+        path
+        if path.startswith(("http://", "https://"))
+        else urljoin(f"{client.base_url}/", path.lstrip("/"))
+    )
+    resp = client.session.request(method, url, timeout=timeout, **kwargs)
+    if resp.status_code == 401:
+        _refresh_auth(client)
+        resp = client.session.request(method, url, timeout=timeout, **kwargs)
+    return resp
+
+
+def get_institution_input(client: EdviseAPIClient, inst_id: str) -> dict[str, Any]:
+    """Return ``GET /institutions/{inst_id}/input`` (files and batches)."""
+    resp = _authorized_request(client, "GET", f"/api/v1/institutions/{inst_id}/input")
+    resp.raise_for_status()
+    return cast(dict[str, Any], resp.json())
+
+
+def get_upload_url(client: EdviseAPIClient, inst_id: str, file_name: str) -> str:
+    """Return a signed GCS URL for ``unvalidated/{file_name}``."""
+    resp = _authorized_request(
+        client,
+        "GET",
+        f"/api/v1/institutions/{inst_id}/upload-url/{quote(file_name, safe='')}",
+    )
+    resp.raise_for_status()
+    try:
+        payload = resp.json()
+    except ValueError:
+        payload = resp.text
+    if not isinstance(payload, str) or not payload.strip():
+        raise ValueError(f"Upload URL response was not a string: {payload!r}")
+    return payload.strip().strip('"')
+
+
+def put_csv_bytes(signed_url: str, file_bytes: bytes) -> None:
+    """PUT CSV bytes to a signed URL. Does not send the Edvise bearer token."""
+    resp = requests.put(
+        signed_url,
+        data=file_bytes,
+        headers={"Content-Type": "text/csv"},
+        timeout=600,
+    )
+    resp.raise_for_status()
+
+
+def validate_sftp_upload(
+    client: EdviseAPIClient, inst_id: str, file_name: str
+) -> dict[str, Any]:
+    """Validate a file already in ``unvalidated/`` and insert the file row."""
+    resp = _authorized_request(
+        client,
+        "POST",
+        f"/api/v1/institutions/{inst_id}/input/validate-sftp/{quote(file_name, safe='')}",
+        timeout=600,
+    )
+    resp.raise_for_status()
+    return cast(dict[str, Any], resp.json())
+
+
+def create_institution_batch(
+    client: EdviseAPIClient, inst_id: str, name: str, file_names: list[str]
+) -> dict[str, Any]:
+    """Create a batch, or return the existing batch when the name is already used."""
+    resp = _authorized_request(
+        client,
+        "POST",
+        f"/api/v1/institutions/{inst_id}/batch",
+        json={"name": name, "file_names": file_names},
+    )
+    resp.raise_for_status()
+    return cast(dict[str, Any], resp.json())

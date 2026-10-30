@@ -1,3 +1,8 @@
+## 1.22.0 (2026-10-30)
+- feat(genai): update production Claude endpoints and necessary prompt changes  (#398)
+- feat(pdp): register NSC deliveries as webapp batches (#402)
+- feat(pdp): schedule daily NSC SFTP ingestion on dev and staging (#408)
+
 ## 1.21.0 (2026-10-23)
 - feat: keep in-window part-time students when excluding training cohorts (#350)
 - fix: ES model card wiring and intensity_time_limits fallback (#377)
