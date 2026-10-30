@@ -4,6 +4,8 @@ Register SPLIT_STAGED cohort/course pairs as webapp batches.
 Copies validated GCS objects into bronze_volume/gcs_uploads/{batch_id} and
 marks the SFTP manifest BRONZE_WRITTEN only after every on-disk split for that
 file is in a materialized batch. Staging files in default/tmp are left in place.
+
+TODO: Need to set up retention policy for tmp directory & remove files after X days.
 """
 
 from __future__ import annotations
