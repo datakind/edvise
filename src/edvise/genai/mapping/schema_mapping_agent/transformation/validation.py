@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 class TransformationPlanValidationErrorCode(str, Enum):
     HOOK_REQUIRED_ON_UNMAPPED = "HOOK_REQUIRED_ON_UNMAPPED"
     REVIEW_REQUIRED_ON_UNMAPPED = "REVIEW_REQUIRED_ON_UNMAPPED"
+    CAST_BOOLEAN_BEFORE_MAP_VALUES = "CAST_BOOLEAN_BEFORE_MAP_VALUES"
 
 
 class TransformationPlanValidationError(BaseModel):
@@ -73,6 +74,28 @@ def _plans_from_entity_section(entity_blob: object) -> list[dict[str, Any]] | No
     return [p for p in raw_plans if isinstance(p, dict)]
 
 
+def _cast_boolean_precedes_map_values(steps: object) -> bool:
+    """True when a plan runs ``cast_boolean`` and a later step is ``map_values``.
+
+    ``cast_boolean`` emits real booleans. ``map_values`` keys are JSON strings, so
+    this order is the plan shape that nulls a column when ``default`` is null.
+    Execution aliases ``"True"`` / ``"False"`` for maps that were already approved;
+    this check stops new plans from being saved in that shape.
+    """
+    if not isinstance(steps, list):
+        return False
+    saw_cast_boolean = False
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        fn = step.get("function_name")
+        if fn == "cast_boolean":
+            saw_cast_boolean = True
+        elif fn == "map_values" and saw_cast_boolean:
+            return True
+    return False
+
+
 def _find_plan_index(plans: list[dict[str, Any]], target_field: str) -> int | None:
     for index, plan in enumerate(plans):
         if str(plan.get("target_field") or "").strip() == target_field:
@@ -89,6 +112,10 @@ def validate_transformation_plans_against_manifest(
 
     Gate 1 ``leave_unmapped`` targets must not carry Step 2b hook or review routing —
     there is no source Series for utilities or transform hooks to consume.
+
+    Also rejects ``cast_boolean`` before ``map_values``. That check stays here, on the
+    Step 2b parse retry and the post-review gate, and off ``FieldTransformationPlan``:
+    execute loads already-approved maps with ``TransformationMap.model_validate``.
     """
     errors: list[TransformationPlanValidationError] = []
     tmaps = transformation_data.get("transformation_maps")
@@ -103,6 +130,21 @@ def validate_transformation_plans_against_manifest(
             tf = str(plan.get("target_field") or "").strip()
             if not tf:
                 continue
+            if _cast_boolean_precedes_map_values(plan.get("steps")):
+                errors.append(
+                    TransformationPlanValidationError(
+                        entity_type=entity_type,
+                        target_field=tf,
+                        error_code=TransformationPlanValidationErrorCode.CAST_BOOLEAN_BEFORE_MAP_VALUES,
+                        detail=(
+                            f"{entity_type}.{tf}: `cast_boolean` cannot appear before "
+                            "`map_values`. cast_boolean emits real booleans and map_values "
+                            "keys are JSON strings, so this order nulls the column when "
+                            "default is null. Remove cast_boolean and map the source tokens "
+                            'directly (keys "True" and "False" match a boolean Series).'
+                        ),
+                    )
+                )
             mrec = manifest_mapping_for_target(manifest_map, entity_type, tf)
             if not is_manifest_record_unmapped(mrec):
                 continue
