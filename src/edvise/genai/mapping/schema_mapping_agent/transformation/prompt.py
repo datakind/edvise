@@ -535,6 +535,12 @@ STEP ORDERING
 - If map_values key matching depends on a normalized form (e.g. uppercase grade tokens),
   apply the normalizing step (normalize_grade, uppercase, etc.) BEFORE map_values —
   not after. The map keys must match the values that actually arrive at that step.
+- Do not insert `cast_boolean` before `map_values` when the target is a string label
+  (Yes/No, Y/N, Veteran/Non-Veteran). `cast_boolean` emits real booleans, and mapping
+  keys are JSON strings. Execution treats the keys "True" and "False" as those
+  booleans, so `cast_boolean` does not change the match — map the source tokens
+  directly (optionally after strip_whitespace). Use `cast_string` only when the
+  mapped result must be a string dtype and no `map_values` step follows it.
 - Apply type casting steps (cast_string, cast_nullable_int, etc.) after value transformations
   unless an earlier step requires a specific type as input
 - Apply domain-specific normalization (normalize_grade, etc.) as needed; canonical term season and academic year come from IdentityAgent `_edvise_term_*` columns (or other manifest-listed IA term columns), not SMA string parsers
@@ -588,6 +594,10 @@ MAP VALUES USAGE
   to any of these fields — there is no allowed-value set to map toward.
 - map_values default="passthrough" keeps original values for unmapped entries
 - map_values default=null fills unmapped entries with NA
+- Mapping keys are JSON strings. The keys "True" and "False" (any case) also match a
+  boolean Series, including the output of `cast_boolean` and cleaned boolean columns.
+  That match is only those boolean tokens; "yes" or "1" match only when they are
+  themselves keys
 - Explicit null mappings (e.g., {{"(Blank)": null}}) are preserved even with default="passthrough"
 
 TRANSFORMATION MAP COMPACTNESS
