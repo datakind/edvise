@@ -535,12 +535,12 @@ STEP ORDERING
 - If map_values key matching depends on a normalized form (e.g. uppercase grade tokens),
   apply the normalizing step (normalize_grade, uppercase, etc.) BEFORE map_values —
   not after. The map keys must match the values that actually arrive at that step.
-- Do not insert `cast_boolean` before `map_values` when the target is a string label
-  (Yes/No, Y/N, Veteran/Non-Veteran). `cast_boolean` emits real booleans, and mapping
-  keys are JSON strings. Execution treats the keys "True" and "False" as those
-  booleans, so `cast_boolean` does not change the match — map the source tokens
-  directly (optionally after strip_whitespace). Use `cast_string` only when the
-  mapped result must be a string dtype and no `map_values` step follows it.
+- Never place `cast_boolean` before `map_values` in the same plan. The pipeline
+  rejects that order on Step 2b parse and again after review. `cast_boolean` emits
+  real booleans and mapping keys are JSON strings. Map the source tokens directly
+  (optionally after strip_whitespace). Keys "True" and "False" match a boolean Series.
+  Use `cast_string` only when the mapped result must be a string dtype and no
+  `map_values` step follows it.
 - Apply type casting steps (cast_string, cast_nullable_int, etc.) after value transformations
   unless an earlier step requires a specific type as input
 - Apply domain-specific normalization (normalize_grade, etc.) as needed; canonical term season and academic year come from IdentityAgent `_edvise_term_*` columns (or other manifest-listed IA term columns), not SMA string parsers
