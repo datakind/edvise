@@ -141,8 +141,8 @@ jobs:
           SA_EXECUTER:          ${{ secrets.STAGING_SERVICE_ACCOUNT_EXECUTER }}
           DS_RUN_AS:            ${{ secrets.STAGING_DS_RUN_AS }}
           GROUP_TO_MANAGE:      ${{ secrets.GROUP_TO_MANAGE }}
-          NSC_SFTP_SECRET_SCOPE: ${{ secrets.NSC_SFTP_SECRET_SCOPE }}
-          SST_API_KEY_SECRET_KEY: ${{ secrets.STAGING_SST_API_KEY_SECRET_KEY }}
+          STAGING_NSC_SFTP_SECRET_SCOPE: ${{ secrets.STAGING_NSC_SFTP_SECRET_SCOPE }}
+          STAGING_SST_API_KEY_SECRET_KEY: ${{ secrets.STAGING_SST_API_KEY_SECRET_KEY }}
           STAGING_SST_IAP_AUDIENCE: ${{ secrets.STAGING_SST_IAP_AUDIENCE }}
         run: |
           databricks bundle deploy \
@@ -151,8 +151,8 @@ jobs:
             --var="service_account_executer=$SA_EXECUTER" \
             --var="ds_run_as=$DS_RUN_AS" \
             --var="datakind_group_to_manage_workflow=$GROUP_TO_MANAGE" \
-            --var="nsc_sftp_secret_scope=$NSC_SFTP_SECRET_SCOPE" \
-            --var="sst_api_key_secret_key=$SST_API_KEY_SECRET_KEY" \
+            --var="nsc_sftp_secret_scope=$STAGING_NSC_SFTP_SECRET_SCOPE" \
+            --var="sst_api_key_secret_key=$STAGING_SST_API_KEY_SECRET_KEY" \
             --var="sst_iap_audience=$STAGING_SST_IAP_AUDIENCE" \
             --var="git_tag=${{ github.ref_name }}"
 
@@ -285,8 +285,8 @@ jobs:
           SA_EXECUTER:          ${{ secrets.DEV_SERVICE_ACCOUNT_EXECUTER }}
           DS_RUN_AS:            ${{ secrets.DEV_DS_RUN_AS }}
           GROUP_TO_MANAGE:      ${{ secrets.GROUP_TO_MANAGE }}
-          NSC_SFTP_SECRET_SCOPE: ${{ secrets.NSC_SFTP_SECRET_SCOPE }}
-          SST_API_KEY_SECRET_KEY: ${{ secrets.DEV_SST_API_KEY_SECRET_KEY }}
+          DEV_NSC_SFTP_SECRET_SCOPE: ${{ secrets.DEV_NSC_SFTP_SECRET_SCOPE }}
+          DEV_SST_API_KEY_SECRET_KEY: ${{ secrets.DEV_SST_API_KEY_SECRET_KEY }}
           DEV_SST_IAP_AUDIENCE: ${{ secrets.DEV_SST_IAP_AUDIENCE }}
         run: |
           databricks bundle deploy \
@@ -295,7 +295,7 @@ jobs:
             --var="service_account_executer=$SA_EXECUTER" \
             --var="ds_run_as=$DS_RUN_AS" \
             --var="datakind_group_to_manage_workflow=$GROUP_TO_MANAGE" \
-            --var="nsc_sftp_secret_scope=$NSC_SFTP_SECRET_SCOPE" \
-            --var="sst_api_key_secret_key=$SST_API_KEY_SECRET_KEY" \
+            --var="nsc_sftp_secret_scope=$DEV_NSC_SFTP_SECRET_SCOPE" \
+            --var="sst_api_key_secret_key=$DEV_SST_API_KEY_SECRET_KEY" \
             --var="sst_iap_audience=$DEV_SST_IAP_AUDIENCE" \
             --var="git_commit=${{ github.sha }}"
