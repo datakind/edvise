@@ -270,3 +270,60 @@ def test_select_features_restores_an_empty_family_after_shuffling():
     assert "num_credits_earned" in returned.columns
     assert "noise" not in returned.columns
     assert "target" in returned.columns
+
+
+def test_apply_feature_family_quotas_drops_weakest_above_the_max():
+    source = pd.DataFrame(
+        {
+            "frac_courses_passed": [0.2, 0.8, 0.4, 0.9],
+            "num_courses_passed": [1, 4, 2, 5],
+            "cumfrac_num_courses_passed": [0.2, 0.5, 0.3, 0.6],
+            "frac_courses_completed": [0.1, 0.2, 0.1, 0.2],
+            "noise": [1, 0, 1, 0],
+        }
+    )
+    trimmed = fs.apply_feature_family_quotas(
+        source,
+        source,
+        candidate_cols=source.columns,
+        max_count=3,
+        aucs=pd.Series(
+            {
+                "frac_courses_passed": 0.90,
+                "num_courses_passed": 0.80,
+                "cumfrac_num_courses_passed": 0.70,
+                "frac_courses_completed": 0.10,
+            }
+        ),
+    )
+    assert trimmed.columns.tolist() == [
+        "frac_courses_passed",
+        "num_courses_passed",
+        "cumfrac_num_courses_passed",
+        "noise",
+    ]
+
+
+def test_apply_feature_family_quotas_keeps_force_includes_above_the_max(caplog):
+    source = pd.DataFrame(
+        {
+            "frac_courses_passed": [0.2, 0.8, 0.4, 0.9],
+            "num_courses_passed": [1, 4, 2, 5],
+            "noise": [1, 0, 1, 0],
+        }
+    )
+    with caplog.at_level("WARNING"):
+        kept = fs.apply_feature_family_quotas(
+            source,
+            source,
+            candidate_cols=source.columns,
+            force_include_cols=["frac_courses_passed", "num_courses_passed"],
+            max_count=1,
+            aucs=pd.Series({"frac_courses_passed": 0.90, "num_courses_passed": 0.20}),
+        )
+    assert kept.columns.tolist() == [
+        "frac_courses_passed",
+        "num_courses_passed",
+        "noise",
+    ]
+    assert any("force-included" in message for message in caplog.messages)
