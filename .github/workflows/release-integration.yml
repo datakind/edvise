@@ -42,7 +42,7 @@ jobs:
         with: { fetch-depth: 0 }
 
       - uses: actions/setup-python@v5
-        with: { python-version: "3.11.11" }
+        with: { python-version: "3.11" }
 
       - name: Install uv
         run: |
@@ -133,7 +133,7 @@ jobs:
         with: { fetch-depth: 0 }
 
       - uses: actions/setup-python@v5
-        with: { python-version: "3.11.11" }
+        with: { python-version: "3.11" }
 
       - name: Install uv and Databricks CLI
         run: |
@@ -228,7 +228,7 @@ jobs:
         with: { fetch-depth: 0 }
 
       - uses: actions/setup-python@v5
-        with: { python-version: "3.11.11" }
+        with: { python-version: "3.11" }
 
       - name: Install uv and Databricks CLI
         run: |
