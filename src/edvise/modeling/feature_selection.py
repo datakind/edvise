@@ -2,10 +2,17 @@ import logging
 import typing as t
 from collections.abc import Collection
 
-import numpy as np
 import pandas as pd
-import sklearn.impute
-from statsmodels.stats.outliers_influence import variance_inflation_factor
+
+from edvise.modeling.feature_families import FEATURE_FAMILIES
+from edvise.modeling.performance_selection import (
+    PERFORMANCE_CV,
+    PERFORMANCE_SCORING,
+    fit_model_selector,
+    require_feature_engine,
+    resolve_binary_target,
+    selection_estimator,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -25,30 +32,49 @@ def select_features(
     incomplete_threshold: float = MAX_INCOMPLETE_THRESHOLD,
     low_variance_threshold: float = 0.0,
     collinear_threshold: t.Optional[float] = 10.0,
+    target_col: str | None = None,
+    random_state: int | None = 0,
 ) -> pd.DataFrame:
     """
-    Select features by dropping incomplete features, near-constant features,
-    identical features, and variables with high correlations to others.
+    Select features by dropping incomplete, near-constant, and identical
+    columns, then dropping numeric columns that shuffling shows are unused.
+
+    Keep-scores (univariate AUC, mutual information, absolute Spearman) are
+    computed once on ``df`` and used only to refill an empty feature family.
+    Pass the training split so those scores, and the shuffling model, do not
+    see test labels.
 
     Args:
-        df: dataframe of features to select
-        non_features_cols: list of column names that are not features and should not
+        df: dataframe of features to select. Callers that have a train/test
+            split must pass the training rows.
+        non_feature_cols: list of column names that are not features and should not
             be run through the feature selection algorithm. For example, demographics, IDs, outcome variables, etc.
         force_include_cols: list of features to force include in the final dataset.
         incomplete_threshold: Threshold for determining incomplete features.
             Values above ``MAX_INCOMPLETE_THRESHOLD`` (0.2) are capped.
         low_variance_threshold: Deprecated and ignored. Kept so existing configs
             still load. A non-zero value logs a warning and does not change selection.
-        collinear_threshold: Threshold for determining collinear features;
-            if null, skip this selection step.
+        collinear_threshold: Retained so existing configs still load. Any
+            non-null value runs duplicate removal and select-by-shuffling.
+            Null skips both. The number is not a VIF cutoff.
+        target_col: Binary target used for keep-scores and shuffling.
+            When missing, those steps are skipped.
+        random_state: Seed for mutual information and the shuffling model.
 
     Returns:
-        df with non_features_cols, force_include_cols, and any other columns selected
+        df with non_feature_cols, force_include_cols, and any other columns selected
         by the algorithms
     """
     LOGGER.info("selecting features ...")
     non_feature_cols = [c for c in (non_feature_cols or []) if c in df.columns]
     force_include_cols = force_include_cols or []
+    seed = 0 if random_state is None else random_state
+    aucs, mis, corrs = _keep_metric_series(
+        df,
+        target_col=target_col,
+        exclude=set(non_feature_cols),
+        random_state=seed,
+    )
     if incomplete_threshold > MAX_INCOMPLETE_THRESHOLD:
         LOGGER.warning(
             "incomplete_threshold=%s exceeds max %s; capping for feature selection",
@@ -82,11 +108,27 @@ def select_features(
             df_selected,
             force_include_cols=force_include_cols,
         )
-        df_selected = drop_collinear_features_iteratively(
-            df_selected,
-            threshold=collinear_threshold,
-            force_include_cols=force_include_cols,
+        target = (
+            df[target_col]
+            if target_col is not None and target_col in df.columns
+            else None
         )
+        df_selected = drop_by_shuffling(
+            df_selected,
+            target_col=target_col,
+            target=target,
+            force_include_cols=force_include_cols,
+            random_state=seed,
+        )
+    feature_cols = [col for col in df.columns if col not in set(non_feature_cols)]
+    df_selected = apply_feature_family_quotas(
+        df_selected,
+        df,
+        candidate_cols=feature_cols,
+        aucs=aucs,
+        mis=mis,
+        corrs=corrs,
+    )
 
     selected_feature_cols = set(df_selected.columns)
     orig_feature_cols = set(df.columns) - set(non_feature_cols)
@@ -102,6 +144,77 @@ def select_features(
 
 def _columns_in_order(df: pd.DataFrame, names: Collection[str]) -> pd.DataFrame:
     return df.loc[:, [col for col in df.columns if col in names]]
+
+
+def _bound_scores(
+    aucs: pd.Series | None,
+    mis: pd.Series | None,
+    corrs: pd.Series | None,
+) -> tuple[pd.Series, pd.Series, pd.Series]:
+    empty = pd.Series(dtype="float64")
+    return (
+        empty if aucs is None else aucs,
+        empty if mis is None else mis,
+        empty if corrs is None else corrs,
+    )
+
+
+def _metric_value(series: pd.Series, column: str, default: float) -> float:
+    value = series.get(column, default)
+    if value is None or pd.isna(value):
+        return default
+    return float(value)
+
+
+def _keep_key(
+    column: str,
+    aucs: pd.Series,
+    mis: pd.Series,
+    corrs: pd.Series,
+) -> tuple[float, float, float]:
+    """Higher is better: AUC, then mutual information, then absolute Spearman."""
+    return (
+        _metric_value(aucs, column, 0.5),
+        _metric_value(mis, column, 0.0),
+        abs(_metric_value(corrs, column, 0.0)),
+    )
+
+
+def _keep_metric_series(
+    df: pd.DataFrame,
+    *,
+    target_col: str | None,
+    exclude: set[str],
+    random_state: int,
+) -> tuple[pd.Series, pd.Series, pd.Series]:
+    """AUC, MI, and Spearman on ``df`` only. The quota step reads these series."""
+    empty = pd.Series(dtype="float64")
+    if target_col is None or target_col not in df.columns:
+        LOGGER.info(
+            "skipping keep-score metrics; target column %s is not in the frame",
+            target_col,
+        )
+        return empty, empty, empty
+
+    from edvise.model_prep.target_associations import (
+        compute_mutual_infos,
+        compute_spearman_corrs,
+        compute_univariate_aucs,
+    )
+
+    aucs = compute_univariate_aucs(df, target_col=target_col, exclude=exclude)
+    mis = compute_mutual_infos(
+        df, target_col=target_col, exclude=exclude, random_state=random_state
+    )
+    corrs = compute_spearman_corrs(df, target_col=target_col, exclude=exclude)
+    LOGGER.info(
+        "stored keep-scores for %s features (AUC %s, MI %s, Spearman %s)",
+        len(set(aucs.index) | set(mis.index) | set(corrs.index)),
+        len(aucs),
+        len(mis),
+        len(corrs),
+    )
+    return aucs, mis, corrs
 
 
 def drop_incomplete_features(
@@ -217,113 +330,72 @@ def _drop_logged(
     return df.drop(columns=columns)
 
 
-def drop_collinear_features_iteratively(
+def drop_by_shuffling(
     df: pd.DataFrame,
     *,
-    threshold: float = 10.0,
+    target_col: str | None,
+    target: pd.Series | None = None,
     force_include_cols: t.Optional[Collection[str]] = None,
+    random_state: int = 0,
 ) -> pd.DataFrame:
+    """Drop numeric features whose shuffled values barely change ROC AUC.
+
+    Uses feature-engine ``SelectByShuffling``. One cross-validated forest is
+    trained, then each numeric or boolean column is permuted. ``threshold=None``
+    drops columns whose performance drop is below the mean drop. Categorical
+    columns are left in place. Force-included columns are scored with the rest
+    and put back if the selector drops them.
     """
-    Use Variance Inflation Factor (VIF) to drop collinear features iteratively.
-
-    The function takes the following steps:
-    1. Selects only numeric features for VIF analysis
-    2. Impute missing values - this is required by the variance_inflation_factor()
-    function. Because we typically rely on default AutoML strategies for imputation,
-    we expect to have null values in our data. TODO: we may want to revisit this
-    decision if we want more consistent imputation between the VIF analysis and the
-    modeling, perhaps deciding to do our own imputation prior to this VIF analysis.
-    3. Find the highest VIF. If it is over threshold, it is considered too high and the
-    feature is contributing to multicollinearity - we drop this feature.
-    4. Repeat step 3 with the remaining features until there are no VIF >= threshold.
-
-    Note: the function used, variance_inflation_factor(), does not take an
-    intercept into account. See: https://github.com/statsmodels/statsmodels/issues/2376
-    If we want to use a centered VIF rather than an uncentered VIF, we would need to add
-    a constant columns to the features dataframe and then re-calculate VIF.
-
-    Troubleshooting: if this hangs, try disabling mlflow logging:
-        import mlflow
-        mlflow.autolog(disable=True)
-
-    Args:
-        df
-        threshold: Variance Inflaction Factor (VIF) above which columns are considered
-            "multicollinear" and dropped from ``df`` . A VIF of 1 indicates no correlation
-            with any other feature; a VIF of 10 is considered "very high" and contributing
-            to multicollinearity.
-        force_include_cols
-
-    Returns:
-        features not considered collinear according to a VIF threshold
-    """
-    np.seterr(divide="ignore", invalid="ignore")
-    force_include_cols = force_include_cols or []
-
-    # Identify numeric and boolean columns
-    numeric_df = df.select_dtypes(include=["number"])
-    bool_df = df.select_dtypes(include=["boolean"]).astype("Int64")
-
-    if numeric_df.empty and bool_df.empty:
-        LOGGER.warning("no numeric columns found, so no collinear features to drop")
+    y = resolve_binary_target(
+        df, target_col=target_col, target=target, step="select by shuffling"
+    )
+    if y is None:
         return df
 
-    # Impute numeric features with mean because VIF function can't handle nulls
-    imputer: sklearn.impute.SimpleImputer = sklearn.impute.SimpleImputer(
-        missing_values=np.nan, strategy="mean"
-    ).set_output(transform="pandas")  # type: ignore
-    df_num_imputed = imputer.fit_transform(numeric_df)
-    assert isinstance(df_num_imputed, pd.DataFrame)
+    require_feature_engine()
+    from feature_engine.selection import SelectByShuffling
 
-    df_features = df_num_imputed.copy()
+    selector = SelectByShuffling(
+        estimator=selection_estimator(random_state),
+        scoring=PERFORMANCE_SCORING,
+        cv=PERFORMANCE_CV,
+        threshold=None,
+        random_state=random_state,
+    )
+    return fit_model_selector(
+        df,
+        y,
+        selector,
+        force_include_cols=force_include_cols,
+        empty="skipping select by shuffling",
+        found="dropping %s features that shuffling did not show were useful: %s",
+    )
 
-    n_features_dropped_so_far = 0
 
-    if not bool_df.empty:
-        bool_imputer: sklearn.impute.SimpleImputer = sklearn.impute.SimpleImputer(
-            missing_values=np.nan, strategy="most_frequent"
-        ).set_output(transform="pandas")  # type: ignore
-
-        df_bool_imputed = bool_imputer.fit_transform(bool_df)
-
-        assert isinstance(df_bool_imputed, pd.DataFrame)
-
-        df_features = pd.concat([df_features, df_bool_imputed], axis=1)
-
-    # calculate initial VIFs for features that aren't force-included
-    uncentered_vif_dict = {
-        col: variance_inflation_factor(df_features, col_idx)
-        for col_idx, col in enumerate(df_features.columns)
-        if col not in force_include_cols
-    }
-    if np.isinf(list(uncentered_vif_dict.values())).all():
-        LOGGER.warning(
-            "all features are perfectly correlated with one another; "
-            "no collinear features will be dropped ..."
-        )
-        return df
-
-    while (max_vif := max(uncentered_vif_dict.values())) >= threshold:
-        highest_vif_cols = [
-            col for col, vif in uncentered_vif_dict.items() if vif >= max_vif
+def apply_feature_family_quotas(
+    df_selected: pd.DataFrame,
+    df_source: pd.DataFrame,
+    *,
+    candidate_cols: Collection[str],
+    aucs: pd.Series | None = None,
+    mis: pd.Series | None = None,
+    corrs: pd.Series | None = None,
+) -> pd.DataFrame:
+    """Restore the best dropped member of any quota family that has no survivor."""
+    aucs, mis, corrs = _bound_scores(aucs, mis, corrs)
+    selected = set(df_selected.columns)
+    candidates = set(candidate_cols)
+    source_columns = set(df_source.columns)
+    restore: list[str] = []
+    for family, members in FEATURE_FAMILIES.items():
+        present = [
+            col for col in members if col in candidates and col in source_columns
         ]
-        n_features_dropped_so_far += len(highest_vif_cols)
-        LOGGER.info(
-            "dropping %s columns with VIF >= %s: %s ...",
-            len(highest_vif_cols),
-            threshold,
-            highest_vif_cols,
-        )
-        df = df.drop(columns=highest_vif_cols)
-        df_features = df_features.drop(columns=highest_vif_cols)
-
-        # recalculate VIFs after dropping columns
-        uncentered_vif_dict = {
-            col: variance_inflation_factor(df_features, col_idx)
-            for col_idx, col in enumerate(df_features.columns)
-            if col not in force_include_cols
-        }
-
-    LOGGER.info("dropping %s collinear features", n_features_dropped_so_far)
-
-    return df
+        if not present or any(col in selected for col in present):
+            continue
+        best = max(present, key=lambda col: _keep_key(col, aucs, mis, corrs))
+        restore.append(best)
+        LOGGER.info("restoring '%s' so quota family '%s' is not empty", best, family)
+    if not restore:
+        return df_selected
+    return _columns_in_order(df_source, set(df_selected.columns) | set(restore))

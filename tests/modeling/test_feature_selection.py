@@ -124,17 +124,6 @@ def test_select_features_does_not_apply_variance_threshold(df, caplog):
     )
 
 
-def test_drop_collinear_features_iteratively():
-    related_features = pd.DataFrame(
-        {"A": [1, 2, 3, 4, 5], "B": [6, 7, 8, 9, 10], "C": [6.5, 1.5, 4, 3.5, 2]}
-    )
-    returned_df = fs.drop_collinear_features_iteratively(
-        related_features, force_include_cols=[]
-    )
-    assert returned_df.columns.tolist() == ["A", "C"]
-    assert returned_df.shape[0] == related_features.shape[0]
-
-
 def test_drop_duplicate_features_bool_matches_numeric_twin():
     related_features = pd.DataFrame(
         {
@@ -209,11 +198,10 @@ def test_drop_duplicate_features_warns_when_force_includes_match(caplog):
     )
 
 
-def test_select_features_drops_identical_columns_before_vif():
+def test_select_features_drops_identical_columns_before_model_selection():
     """Identical numerics are removed even when the frame has no boolean column.
 
-    A copy that reached VIF would be dropped together with its twin, because both
-    have infinite VIF. Keeping the earlier column shows the duplicate step ran first.
+    Keeping the earlier column shows the duplicate step ran before the model.
     """
     features = pd.DataFrame(
         {
@@ -232,18 +220,53 @@ def test_select_features_drops_identical_columns_before_vif():
     assert returned_df.columns.tolist() == ["a", "b_copy", "c"]
 
 
-def test_drop_collinear_features_iteratively_force_include():
-    related_features = pd.DataFrame(
-        {"A": [1, 2, 3, 4, 5], "B": [6, 7, 8, 9, 10], "C": [6.5, 1.5, 4, 3.5, 2]}
+def _predictive_frame() -> pd.DataFrame:
+    signal = np.linspace(-3, 3, 120)
+    rng = np.random.default_rng(0)
+    return pd.DataFrame(
+        {
+            "target": (signal > 0).astype(int),
+            "frac_courses_passed": signal,
+            "num_credits_earned": rng.normal(size=signal.shape[0]),
+            "noise": rng.normal(size=signal.shape[0]),
+        }
     )
-    returned_df = fs.drop_collinear_features_iteratively(
-        related_features, force_include_cols=["B"]
-    )
-    assert returned_df.columns.tolist() == ["B", "C"]
-    assert returned_df.shape[0] == related_features.shape[0]
 
 
-def test_drop_collinear_features_iteratively_fails_with_one_feature_left():
-    related_features = pd.DataFrame({"A": [1, 2, 3, 4, 5], "B": [6, 7, 8, 9, 10]})
-    with pytest.raises(Exception):
-        fs.drop_collinear_features_iteratively(related_features)
+def test_shuffling_keeps_the_predictive_feature_and_force_include():
+    features = _predictive_frame()
+    returned = fs.drop_by_shuffling(
+        features.drop(columns=["target"]),
+        target_col="target",
+        target=features["target"],
+        force_include_cols=["num_credits_earned"],
+        random_state=0,
+    )
+    assert "frac_courses_passed" in returned.columns
+    assert "num_credits_earned" in returned.columns
+    assert "noise" not in returned.columns
+    assert returned.shape[0] == len(features)
+
+
+def test_select_features_restores_an_empty_family_after_shuffling():
+    features = _predictive_frame()
+    predictors = features.drop(columns=["target"])
+    shuffled = fs.drop_by_shuffling(
+        predictors,
+        target_col="target",
+        target=features["target"],
+        random_state=0,
+    )
+    assert "frac_courses_passed" in shuffled.columns
+    assert "num_credits_earned" not in shuffled.columns
+    assert "noise" not in shuffled.columns
+    returned = fs.select_features(
+        features,
+        non_feature_cols=["target"],
+        target_col="target",
+        random_state=0,
+    )
+    assert "frac_courses_passed" in returned.columns
+    assert "num_credits_earned" in returned.columns
+    assert "noise" not in returned.columns
+    assert "target" in returned.columns
