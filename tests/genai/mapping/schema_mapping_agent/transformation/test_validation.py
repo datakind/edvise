@@ -5,6 +5,9 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
+from edvise.genai.mapping.schema_mapping_agent.transformation.schemas import (
+    FieldTransformationPlan,
+)
 from edvise.genai.mapping.schema_mapping_agent.transformation.validation import (
     TransformationPlanValidationErrorCode,
     is_manifest_record_unmapped,
@@ -116,6 +119,91 @@ def test_validate_rejects_review_required_on_unmapped() -> None:
         errs[0].error_code
         == TransformationPlanValidationErrorCode.REVIEW_REQUIRED_ON_UNMAPPED
     )
+
+
+def test_validate_rejects_cast_boolean_before_map_values() -> None:
+    td = {
+        "transformation_maps": {
+            "cohort": {
+                "plans": [
+                    {
+                        "target_field": "first_generation_status",
+                        "steps": [
+                            {
+                                "function_name": "cast_boolean",
+                                "column": "first_generation",
+                            },
+                            {
+                                "function_name": "map_values",
+                                "column": "first_generation",
+                                "mapping": {"True": "Yes", "False": "No"},
+                                "default": None,
+                            },
+                        ],
+                    },
+                    {
+                        "target_field": "gender",
+                        "steps": [
+                            {"function_name": "strip_whitespace", "column": "gender"},
+                            {
+                                "function_name": "map_values",
+                                "column": "gender",
+                                "mapping": {"Unknown": None},
+                                "default": "passthrough",
+                            },
+                        ],
+                    },
+                ]
+            },
+            "course": {
+                "plans": [
+                    {
+                        "target_field": "gen_ed_flag",
+                        "steps": [
+                            {
+                                "function_name": "map_values",
+                                "column": "core_course",
+                                "mapping": {"True": "Yes", "False": "No"},
+                                "default": None,
+                            },
+                            {"function_name": "cast_boolean", "column": "core_course"},
+                        ],
+                    }
+                ]
+            },
+        }
+    }
+    errs = validate_transformation_plans_against_manifest(td, {"manifests": {}})
+    assert len(errs) == 1
+    assert errs[0].entity_type == "cohort"
+    assert errs[0].target_field == "first_generation_status"
+    assert (
+        errs[0].error_code
+        == TransformationPlanValidationErrorCode.CAST_BOOLEAN_BEFORE_MAP_VALUES
+    )
+
+
+def test_approved_plan_model_still_loads_cast_boolean_before_map_values() -> None:
+    """Execute loads stored maps via the plan model. That path must keep working."""
+    plan = FieldTransformationPlan.model_validate(
+        {
+            "target_field": "first_generation_status",
+            "confidence": 0.9,
+            "steps": [
+                {"function_name": "cast_boolean", "column": "first_generation"},
+                {
+                    "function_name": "map_values",
+                    "column": "first_generation",
+                    "mapping": {"True": "Yes", "False": "No"},
+                    "default": None,
+                },
+            ],
+        }
+    )
+    assert [step.function_name for step in plan.steps] == [
+        "cast_boolean",
+        "map_values",
+    ]
 
 
 def test_raise_pydantic_validation_error_if_any() -> None:

@@ -184,6 +184,28 @@ def replace_values_with_null(
 # =============================================================================
 
 
+def _expand_boolean_string_keys(mapping: dict) -> dict:
+    """
+    Alias JSON string keys ``"True"`` / ``"False"`` to real booleans.
+
+    ``map_values`` mappings are JSON objects, so every key is a string. A boolean
+    Series — cleaned source columns, or the output of ``cast_boolean`` — holds
+    ``True`` / ``False``, and ``True != "True"``. Without this alias a plan that
+    maps ``{"True": "Yes", "False": "No"}`` with ``default=null`` nulls the
+    entire column.
+    """
+    expanded = dict(mapping)
+    for key, value in mapping.items():
+        if not isinstance(key, str):
+            continue
+        token = key.strip().lower()
+        if token == "true":
+            expanded.setdefault(True, value)
+        elif token == "false":
+            expanded.setdefault(False, value)
+    return expanded
+
+
 def map_values(
     s: pd.Series,
     mapping: dict,
@@ -205,7 +227,13 @@ def map_values(
         that null is preserved even with default="passthrough". Only unmapped
         values are filled back. Null mappings are handled via replace_values_with_null
         internally for consistency.
+
+        String keys ``"True"`` and ``"False"`` (any case) also match boolean
+        ``True`` / ``False``. Plans that run ``cast_boolean`` and then
+        ``map_values`` with those string keys therefore keep their values.
     """
+    mapping = _expand_boolean_string_keys(mapping)
+
     # Split mapping into null and non-null mappings
     # Check for None, pd.NA, or NaN values
     null_mappings = [
