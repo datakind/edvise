@@ -1,5 +1,6 @@
 import logging
 import math
+import time
 import typing as t
 from collections.abc import Collection, Mapping
 
@@ -8,7 +9,7 @@ import pandas as pd
 import sklearn.impute
 from statsmodels.stats.outliers_influence import variance_inflation_factor
 
-from edvise.modeling.feature_families import FEATURE_FAMILIES
+from edvise.modeling.feature_families import FEATURE_FAMILIES, QUOTA_MAX, QUOTA_MIN
 
 LOGGER = logging.getLogger(__name__)
 
@@ -22,6 +23,9 @@ FEATURE_ENGINE_VERSION = "1.9.4"
 # |Spearman| / Cramer's V above this are one redundancy group. Matches
 # feature-engine 1.9.4 SmartCorrelatedSelection's default, which uses a strict ">".
 SMART_CORRELATION_THRESHOLD = 0.8
+# Stop the VIF loop before a slow collinear frame can run for hours.
+VIF_MAX_DROPS = 50
+VIF_TIMEOUT_SECONDS = 600.0
 # Compared together so 0/1 matches True/False. Kept separate from labels so "1" is not a copy of 1.
 _NUMBER_OR_BOOL = ("number", "boolean")
 _BOOL = ("boolean", "bool")
@@ -141,6 +145,7 @@ def select_features(
         df_selected,
         df,
         candidate_cols=feature_cols,
+        force_include_cols=force_include_cols,
         aucs=aucs,
         mis=mis,
         corrs=corrs,
@@ -379,8 +384,8 @@ def drop_smart_correlated_features(
     ``SmartCorrelatedSelection(method="spearman", selection_method="model_performance",
     scoring="roc_auc")``. That release requires an estimator, so the fit uses a
     random forest. Force-included columns are scored with the rest, then put back
-    if the package dropped them. AUC ties break on mutual information, then
-    absolute Spearman. Categoricals skip the package and keep the higher-MI
+    if the package dropped them. An AUC tie is logged and the package's choice
+    is left in place. Categoricals skip the package and keep the higher-MI
     column of a Cramer's V group. ``target`` is aligned to ``df`` because the
     label is not a feature column.
     """
@@ -440,9 +445,9 @@ def repair_smart_correlated_groups(
     ``correlated_feature_dict`` is feature-engine's ``correlated_feature_dict_``:
     the key is the column the package kept, and the values are the columns it
     would drop. A force-included member is kept instead. When two or more members
-    share the best univariate AUC and the package's choice is one of them, the
-    keep-score (AUC, mutual information, absolute Spearman) picks the survivor.
-    A unique AUC winner chosen by the package is left alone.
+    share the best univariate AUC, the package's choice stays and a warning
+    records the tie. Mutual information and absolute Spearman are not used to
+    break that tie.
     """
     aucs, mis, corrs = _bound_scores(aucs, mis, corrs)
     forced = set(force_include_cols or [])
@@ -477,18 +482,16 @@ def repair_smart_correlated_groups(
                 auc_values[col], best_auc, rel_tol=0.0, abs_tol=_AUC_TIE_TOLERANCE
             )
         ]
-        if len(tied) >= 2 and kept in tied:
-            winner = max(tied, key=lambda col: _keep_key(col, aucs, mis, corrs))
-            if winner != kept:
-                LOGGER.info(
-                    "SCS repair keeps '%s' over '%s' after an AUC tie in %s",
-                    winner,
-                    kept,
-                    group,
-                )
-            drop.extend(col for col in group if col != winner)
-        else:
-            drop.extend(col for col in group if col != kept)
+        if len(tied) >= 2:
+            LOGGER.warning(
+                "SCS AUC tie among %s; leaving the package choice '%s'. "
+                "Tie-break on mutual information and |Spearman| is not applied. "
+                "Scores (AUC, MI, |Spearman|): %s",
+                tied,
+                kept,
+                {col: _keep_key(col, aucs, mis, corrs) for col in tied},
+            )
+        drop.extend(col for col in group if col != kept)
     return list(dict.fromkeys(drop))
 
 
@@ -670,28 +673,76 @@ def apply_feature_family_quotas(
     df_source: pd.DataFrame,
     *,
     candidate_cols: Collection[str],
+    force_include_cols: t.Optional[Collection[str]] = None,
     aucs: pd.Series | None = None,
     mis: pd.Series | None = None,
     corrs: pd.Series | None = None,
+    min_count: int = QUOTA_MIN,
+    max_count: int = QUOTA_MAX,
 ) -> pd.DataFrame:
-    """Restore the best dropped member of any quota family that has no survivor."""
+    """Keep each present quota family between ``min_count`` and ``max_count``.
+
+    Below the minimum, restore the strongest dropped member. Above the maximum,
+    drop the weakest member that is not force-included. Force-included columns
+    can leave a family above the maximum.
+    """
+    if min_count > max_count:
+        raise ValueError(f"quota min_count={min_count} is above max_count={max_count}")
     aucs, mis, corrs = _bound_scores(aucs, mis, corrs)
     selected = set(df_selected.columns)
     candidates = set(candidate_cols)
     source_columns = set(df_source.columns)
+    forced = set(force_include_cols or [])
     restore: list[str] = []
+    trim: list[str] = []
+
+    def rank(column: str) -> tuple[float, float, float]:
+        return _keep_key(column, aucs, mis, corrs)
+
     for family, members in FEATURE_FAMILIES.items():
         present = [
             col for col in members if col in candidates and col in source_columns
         ]
-        if not present or any(col in selected for col in present):
+        if not present:
             continue
-        best = max(present, key=lambda col: _keep_key(col, aucs, mis, corrs))
-        restore.append(best)
-        LOGGER.info("restoring '%s' so quota family '%s' is not empty", best, family)
-    if not restore:
+        survivors = [col for col in present if col in selected or col in restore]
+        dropped = [col for col in present if col not in survivors]
+        while len(survivors) < min_count and dropped:
+            best = max(dropped, key=rank)
+            dropped.remove(best)
+            survivors.append(best)
+            restore.append(best)
+            LOGGER.info(
+                "restoring '%s' so quota family '%s' has at least %s",
+                best,
+                family,
+                min_count,
+            )
+        removable = [col for col in survivors if col not in forced]
+        protected = len(survivors) - len(removable)
+        target = max(max_count, protected)
+        if protected > max_count:
+            LOGGER.warning(
+                "quota family '%s' has %s force-included columns, above the max of %s",
+                family,
+                protected,
+                max_count,
+            )
+        while len(survivors) > target and removable:
+            worst = min(removable, key=rank)
+            removable.remove(worst)
+            survivors.remove(worst)
+            trim.append(worst)
+            LOGGER.info(
+                "dropping '%s' so quota family '%s' stays at most %s",
+                worst,
+                family,
+                max_count,
+            )
+    keep = (selected | set(restore)) - set(trim)
+    if keep == selected:
         return df_selected
-    return _columns_in_order(df_source, set(df_selected.columns) | set(restore))
+    return _columns_in_order(df_source, keep)
 
 
 def drop_collinear_features_iteratively(
@@ -702,6 +753,8 @@ def drop_collinear_features_iteratively(
     aucs: pd.Series | None = None,
     mis: pd.Series | None = None,
     corrs: pd.Series | None = None,
+    max_drops: int = VIF_MAX_DROPS,
+    timeout_seconds: float = VIF_TIMEOUT_SECONDS,
 ) -> pd.DataFrame:
     """
     Use Variance Inflation Factor (VIF) to drop collinear features iteratively.
@@ -718,8 +771,10 @@ def drop_collinear_features_iteratively(
     worst keep-score (lowest AUC, then mutual information, then absolute Spearman).
     When those scores tie, drop the higher VIF. Force-included columns are never
     dropped. One column is removed, then VIF is recomputed.
-    4. Repeat step 3 until no non-forced column has VIF >= threshold, or only a
-    force-included column is left.
+    4. Repeat step 3 until no non-forced column has VIF >= threshold, only a
+    force-included column is left, ``max_drops`` columns have been removed, or
+    ``timeout_seconds`` has elapsed. A cap keeps the columns already dropped and
+    logs the columns that are still at or above the threshold.
 
     Note: the function used, variance_inflation_factor(), does not take an
     intercept into account. See: https://github.com/statsmodels/statsmodels/issues/2376
@@ -740,6 +795,8 @@ def drop_collinear_features_iteratively(
         aucs: Univariate AUC from the training frame. Missing scores count as 0.5.
         mis: Mutual information from the training frame. Missing scores count as 0.
         corrs: Spearman correlation with the target. The absolute value is used.
+        max_drops: Most columns this call will drop. The default is 50.
+        timeout_seconds: Wall-clock cap for the loop. The default is 10 minutes.
 
     Returns:
         features not considered collinear according to a VIF threshold
@@ -754,6 +811,7 @@ def drop_collinear_features_iteratively(
 
     n_features_dropped_so_far = 0
     forced = set(force_include_cols or [])
+    started = time.monotonic()
     while True:
         if df_features.shape[1] < 2:
             LOGGER.info(
@@ -770,11 +828,29 @@ def drop_collinear_features_iteratively(
             LOGGER.info("only force-included columns remain; stopping VIF")
             break
         eligible = {
-            col: vif
+            col: float(vif)
             for col, vif in uncentered_vif_dict.items()
             if pd.notna(vif) and float(vif) >= threshold
         }
         if not eligible:
+            break
+        elapsed = time.monotonic() - started
+        hit_drop_cap = n_features_dropped_so_far >= max_drops
+        hit_timeout = elapsed >= timeout_seconds
+        if hit_drop_cap or hit_timeout:
+            reason = (
+                f"max drops {max_drops}"
+                if hit_drop_cap
+                else f"timeout {timeout_seconds:.0f}s"
+            )
+            LOGGER.warning(
+                "stopping VIF after %s drops (%s); remaining columns with "
+                "VIF >= %s: %s",
+                n_features_dropped_so_far,
+                reason,
+                threshold,
+                dict(sorted(eligible.items(), key=lambda item: -item[1])),
+            )
             break
         victim = min(
             eligible,

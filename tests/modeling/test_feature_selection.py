@@ -282,15 +282,17 @@ def test_repair_smart_correlated_groups_restores_force_include():
     assert drop == ["frac_courses_passed"]
 
 
-def test_repair_smart_correlated_groups_breaks_auc_ties_only():
+def test_repair_smart_correlated_groups_warns_on_auc_ties(caplog):
     groups = {"kept_by_scs": ["better_mi", "weaker"]}
-    tied = fs.repair_smart_correlated_groups(
-        groups,
-        aucs=pd.Series({"kept_by_scs": 0.70, "better_mi": 0.70, "weaker": 0.70}),
-        mis=pd.Series({"kept_by_scs": 0.10, "better_mi": 0.40, "weaker": 0.05}),
-        corrs=pd.Series({"kept_by_scs": 0.20, "better_mi": 0.10, "weaker": 0.90}),
-    )
-    assert tied == ["kept_by_scs", "weaker"]
+    with caplog.at_level("WARNING"):
+        tied = fs.repair_smart_correlated_groups(
+            groups,
+            aucs=pd.Series({"kept_by_scs": 0.70, "better_mi": 0.70, "weaker": 0.70}),
+            mis=pd.Series({"kept_by_scs": 0.10, "better_mi": 0.40, "weaker": 0.05}),
+            corrs=pd.Series({"kept_by_scs": 0.20, "better_mi": 0.10, "weaker": 0.90}),
+        )
+    assert tied == ["better_mi", "weaker"]
+    assert any("AUC tie" in message for message in caplog.messages)
 
     distinct = fs.repair_smart_correlated_groups(
         groups,
@@ -341,6 +343,39 @@ def test_apply_feature_family_quotas_leaves_absent_families_empty():
     assert restored.columns.tolist() == ["noise"]
 
 
+def test_drop_collinear_features_iteratively_stops_at_max_drops(caplog):
+    related_features = pd.DataFrame(
+        {
+            "A": [1, 2, 3, 4, 5],
+            "B": [2, 4, 6, 8, 10],
+            "C": [3, 6, 9, 12, 15],
+        }
+    )
+    with caplog.at_level("WARNING"):
+        returned_df = fs.drop_collinear_features_iteratively(
+            related_features, max_drops=1
+        )
+    assert len(returned_df.columns) == 2
+    assert any("max drops 1" in message for message in caplog.messages)
+    assert any("remaining columns" in message for message in caplog.messages)
+
+
+def test_drop_collinear_features_iteratively_stops_at_timeout(caplog):
+    related_features = pd.DataFrame(
+        {
+            "A": [1, 2, 3, 4, 5],
+            "B": [2, 4, 6, 8, 10],
+            "C": [3, 6, 9, 12, 15],
+        }
+    )
+    with caplog.at_level("WARNING"):
+        returned_df = fs.drop_collinear_features_iteratively(
+            related_features, timeout_seconds=0
+        )
+    assert returned_df.columns.tolist() == ["A", "B", "C"]
+    assert any("timeout" in message for message in caplog.messages)
+
+
 def test_apply_feature_family_quotas_restores_best_dropped_member():
     source = pd.DataFrame(
         {
@@ -358,6 +393,63 @@ def test_apply_feature_family_quotas_restores_best_dropped_member():
         mis=pd.Series({"frac_courses_passed": 0.20, "num_courses_passed": 0.40}),
     )
     assert restored.columns.tolist() == ["frac_courses_passed", "noise"]
+
+
+def test_apply_feature_family_quotas_drops_weakest_above_the_max():
+    source = pd.DataFrame(
+        {
+            "frac_courses_passed": [0.2, 0.8, 0.4, 0.9],
+            "num_courses_passed": [1, 4, 2, 5],
+            "cumfrac_num_courses_passed": [0.2, 0.5, 0.3, 0.6],
+            "frac_courses_completed": [0.1, 0.2, 0.1, 0.2],
+            "noise": [1, 0, 1, 0],
+        }
+    )
+    trimmed = fs.apply_feature_family_quotas(
+        source,
+        source,
+        candidate_cols=source.columns,
+        max_count=3,
+        aucs=pd.Series(
+            {
+                "frac_courses_passed": 0.90,
+                "num_courses_passed": 0.80,
+                "cumfrac_num_courses_passed": 0.70,
+                "frac_courses_completed": 0.10,
+            }
+        ),
+    )
+    assert trimmed.columns.tolist() == [
+        "frac_courses_passed",
+        "num_courses_passed",
+        "cumfrac_num_courses_passed",
+        "noise",
+    ]
+
+
+def test_apply_feature_family_quotas_keeps_force_includes_above_the_max(caplog):
+    source = pd.DataFrame(
+        {
+            "frac_courses_passed": [0.2, 0.8, 0.4, 0.9],
+            "num_courses_passed": [1, 4, 2, 5],
+            "noise": [1, 0, 1, 0],
+        }
+    )
+    with caplog.at_level("WARNING"):
+        kept = fs.apply_feature_family_quotas(
+            source,
+            source,
+            candidate_cols=source.columns,
+            force_include_cols=["frac_courses_passed", "num_courses_passed"],
+            max_count=1,
+            aucs=pd.Series({"frac_courses_passed": 0.90, "num_courses_passed": 0.20}),
+        )
+    assert kept.columns.tolist() == [
+        "frac_courses_passed",
+        "num_courses_passed",
+        "noise",
+    ]
+    assert any("force-included" in message for message in caplog.messages)
 
 
 def test_select_features_repairs_force_include_after_smart_correlation():
