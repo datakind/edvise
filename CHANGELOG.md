@@ -1,3 +1,9 @@
+## 1.22.1 (2026-11-02)
+- fix(genai): match boolean values to string map_values keys (#410)
+- fix: skip empty group metrics during bias evaluation in model cards (#413)
+- fix: use per-env GitHub secrets for NSC SFTP scopes (#414)
+- fix(ci): loosen Python pin for Ubuntu 26.04 runners (#417)
+
 ## 1.22.0 (2026-10-30)
 - feat(genai): update production Claude endpoints and necessary prompt changes  (#398)
 - feat(pdp): register NSC deliveries as webapp batches (#402)
