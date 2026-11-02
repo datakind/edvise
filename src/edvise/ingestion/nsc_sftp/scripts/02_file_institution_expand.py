@@ -49,6 +49,10 @@ spark = runtime.get_spark()
 logger = runtime.get_logger(__name__)
 INST_COL_PATTERN = re.compile(INSTITUTION_COLUMN_PATTERN, re.IGNORECASE)
 
+if runtime.job_param_bool("registration_only", False):
+    logger.info("registration_only=true; skipping institution expand")
+    runtime.notebook_exit(dbutils, "REGISTRATION_ONLY")
+
 api_client = runtime.require_edvise_api_client(dbutils)
 ensure_plan_table(spark, PLAN_TABLE_PATH)
 backfilled = backfill_plan_institution_identity(spark, api_client, PLAN_TABLE_PATH)

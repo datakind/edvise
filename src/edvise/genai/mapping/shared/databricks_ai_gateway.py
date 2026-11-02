@@ -31,8 +31,8 @@ MLFLOW_AI_GATEWAY_ON_WORKSPACE_PATH: Final[str] = "/ai-gateway/mlflow/v1"
 
 GENAI_MAPPING_UC_SCHEMA: Final[str] = "genai_mapping"
 
-DEFAULT_GATEWAY_CLAUDE_SONNET_MODEL_ID: str = "claude-sonnet-edvise-genai"
-DEFAULT_GATEWAY_CLAUDE_HAIKU_MODEL_ID: str = "claude-haiku-edvise-genai"
+DEFAULT_GATEWAY_CLAUDE_SONNET_MODEL_ID: str = "claude-sonnet-5-5-edvise-genai"
+DEFAULT_GATEWAY_CLAUDE_HAIKU_MODEL_ID: str = "claude-haiku-5-5-edvise-genai"
 
 
 def build_uc_gateway_model_id(catalog: str, model_name: str) -> str:

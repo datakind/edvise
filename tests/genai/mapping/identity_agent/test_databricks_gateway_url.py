@@ -64,3 +64,22 @@ def test_build_mlflow_ai_gateway_base_url() -> None:
         )
         == "https://4437281602191762.ai-gateway.gcp.databricks.com/mlflow/v1"
     )
+
+
+def test_default_gateway_model_ids(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("GATEWAY_MODEL_ID", raising=False)
+    monkeypatch.delenv("COLUMN_ROLES_GATEWAY_MODEL_ID", raising=False)
+    monkeypatch.delenv("GRAIN_RESOLUTION_GATEWAY_MODEL_ID", raising=False)
+
+    assert (
+        dg.resolve_gateway_model_id("dev_sst_02")
+        == "dev_sst_02.genai_mapping.claude-sonnet-5-5-edvise-genai"
+    )
+    assert (
+        dg.resolve_column_roles_gateway_model_id("dev_sst_02")
+        == "dev_sst_02.genai_mapping.claude-haiku-5-5-edvise-genai"
+    )
+    assert (
+        dg.resolve_grain_resolution_gateway_model_id("dev_sst_02")
+        == "dev_sst_02.genai_mapping.claude-haiku-5-5-edvise-genai"
+    )

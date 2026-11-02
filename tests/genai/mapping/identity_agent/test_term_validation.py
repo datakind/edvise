@@ -340,6 +340,45 @@ def test_build_parse_rejects_st_thomas_bad_course_with_profile():
         parse_fn(json.dumps(payload))
 
 
+def test_build_parse_hook_group_standard_extraction_is_validation_error():
+    """GENERATE_HOOK on a standard term_config must be retryable by the LLM parse loop."""
+    course = TermContract(
+        institution_id=INST,
+        table="course",
+        term_config=TermOrderConfig(
+            term_col="TERM_DESCR",
+            season_map=[],
+            term_extraction="standard",
+            year_semantics="calendar_literal",
+        ),
+        confidence=0.8,
+        hitl_flag=True,
+        reasoning="combined term column",
+    )
+    item = _shared_hitl_item()
+    item.item_id = "course_med_year_tokens"
+    item.table = "course"
+    item.hook_group_id = "course_med_year_tokens"
+    item.hook_group_tables = ["course"]
+    item.target = HITLTarget(
+        institution_id=INST,
+        table="course",
+        config="term_config",
+        field="season_map",
+    )
+    payload = {
+        "institution_id": INST,
+        "datasets": {"course": course.model_dump(mode="json")},
+        "hitl_items": [item.model_dump(mode="json")],
+    }
+    parse_fn = build_parse_institution_term_contracts_with_semantic_checks(None)
+    with pytest.raises(ValidationError) as exc_info:
+        parse_fn(json.dumps(payload))
+    message = str(exc_info.value)
+    assert "course" in message
+    assert "term_extraction='standard'" in message
+
+
 def _combined_standard_term_with_profile(
     values: list[str],
 ) -> tuple[InstitutionTermContract, dict[str, dict[str, object]]]:

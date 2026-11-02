@@ -1,5 +1,3 @@
-import pytest
-
 from edvise.ingestion.nsc_sftp.file_selection import (
     classify_pdp_file_role,
     discover_file_pairs,
@@ -137,11 +135,12 @@ def test_select_file_pairs_skip_ingested_prefers_newer_date():
     assert [p.stamp for p in chosen] == ["20240115123045"]
 
 
-def test_select_file_pairs_skip_ingested_all_done_raises():
+def test_select_file_pairs_skip_ingested_all_done_returns_empty():
     rows = [_row(COHORT_A), _row(COURSE_A)]
-    with pytest.raises(FileNotFoundError, match="already BRONZE_WRITTEN"):
-        select_file_pairs(
-            rows,
-            mode="skip_ingested",
-            ingested_file_names={COHORT_A, COURSE_A},
-        )
+    chosen, mode = select_file_pairs(
+        rows,
+        mode="skip_ingested",
+        ingested_file_names={COHORT_A, COURSE_A},
+    )
+    assert mode == "skip_ingested"
+    assert chosen == []

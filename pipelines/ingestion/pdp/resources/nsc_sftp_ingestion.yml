@@ -1,4 +1,4 @@
-# NSC/PDP SFTP automated ingestion: Git-sourced spark_python_task chain (01→02→03).
+# NSC/PDP SFTP automated ingestion: Git-sourced spark_python_task chain (01→02→03→04).
 # Prerequisites: Job parameter DB_workspace (Unity Catalog), matching UC tables/volumes,
 # Databricks secret scope/key (passed via DAB vars from GitHub Secrets at deploy),
 # and cluster egress for SFTP/APIs.
@@ -10,6 +10,11 @@
 #     calendar date (YYYYMMDD), not only the newest timestamp.
 # Testing: force_reingest=true resets manifest/selected/plan for the selected pair and
 # overwrites existing bronze CSVs (use with latest or manual).
+#
+# Daily schedule is set per target in databricks.yml (America/New_York):
+# prod/staging 11:00, dev 12:00. Job defaults stay
+# file_selection_mode=skip_ingested and force_reingest=false.
+# skip_ingested exits successfully when every pair is already BRONZE_WRITTEN.
 
 resources:
   jobs:
@@ -37,6 +42,8 @@ resources:
           default: ""
         - name: course_file_name
           default: ""
+        - name: registration_only
+          default: "false"
 
       tasks:
         - task_key: sftp_receive_scan
@@ -56,6 +63,8 @@ resources:
               - "{{job.parameters.cohort_file_name}}"
               - --course_file_name
               - "{{job.parameters.course_file_name}}"
+              - --registration_only
+              - "{{job.parameters.registration_only}}"
           job_cluster_key: nsc-sftp-ingestion-cluster
           libraries:
             - pypi:
@@ -86,6 +95,8 @@ resources:
               - "{{job.parameters.nsc_sftp_secret_scope}}"
               - --sst_api_key_secret_key
               - "{{job.parameters.sst_api_key_secret_key}}"
+              - --registration_only
+              - "{{job.parameters.registration_only}}"
           job_cluster_key: nsc-sftp-ingestion-cluster
           libraries:
             - pypi:
@@ -116,6 +127,8 @@ resources:
               - "{{job.parameters.sst_api_key_secret_key}}"
               - --force_reingest
               - "{{job.parameters.force_reingest}}"
+              - --registration_only
+              - "{{job.parameters.registration_only}}"
           job_cluster_key: nsc-sftp-ingestion-cluster
           libraries:
             - pypi:
@@ -126,6 +139,38 @@ resources:
                 package: pyarrow>=17.0.0,<26  # CVE-2024-52338; 26 requires numpy>=2
             - pypi:
                 package: requests==2.32.5
+            - pypi:
+                package: pyyaml~=6.0
+            - pypi:
+                package: pydantic~=2.10
+
+        - task_key: register_webapp_batch
+          depends_on:
+            - task_key: per_institution_bronze_ingest
+          spark_python_task:
+            python_file: src/edvise/ingestion/nsc_sftp/scripts/04_register_webapp_batch.py
+            source: GIT
+            parameters:
+              - --DB_workspace
+              - "{{job.parameters.DB_workspace}}"
+              - --nsc_sftp_secret_scope
+              - "{{job.parameters.nsc_sftp_secret_scope}}"
+              - --sst_api_key_secret_key
+              - "{{job.parameters.sst_api_key_secret_key}}"
+              - --registration_only
+              - "{{job.parameters.registration_only}}"
+          job_cluster_key: nsc-sftp-ingestion-cluster
+          libraries:
+            - pypi:
+                package: pandas==2.2.3
+            - pypi:
+                package: numpy==1.26.4
+            - pypi:
+                package: pyarrow>=17.0.0,<26  # CVE-2024-52338; 26 requires numpy>=2
+            - pypi:
+                package: requests==2.32.5
+            - pypi:
+                package: google-cloud-storage==2.19.0
             - pypi:
                 package: pyyaml~=6.0
             - pypi:
