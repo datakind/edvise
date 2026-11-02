@@ -25,9 +25,9 @@ variables:
   ingestion_slack_webhook_id:
     description: "Slack webhook ID for ingestion pipeline failure notifications"
   nsc_sftp_secret_scope:
-    description: "Databricks secret scope holding NSC SFTP + SST API credentials (from GitHub Secrets at deploy)"
+    description: "Databricks secret scope holding NSC SFTP + SST API credentials. Passed at deploy from DEV_NSC_SFTP_SECRET_SCOPE (dev) or STAGING_NSC_SFTP_SECRET_SCOPE (staging)."
   sst_api_key_secret_key:
-    description: "Key name within nsc_sftp_secret_scope for the SST API key (from GitHub Secrets at deploy)"
+    description: "Key name within nsc_sftp_secret_scope for the SST API key. Passed at deploy from DEV_SST_API_KEY_SECRET_KEY (dev) or STAGING_SST_API_KEY_SECRET_KEY (staging)."
   sst_iap_audience:
     description: "IAP OAuth 2.0 Client ID (audience) for SST. Passed at deploy from the GitHub Actions secret DEV_SST_IAP_AUDIENCE (dev) or STAGING_SST_IAP_AUDIENCE (staging). Do not hardcode."
 
