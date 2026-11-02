@@ -7,6 +7,11 @@ answers a different question: which coverage bucket a column belongs to.
 After redundancy drops, selection restores the strongest dropped member of a
 bucket that would otherwise be empty. It does not add a second pass that keeps
 only one prefix twin.
+
+Members are columns that can still be on the modeling frame after PDP and ES
+cleanup. Columns that cleanup drops — leakage and metadata, the enrollment-year
+helper used only for masking, and first-term snapshots that duplicate the
+checkpoint term — are left out.
 """
 
 from __future__ import annotations
@@ -108,11 +113,11 @@ _MOMENTUM = (
     "term_degree_changed_prev_term",
 )
 
+# First-term and year-1 program snapshots are omitted. Cleanup drops them when
+# the checkpoint already is that term (or year), so they are not quota members.
 _PROGRAM_FIT = (
     "term_program_of_study",
     "term_program_of_study_area",
-    "program_of_study_term_1",
-    "program_of_study_year_1",
     "frac_courses_in_term_program_of_study_area",
     "num_courses_in_term_program_of_study_area",
     "cumfrac_num_courses_in_term_program_of_study_area",
@@ -131,13 +136,12 @@ _SECTION_CONTEXT = (
 
 # Enrollment intensity and terms enrolled. Course-load columns such as
 # ``num_courses`` stay outside this bucket; their term-to-term diffs are momentum.
+# ``year_of_enrollment_at_cohort_inst`` is dropped after masking, and the
+# first-term intensity snapshots are dropped when they duplicate the checkpoint.
 _ENROLLMENT = (
-    "enrollment_intensity_first_term",
     "enrollment_type",
     "student_term_enrollment_intensity",
-    "attendance_status_term_1",
     "dual_and_summer_enrollment",
-    "year_of_enrollment_at_cohort_inst",
     "cumfrac_terms_enrolled",
     "cumnum_terms_enrolled",
     "cumfrac_core_terms_enrolled",
