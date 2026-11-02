@@ -4,9 +4,10 @@ Prefix twins (``frac_`` / ``num_`` / ``cum*`` of the same stem) still collapse
 through :func:`edvise.model_prep.target_associations.feature_family`. This map
 answers a different question: which coverage bucket a column belongs to.
 
-After redundancy drops, selection restores the strongest dropped member of a
-bucket that would otherwise be empty. It does not add a second pass that keeps
-only one prefix twin.
+After redundancy drops, selection keeps each bucket between
+:data:`QUOTA_MIN` and :data:`QUOTA_MAX` survivors. A short bucket gets its
+strongest dropped member back. A long bucket drops its weakest members. It
+does not add a second pass that keeps only one prefix twin.
 
 Members are columns that can still be on the modeling frame after PDP and ES
 cleanup. Columns that cleanup drops — leakage and metadata, the enrollment-year
@@ -157,6 +158,11 @@ _ENROLLMENT = (
     "cumfrac_num_courses_enrolled_at_other_institution_s_y",
 )
 
+# One survivor keeps the bucket represented. The max keeps one bucket from
+# filling the model and crowding out the others.
+QUOTA_MIN = 1
+QUOTA_MAX = 3
+
 FEATURE_FAMILIES: dict[str, tuple[str, ...]] = {
     "grades": _GRADES,
     "credits": _CREDITS,
@@ -175,6 +181,10 @@ _COLUMN_TO_FAMILY: dict[str, str] = {
 
 if len(_COLUMN_TO_FAMILY) != sum(len(columns) for columns in FEATURE_FAMILIES.values()):
     raise RuntimeError("feature quota families overlap")
+if QUOTA_MIN < 1 or QUOTA_MAX < QUOTA_MIN:
+    raise RuntimeError(
+        "feature quota min must be at least 1 and no larger than the max"
+    )
 
 
 def quota_family(name: str) -> str | None:

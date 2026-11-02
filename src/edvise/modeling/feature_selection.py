@@ -4,7 +4,7 @@ from collections.abc import Collection
 
 import pandas as pd
 
-from edvise.modeling.feature_families import FEATURE_FAMILIES
+from edvise.modeling.feature_families import FEATURE_FAMILIES, QUOTA_MAX, QUOTA_MIN
 from edvise.modeling.performance_selection import (
     PERFORMANCE_CV,
     PERFORMANCE_SCORING,
@@ -42,7 +42,8 @@ def select_features(
     columns, then adding features only while ROC AUC still improves.
 
     Keep-scores (univariate AUC, mutual information, absolute Spearman) are
-    computed once on ``df`` and used only to refill an empty feature family.
+    computed once on ``df`` and used to keep each feature family between one
+    and three columns.
     Pass the training split so those scores, and the addition model, do not
     see test labels.
 
@@ -127,6 +128,7 @@ def select_features(
         df_selected,
         df,
         candidate_cols=feature_cols,
+        force_include_cols=force_include_cols,
         aucs=aucs,
         mis=mis,
         corrs=corrs,
@@ -380,25 +382,73 @@ def apply_feature_family_quotas(
     df_source: pd.DataFrame,
     *,
     candidate_cols: Collection[str],
+    force_include_cols: t.Optional[Collection[str]] = None,
     aucs: pd.Series | None = None,
     mis: pd.Series | None = None,
     corrs: pd.Series | None = None,
+    min_count: int = QUOTA_MIN,
+    max_count: int = QUOTA_MAX,
 ) -> pd.DataFrame:
-    """Restore the best dropped member of any quota family that has no survivor."""
+    """Keep each present quota family between ``min_count`` and ``max_count``.
+
+    Below the minimum, restore the strongest dropped member. Above the maximum,
+    drop the weakest member that is not force-included. Force-included columns
+    can leave a family above the maximum.
+    """
+    if min_count > max_count:
+        raise ValueError(f"quota min_count={min_count} is above max_count={max_count}")
     aucs, mis, corrs = _bound_scores(aucs, mis, corrs)
     selected = set(df_selected.columns)
     candidates = set(candidate_cols)
     source_columns = set(df_source.columns)
+    forced = set(force_include_cols or [])
     restore: list[str] = []
+    trim: list[str] = []
+
+    def rank(column: str) -> tuple[float, float, float]:
+        return _keep_key(column, aucs, mis, corrs)
+
     for family, members in FEATURE_FAMILIES.items():
         present = [
             col for col in members if col in candidates and col in source_columns
         ]
-        if not present or any(col in selected for col in present):
+        if not present:
             continue
-        best = max(present, key=lambda col: _keep_key(col, aucs, mis, corrs))
-        restore.append(best)
-        LOGGER.info("restoring '%s' so quota family '%s' is not empty", best, family)
-    if not restore:
+        survivors = [col for col in present if col in selected or col in restore]
+        dropped = [col for col in present if col not in survivors]
+        while len(survivors) < min_count and dropped:
+            best = max(dropped, key=rank)
+            dropped.remove(best)
+            survivors.append(best)
+            restore.append(best)
+            LOGGER.info(
+                "restoring '%s' so quota family '%s' has at least %s",
+                best,
+                family,
+                min_count,
+            )
+        removable = [col for col in survivors if col not in forced]
+        protected = len(survivors) - len(removable)
+        target = max(max_count, protected)
+        if protected > max_count:
+            LOGGER.warning(
+                "quota family '%s' has %s force-included columns, above the max of %s",
+                family,
+                protected,
+                max_count,
+            )
+        while len(survivors) > target and removable:
+            worst = min(removable, key=rank)
+            removable.remove(worst)
+            survivors.remove(worst)
+            trim.append(worst)
+            LOGGER.info(
+                "dropping '%s' so quota family '%s' stays at most %s",
+                worst,
+                family,
+                max_count,
+            )
+    keep = (selected | set(restore)) - set(trim)
+    if keep == selected:
         return df_selected
-    return _columns_in_order(df_source, set(df_selected.columns) | set(restore))
+    return _columns_in_order(df_source, keep)
