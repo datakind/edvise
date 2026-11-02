@@ -102,6 +102,18 @@ def evaluate_bias(
 
     for split_name, split_data in df_pred.groupby(split_col):
         for group_col in present_group_cols:
+            # Pandas groupby drops NA keys, so an all-null column yields no
+            # subgroups. Logging that as an empty CSV makes the model card fail
+            # with EmptyDataError / "Could not load data."
+            if split_data[group_col].isna().all():
+                LOGGER.warning(
+                    "Skipping bias assessment for student_group_col %r on "
+                    "split %r: all values are null",
+                    group_col,
+                    split_name,
+                )
+                continue
+
             bias_metrics, perf_metrics, fnr_data = compute_group_bias_metrics(
                 split_data,
                 split_name,
@@ -664,6 +676,14 @@ def log_group_metrics_to_mlflow(
         split_name: Name of the data split (e.g., "train", "test", "validation").
         group_col: Column name representing the group for bias evaluation.
     """
+    if not group_metrics:
+        LOGGER.info(
+            "Skipping empty group metrics artifact for %s_%s",
+            split_name,
+            group_col,
+        )
+        return
+
     df_group_metrics = pd.DataFrame(group_metrics)
     metrics_tmp_path = f"/tmp/{split_name}_{group_col}_metrics.csv"
     df_group_metrics.to_csv(metrics_tmp_path, index=False)
