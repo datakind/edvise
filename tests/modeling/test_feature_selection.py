@@ -268,6 +268,55 @@ def test_select_features_restores_an_empty_family_after_recursive_addition():
     assert "target" in returned.columns
 
 
+def test_apply_feature_family_quotas_does_not_restore_mostly_null_columns():
+    source = pd.DataFrame(
+        {
+            "frac_courses_passed": [0.2, 0.8, 0.4, 0.9],
+            "num_courses_passed": [pd.NA, pd.NA, pd.NA, 1],
+            "course_grade_numeric_mean_diff_prev_term": [pd.NA, pd.NA, pd.NA, pd.NA],
+            "noise": [1, 0, 1, 0],
+        }
+    )
+    selected = source.loc[:, ["noise"]]
+    restored = fs.apply_feature_family_quotas(
+        selected,
+        source,
+        candidate_cols=source.columns,
+        incomplete_cols=[
+            "num_courses_passed",
+            "course_grade_numeric_mean_diff_prev_term",
+        ],
+        aucs=pd.Series(
+            {
+                "frac_courses_passed": 0.90,
+                "num_courses_passed": 0.99,
+                "course_grade_numeric_mean_diff_prev_term": 0.99,
+            }
+        ),
+    )
+    assert restored.columns.tolist() == ["frac_courses_passed", "noise"]
+
+
+def test_select_features_leaves_mostly_null_columns_dropped():
+    features = pd.DataFrame(
+        {
+            "target": [0, 1, 0, 1],
+            "frac_courses_passed": [0.2, 0.8, 0.4, 0.9],
+            "num_courses_passed": [pd.NA, pd.NA, pd.NA, 1],
+            "course_grade_numeric_mean_diff_prev_term": [pd.NA, pd.NA, pd.NA, pd.NA],
+        }
+    )
+    selected = fs.select_features(
+        features,
+        non_feature_cols=["target"],
+        target_col="target",
+        collinear_threshold=None,
+    )
+    assert "frac_courses_passed" in selected.columns
+    assert "num_courses_passed" not in selected.columns
+    assert "course_grade_numeric_mean_diff_prev_term" not in selected.columns
+
+
 def test_apply_feature_family_quotas_drops_weakest_above_the_max():
     source = pd.DataFrame(
         {

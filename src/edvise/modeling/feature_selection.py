@@ -93,11 +93,13 @@ def select_features(
             "low_variance_threshold=%s is deprecated and ignored",
             low_variance_threshold,
         )
-    screened = (
-        df.drop(columns=non_feature_cols + force_include_cols)
-        .pipe(drop_incomplete_features, threshold=incomplete_threshold)
-        .pipe(drop_low_variance_features)
-    )
+    eligible = df.drop(columns=non_feature_cols + force_include_cols)
+    # Mostly-null columns are ineligible for the family quota. The quota must
+    # not put back a column this step already removed.
+    mostly_null = incomplete_feature_names(eligible, threshold=incomplete_threshold)
+    screened = eligible.pipe(
+        drop_incomplete_features, threshold=incomplete_threshold
+    ).pipe(drop_low_variance_features)
     keep = set(screened.columns)
     keep.update(force_include_cols)
     df_selected = _columns_in_order(df, keep)
@@ -129,6 +131,7 @@ def select_features(
         df,
         candidate_cols=feature_cols,
         force_include_cols=force_include_cols,
+        incomplete_cols=mostly_null,
         aucs=aucs,
         mis=mis,
         corrs=corrs,
@@ -221,6 +224,14 @@ def _keep_metric_series(
     return aucs, mis, corrs
 
 
+def incomplete_feature_names(df: pd.DataFrame, *, threshold: float) -> list[str]:
+    """Columns whose null fraction is at least ``threshold``. An all-null column qualifies."""
+    if df.shape[0] == 0:
+        return []
+    frac_null = df.isna().sum(axis="index") / df.shape[0]
+    return [str(column) for column in frac_null.loc[frac_null.ge(threshold)].index]
+
+
 def drop_incomplete_features(
     df: pd.DataFrame, *, threshold: float = 0.5
 ) -> pd.DataFrame:
@@ -235,8 +246,7 @@ def drop_incomplete_features(
     Returns:
         ``df`` without the incomplete feature columns
     """
-    frac_null = df.isna().sum(axis="index") / df.shape[0]
-    incomplete_cols = frac_null.loc[frac_null.ge(threshold)].index.tolist()
+    incomplete_cols = incomplete_feature_names(df, threshold=threshold)
     return _drop_logged(
         df,
         incomplete_cols,
@@ -383,6 +393,7 @@ def apply_feature_family_quotas(
     *,
     candidate_cols: Collection[str],
     force_include_cols: t.Optional[Collection[str]] = None,
+    incomplete_cols: t.Optional[Collection[str]] = None,
     aucs: pd.Series | None = None,
     mis: pd.Series | None = None,
     corrs: pd.Series | None = None,
@@ -393,7 +404,8 @@ def apply_feature_family_quotas(
 
     Below the minimum, restore the strongest dropped member. Above the maximum,
     drop the weakest member that is not force-included. Force-included columns
-    can leave a family above the maximum.
+    can leave a family above the maximum. Columns in ``incomplete_cols`` were
+    dropped because they are mostly or entirely null, and stay dropped.
     """
     if min_count > max_count:
         raise ValueError(f"quota min_count={min_count} is above max_count={max_count}")
@@ -402,6 +414,7 @@ def apply_feature_family_quotas(
     candidates = set(candidate_cols)
     source_columns = set(df_source.columns)
     forced = set(force_include_cols or [])
+    mostly_null = set(incomplete_cols or [])
     restore: list[str] = []
     trim: list[str] = []
 
@@ -415,7 +428,18 @@ def apply_feature_family_quotas(
         if not present:
             continue
         survivors = [col for col in present if col in selected or col in restore]
-        dropped = [col for col in present if col not in survivors]
+        dropped = [
+            col for col in present if col not in survivors and col not in mostly_null
+        ]
+        blocked = [
+            col for col in present if col not in survivors and col in mostly_null
+        ]
+        if len(survivors) < min_count and not dropped and blocked:
+            LOGGER.info(
+                "not restoring mostly-null columns %s for quota family '%s'",
+                blocked,
+                family,
+            )
         while len(survivors) < min_count and dropped:
             best = max(dropped, key=rank)
             dropped.remove(best)
