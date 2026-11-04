@@ -321,9 +321,9 @@ def test_apply_feature_family_quotas_drops_weakest_above_the_max():
     source = pd.DataFrame(
         {
             "frac_courses_passed": [0.2, 0.8, 0.4, 0.9],
-            "num_courses_passed": [1, 4, 2, 5],
-            "cumfrac_num_courses_passed": [0.2, 0.5, 0.3, 0.6],
-            "frac_courses_completed": [0.1, 0.2, 0.1, 0.2],
+            "frac_courses_completed": [0.1, 0.7, 0.2, 0.8],
+            "frac_courses_grade_above_section_avg": [0.0, 1.0, 0.0, 1.0],
+            "student_pass_rate_above_sections_avg": [0, 0, 1, 1],
             "noise": [1, 0, 1, 0],
         }
     )
@@ -335,16 +335,16 @@ def test_apply_feature_family_quotas_drops_weakest_above_the_max():
         aucs=pd.Series(
             {
                 "frac_courses_passed": 0.90,
-                "num_courses_passed": 0.80,
-                "cumfrac_num_courses_passed": 0.70,
-                "frac_courses_completed": 0.10,
+                "frac_courses_completed": 0.80,
+                "frac_courses_grade_above_section_avg": 0.70,
+                "student_pass_rate_above_sections_avg": 0.10,
             }
         ),
     )
     assert trimmed.columns.tolist() == [
         "frac_courses_passed",
-        "num_courses_passed",
-        "cumfrac_num_courses_passed",
+        "frac_courses_completed",
+        "frac_courses_grade_above_section_avg",
         "noise",
     ]
 
@@ -372,3 +372,35 @@ def test_apply_feature_family_quotas_keeps_force_includes_above_the_max(caplog):
         "noise",
     ]
     assert any("force-included" in message for message in caplog.messages)
+
+
+def test_apply_feature_family_quotas_keeps_one_prefix_twin():
+    source = pd.DataFrame(
+        {
+            "num_credits_earned": [1, 4, 2, 8],
+            "frac_credits_earned": [0.1, 0.4, 0.2, 0.8],
+            "cummin_num_credits_earned": [1, 1, 1, 1],
+            "num_courses_grade_is_failing_or_withdrawal": [1, 2, 1, 2],
+            "frac_courses_grade_is_failing_or_withdrawal": [0.2, 0.5, 0.1, 0.4],
+            "noise": [0, 1, 0, 1],
+        }
+    )
+    kept = fs.apply_feature_family_quotas(
+        source.drop(columns=["frac_credits_earned", "cummin_num_credits_earned"]),
+        source,
+        candidate_cols=source.columns,
+        aucs=pd.Series(
+            {
+                "frac_credits_earned": 0.95,
+                "num_credits_earned": 0.70,
+                "cummin_num_credits_earned": 0.40,
+                "frac_courses_grade_is_failing_or_withdrawal": 0.80,
+                "num_courses_grade_is_failing_or_withdrawal": 0.80,
+            }
+        ),
+    )
+    assert kept.columns.tolist() == [
+        "frac_credits_earned",
+        "frac_courses_grade_is_failing_or_withdrawal",
+        "noise",
+    ]

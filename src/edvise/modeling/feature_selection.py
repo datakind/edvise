@@ -391,6 +391,76 @@ def drop_by_recursive_feature_elimination(
     )
 
 
+def _weaker_prefix_twins(
+    columns: list[str],
+    *,
+    selected: set[str],
+    forced: set[str],
+    ineligible: set[str],
+    aucs: pd.Series,
+    mis: pd.Series,
+    corrs: pd.Series,
+) -> tuple[list[str], list[str]]:
+    """Columns to drop so a family keeps one ``frac_`` / ``num_`` / ``cum*`` stem.
+
+    The second list is stronger twins to put back when a weaker twin is already
+    selected. Equal scores keep a fraction, then a count, then a cumulative
+    column. Force-included columns stay.
+    """
+    from edvise.model_prep.target_associations import feature_family
+
+    grouped: dict[str, list[str]] = {}
+    for column in columns:
+        grouped.setdefault(feature_family(column), []).append(column)
+    drop: list[str] = []
+    add: list[str] = []
+    for stem, members in grouped.items():
+        contestants = [
+            column for column in members if column in forced or column not in ineligible
+        ]
+        if len(contestants) < 2:
+            continue
+        protected = [column for column in contestants if column in forced]
+        if len(protected) > 1:
+            LOGGER.warning(
+                "prefix stem '%s' has %s force-included columns; keeping all of them: %s",
+                stem,
+                len(protected),
+                protected,
+            )
+        chosen = (
+            set(protected)
+            if protected
+            else {
+                max(
+                    sorted(contestants),
+                    key=lambda column: (
+                        *_keep_key(column, aucs, mis, corrs),
+                        -(
+                            0
+                            if column.startswith("frac_")
+                            else 1
+                            if column.startswith("num_")
+                            else 3
+                            if column.startswith("cum")
+                            else 2
+                        ),
+                    ),
+                )
+            }
+        )
+        losers = [column for column in members if column not in chosen]
+        if not losers:
+            continue
+        drop.extend(losers)
+        if any(column in selected for column in losers):
+            add.extend(column for column in chosen if column not in selected)
+        LOGGER.info(
+            "prefix stem '%s' keeps %s and drops %s", stem, sorted(chosen), losers
+        )
+    return drop, add
+
+
 def apply_feature_family_quotas(
     df_selected: pd.DataFrame,
     df_source: pd.DataFrame,
@@ -406,9 +476,10 @@ def apply_feature_family_quotas(
 ) -> pd.DataFrame:
     """Keep each present quota family between ``min_count`` and ``max_count``.
 
-    Below the minimum, restore the strongest dropped member. Above the maximum,
-    drop the weakest member that is not force-included. Force-included columns
-    can leave a family above the maximum. Columns in ``incomplete_cols`` were
+    Prefix twins in the family collapse to the strongest column first. Below
+    the minimum, restore the strongest dropped member. Above the maximum, drop
+    the weakest member that is not force-included. Force-included columns can
+    leave a family above the maximum. Columns in ``incomplete_cols`` were
     dropped because they are mostly or entirely null, and stay dropped.
     """
     if min_count > max_count:
@@ -431,6 +502,19 @@ def apply_feature_family_quotas(
         ]
         if not present:
             continue
+        twin_drop, twin_add = _weaker_prefix_twins(
+            present,
+            selected=selected,
+            forced=forced,
+            ineligible=mostly_null,
+            aucs=aucs,
+            mis=mis,
+            corrs=corrs,
+        )
+        if twin_drop:
+            trim.extend(twin_drop)
+            restore.extend(twin_add)
+            present = [col for col in present if col not in set(twin_drop)]
         survivors = [col for col in present if col in selected or col in restore]
         dropped = [
             col for col in present if col not in survivors and col not in mostly_null
