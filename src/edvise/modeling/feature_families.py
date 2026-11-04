@@ -1,13 +1,13 @@
 """Quota buckets for academic coverage during feature selection.
 
-Prefix twins (``frac_`` / ``num_`` / ``cum*`` of the same stem) still collapse
-through :func:`edvise.model_prep.target_associations.feature_family`. This map
-answers a different question: which coverage bucket a column belongs to.
+Inside each bucket, ``frac_`` / ``num_`` / ``cum*`` columns that share a stem
+collapse to one column before the quota counts them. Stems come from
+:func:`edvise.model_prep.target_associations.feature_family`.
 
-After redundancy drops, selection keeps each bucket between
-:data:`QUOTA_MIN` and :data:`QUOTA_MAX` survivors. A short bucket gets its
-strongest dropped member back. A long bucket drops its weakest members. It
-does not add a second pass that keeps only one prefix twin.
+After that, selection keeps each bucket between :data:`QUOTA_MIN` and
+:data:`QUOTA_MAX` survivors. A short bucket gets its strongest dropped member
+back. A long bucket drops its weakest members. A dropped prefix twin is not
+restored.
 
 Members are columns that can still be on the modeling frame after PDP and ES
 cleanup. Columns that cleanup drops — leakage and metadata, the enrollment-year
