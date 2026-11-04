@@ -519,17 +519,6 @@ def compute_frac_sections_students(
     numer_col: str,
     denom_col: str = "sections_num_students_enrolled",
 ) -> pd.Series:
-    """Pooled classmate rate for one student in one term.
-
-    The numerator and ``sections_num_students_enrolled`` are already sums
-    across the sections that student took, so this divides totals rather than
-    averaging each section's rate. Sections where 18 of 20, 5 of 10, and 25 of
-    30 classmates passed give ``(18 + 5 + 25) / (20 + 10 + 30) = 0.80``.
-    ``frac_sections_students_completed`` uses the same denominator with
-    completion counts. ``student_pass_rate_above_sections_avg`` and
-    ``student_completion_rate_above_sections_avg`` compare the student's own
-    rate with this pooled value.
-    """
     result = df[numer_col].div(df[denom_col])
     if not result.between(0.0, 1.0, inclusive="both").all():
         raise ValueError()
@@ -539,12 +528,6 @@ def compute_frac_sections_students(
 def student_rate_above_sections_avg(
     df: pd.DataFrame, *, student_col: str, sections_col: str
 ) -> pd.Series:
-    """True when the student's own rate exceeds the pooled section rate.
-
-    ``sections_col`` is the enrollment-weighted pool from
-    :func:`compute_frac_sections_students`, such as
-    ``(18 + 5 + 25) / (20 + 10 + 30) = 0.80``.
-    """
     return df[student_col].gt(df[sections_col])
 
 
@@ -655,21 +638,18 @@ def section_num_students_enrolled_std_col_agg(
 def sections_num_students_enrolled_col_agg(
     col: str = "section_num_students_enrolled",
 ) -> pd.NamedAgg:
-    """Sum section enrollment across the courses a student took that term."""
     return pd.NamedAgg(col, "sum")
 
 
 def sections_num_students_passed_col_agg(
     col: str = "section_num_students_passed",
 ) -> pd.NamedAgg:
-    """Sum section pass counts across the courses a student took that term."""
     return pd.NamedAgg(col, "sum")
 
 
 def sections_num_students_completed_col_agg(
     col: str = "section_num_students_completed",
 ) -> pd.NamedAgg:
-    """Sum section completion counts across the courses a student took that term."""
     return pd.NamedAgg(col, "sum")
 
 
