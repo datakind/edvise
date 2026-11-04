@@ -2,6 +2,11 @@ import pandas as pd
 import pytest
 
 from edvise.feature_generation import student_term
+from edvise.feature_generation.column_names import (
+    ES_COURSE_INPUT_COLUMNS,
+    StudentTermAddFeatureSpec,
+    StudentTermAggregateSpec,
+)
 
 # @pytest.mark.parametrize(
 #     ["df", "exp"],
@@ -457,6 +462,70 @@ def test_compute_frac_courses(df, numer_col, denom_col, exp):
     )
     assert isinstance(obs, pd.Series) and not obs.empty
     assert obs.equals(exp) or obs.compare(exp).empty
+
+
+def test_frac_sections_students_pools_counts_before_dividing():
+    """One student, three sections: (18 + 5 + 25) / (20 + 10 + 30) = 0.80.
+
+    Pass and completion use the same pooled denominator. A student pass rate of
+    0.75 sits above the unweighted mean of those section rates (~0.744) and
+    below the pooled rate, so the above-section flags follow the pooled value.
+    """
+    course_rows = pd.DataFrame(
+        {
+            "student_id": ["s1", "s1", "s1"],
+            "term_id": ["t1", "t1", "t1"],
+            "institution_id": ["i1", "i1", "i1"],
+            "academic_year": ["2024", "2024", "2024"],
+            "section_num_students_passed": [18, 5, 25],
+            "section_num_students_completed": [18, 5, 25],
+            "section_num_students_enrolled": [20, 10, 30],
+        }
+    )
+    aggregated = student_term.aggregate_from_course_level_features(
+        course_rows,
+        student_term_id_cols=["student_id", "term_id"],
+        cols=ES_COURSE_INPUT_COLUMNS,
+        spec=StudentTermAggregateSpec(
+            summary_aggregations=True,
+            dummies=False,
+            value_equality=False,
+            multicol_grade=False,
+        ),
+    )
+    assert aggregated.loc[0, "sections_num_students_passed"] == 48
+    assert aggregated.loc[0, "sections_num_students_completed"] == 48
+    assert aggregated.loc[0, "sections_num_students_enrolled"] == 60
+
+    # Four of the student's own courses, three passed: 0.75 vs pooled 0.80.
+    student_term_row = aggregated.assign(
+        num_courses=4,
+        num_courses_passed=3,
+        num_courses_completed=3,
+    )
+    out = student_term.add_features(
+        student_term_row,
+        cols=ES_COURSE_INPUT_COLUMNS,
+        spec=StudentTermAddFeatureSpec(
+            year_of_enrollment_at_cohort_inst=False,
+            student_certificates=False,
+            term_is_pre_cohort=False,
+            term_is_while_student_enrolled_at_other_inst=False,
+            program_of_study_area=False,
+            credit_fraction_and_intensity=False,
+            num_courses_in_program_area=False,
+            num_course_by_category_fracs=True,
+            section_student_fractions=True,
+            student_rate_vs_section_fractions=True,
+            program_change_from_prior_term=False,
+            term_degree_changed_prev_term=False,
+        ),
+    )
+    assert out.loc[0, "frac_sections_students_passed"] == pytest.approx(0.80)
+    assert out.loc[0, "frac_sections_students_completed"] == pytest.approx(0.80)
+    assert out.loc[0, "frac_courses_passed"] == pytest.approx(0.75)
+    assert bool(out.loc[0, "student_pass_rate_above_sections_avg"]) is False
+    assert bool(out.loc[0, "student_completion_rate_above_sections_avg"]) is False
 
 
 @pytest.mark.parametrize(
