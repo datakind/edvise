@@ -5,6 +5,13 @@ import pytest
 from edvise.modeling import feature_selection as fs
 
 
+def test_feature_selection_uses_feature_engine_1_9_4():
+    import feature_engine
+
+    assert feature_engine.__version__ == "1.9.4"
+    assert fs.FEATURE_ENGINE_VERSION == "1.9.4"
+
+
 @pytest.fixture(scope="module")
 def df():
     return pd.DataFrame(
@@ -243,7 +250,309 @@ def test_drop_collinear_features_iteratively_force_include():
     assert returned_df.shape[0] == related_features.shape[0]
 
 
-def test_drop_collinear_features_iteratively_fails_with_one_feature_left():
+def test_drop_collinear_features_iteratively_stops_when_one_feature_remains():
+    """Equal keep-scores drop the later tied column, then VIF stops."""
     related_features = pd.DataFrame({"A": [1, 2, 3, 4, 5], "B": [6, 7, 8, 9, 10]})
-    with pytest.raises(Exception):
-        fs.drop_collinear_features_iteratively(related_features)
+    returned_df = fs.drop_collinear_features_iteratively(related_features)
+    assert returned_df.columns.tolist() == ["A"]
+    assert returned_df.shape[0] == related_features.shape[0]
+
+
+def test_drop_collinear_features_iteratively_drops_worst_keep_score():
+    """A lower AUC is dropped even when another column has the higher VIF."""
+    related_features = pd.DataFrame(
+        {"A": [1, 2, 3, 4, 5], "B": [6, 7, 8, 9, 10], "C": [6.5, 1.5, 4, 3.5, 2]}
+    )
+    # B has the higher VIF. A is the weaker separator, so A is the one removed.
+    returned_df = fs.drop_collinear_features_iteratively(
+        related_features,
+        aucs=pd.Series({"A": 0.55, "B": 0.80, "C": 0.60}),
+        mis=pd.Series({"A": 0.10, "B": 0.20, "C": 0.05}),
+        corrs=pd.Series({"A": 0.10, "B": 0.40, "C": 0.00}),
+    )
+    assert returned_df.columns.tolist() == ["B", "C"]
+
+
+def test_repair_smart_correlated_groups_restores_force_include():
+    drop = fs.repair_smart_correlated_groups(
+        {"frac_courses_passed": ["num_courses_passed"]},
+        aucs=pd.Series({"frac_courses_passed": 0.71, "num_courses_passed": 0.64}),
+        force_include_cols=["num_courses_passed"],
+    )
+    assert drop == ["frac_courses_passed"]
+
+
+def test_repair_smart_correlated_groups_warns_on_auc_ties(caplog):
+    groups = {"kept_by_scs": ["better_mi", "weaker"]}
+    with caplog.at_level("WARNING"):
+        tied = fs.repair_smart_correlated_groups(
+            groups,
+            aucs=pd.Series({"kept_by_scs": 0.70, "better_mi": 0.70, "weaker": 0.70}),
+            mis=pd.Series({"kept_by_scs": 0.10, "better_mi": 0.40, "weaker": 0.05}),
+            corrs=pd.Series({"kept_by_scs": 0.20, "better_mi": 0.10, "weaker": 0.90}),
+        )
+    assert tied == ["better_mi", "weaker"]
+    assert any("AUC tie" in message for message in caplog.messages)
+
+    distinct = fs.repair_smart_correlated_groups(
+        groups,
+        aucs=pd.Series({"kept_by_scs": 0.80, "better_mi": 0.70, "weaker": 0.60}),
+        mis=pd.Series({"kept_by_scs": 0.01, "better_mi": 0.90, "weaker": 0.01}),
+    )
+    assert distinct == ["better_mi", "weaker"]
+
+
+def test_drop_redundant_categoricals_keeps_higher_mi():
+    program = ["stem"] * 20 + ["arts"] * 20
+    area = program.copy()
+    area[0] = "arts"
+    area[20] = "stem"
+    features = pd.DataFrame(
+        {
+            "program": pd.Series(program, dtype="string"),
+            "area": pd.Series(area, dtype="string"),
+            "unrelated": pd.Series(["yes", "no"] * 20, dtype="category"),
+        }
+    )
+    returned = fs.drop_redundant_categoricals(
+        features,
+        mis=pd.Series({"program": 0.80, "area": 0.20, "unrelated": 0.10}),
+    )
+    assert returned.columns.tolist() == ["program", "unrelated"]
+
+
+def test_drop_redundant_categoricals_keeps_force_include():
+    labels = ["stem"] * 20 + ["arts"] * 20
+    features = pd.DataFrame(
+        {
+            "program": pd.Series(labels, dtype="string"),
+            "area": pd.Series(labels, dtype="string"),
+        }
+    )
+    returned = fs.drop_redundant_categoricals(
+        features,
+        mis=pd.Series({"program": 0.90, "area": 0.10}),
+        force_include_cols=["area"],
+    )
+    assert returned.columns.tolist() == ["area"]
+
+
+def test_apply_feature_family_quotas_leaves_absent_families_empty():
+    source = pd.DataFrame({"noise": [1, 0, 1]})
+    restored = fs.apply_feature_family_quotas(source, source, candidate_cols=["noise"])
+    assert restored.columns.tolist() == ["noise"]
+
+
+def test_drop_collinear_features_iteratively_stops_at_max_drops(caplog):
+    related_features = pd.DataFrame(
+        {
+            "A": [1, 2, 3, 4, 5],
+            "B": [2, 4, 6, 8, 10],
+            "C": [3, 6, 9, 12, 15],
+        }
+    )
+    with caplog.at_level("WARNING"):
+        returned_df = fs.drop_collinear_features_iteratively(
+            related_features, max_drops=1
+        )
+    assert len(returned_df.columns) == 2
+    assert any("max drops 1" in message for message in caplog.messages)
+    assert any("remaining columns" in message for message in caplog.messages)
+
+
+def test_drop_collinear_features_iteratively_stops_at_timeout(caplog):
+    related_features = pd.DataFrame(
+        {
+            "A": [1, 2, 3, 4, 5],
+            "B": [2, 4, 6, 8, 10],
+            "C": [3, 6, 9, 12, 15],
+        }
+    )
+    with caplog.at_level("WARNING"):
+        returned_df = fs.drop_collinear_features_iteratively(
+            related_features, timeout_seconds=0
+        )
+    assert returned_df.columns.tolist() == ["A", "B", "C"]
+    assert any("timeout" in message for message in caplog.messages)
+
+
+def test_apply_feature_family_quotas_does_not_restore_mostly_null_columns():
+    source = pd.DataFrame(
+        {
+            "frac_courses_passed": [0.2, 0.8, 0.4, 0.9],
+            "num_courses_passed": [pd.NA, pd.NA, pd.NA, 1],
+            "course_grade_numeric_mean_diff_prev_term": [pd.NA, pd.NA, pd.NA, pd.NA],
+            "noise": [1, 0, 1, 0],
+        }
+    )
+    selected = source.loc[:, ["noise"]]
+    restored = fs.apply_feature_family_quotas(
+        selected,
+        source,
+        candidate_cols=source.columns,
+        incomplete_cols=[
+            "num_courses_passed",
+            "course_grade_numeric_mean_diff_prev_term",
+        ],
+        aucs=pd.Series(
+            {
+                "frac_courses_passed": 0.90,
+                "num_courses_passed": 0.99,
+                "course_grade_numeric_mean_diff_prev_term": 0.99,
+            }
+        ),
+    )
+    assert restored.columns.tolist() == ["frac_courses_passed", "noise"]
+
+
+def test_select_features_leaves_mostly_null_columns_dropped():
+    features = pd.DataFrame(
+        {
+            "target": [0, 1, 0, 1],
+            "frac_courses_passed": [0.2, 0.8, 0.4, 0.9],
+            "num_courses_passed": [pd.NA, pd.NA, pd.NA, 1],
+            "course_grade_numeric_mean_diff_prev_term": [pd.NA, pd.NA, pd.NA, pd.NA],
+        }
+    )
+    selected = fs.select_features(
+        features,
+        non_feature_cols=["target"],
+        target_col="target",
+        collinear_threshold=None,
+    )
+    assert "frac_courses_passed" in selected.columns
+    assert "num_courses_passed" not in selected.columns
+    assert "course_grade_numeric_mean_diff_prev_term" not in selected.columns
+
+
+def test_apply_feature_family_quotas_restores_best_dropped_member():
+    source = pd.DataFrame(
+        {
+            "frac_courses_passed": [0.2, 0.8, 0.4, 0.9],
+            "num_courses_passed": [1, 4, 2, 5],
+            "noise": [1, 0, 1, 0],
+        }
+    )
+    selected = source.loc[:, ["noise"]]
+    restored = fs.apply_feature_family_quotas(
+        selected,
+        source,
+        candidate_cols=source.columns,
+        aucs=pd.Series({"frac_courses_passed": 0.71, "num_courses_passed": 0.64}),
+        mis=pd.Series({"frac_courses_passed": 0.20, "num_courses_passed": 0.40}),
+    )
+    assert restored.columns.tolist() == ["frac_courses_passed", "noise"]
+
+
+def test_apply_feature_family_quotas_drops_weakest_above_the_max():
+    source = pd.DataFrame(
+        {
+            "frac_courses_passed": [0.2, 0.8, 0.4, 0.9],
+            "frac_courses_completed": [0.1, 0.7, 0.2, 0.8],
+            "frac_courses_grade_above_section_avg": [0.0, 1.0, 0.0, 1.0],
+            "student_pass_rate_above_sections_avg": [0, 0, 1, 1],
+            "noise": [1, 0, 1, 0],
+        }
+    )
+    trimmed = fs.apply_feature_family_quotas(
+        source,
+        source,
+        candidate_cols=source.columns,
+        max_count=3,
+        aucs=pd.Series(
+            {
+                "frac_courses_passed": 0.90,
+                "frac_courses_completed": 0.80,
+                "frac_courses_grade_above_section_avg": 0.70,
+                "student_pass_rate_above_sections_avg": 0.10,
+            }
+        ),
+    )
+    assert trimmed.columns.tolist() == [
+        "frac_courses_passed",
+        "frac_courses_completed",
+        "frac_courses_grade_above_section_avg",
+        "noise",
+    ]
+
+
+def test_apply_feature_family_quotas_keeps_force_includes_above_the_max(caplog):
+    source = pd.DataFrame(
+        {
+            "frac_courses_passed": [0.2, 0.8, 0.4, 0.9],
+            "num_courses_passed": [1, 4, 2, 5],
+            "noise": [1, 0, 1, 0],
+        }
+    )
+    with caplog.at_level("WARNING"):
+        kept = fs.apply_feature_family_quotas(
+            source,
+            source,
+            candidate_cols=source.columns,
+            force_include_cols=["frac_courses_passed", "num_courses_passed"],
+            max_count=1,
+            aucs=pd.Series({"frac_courses_passed": 0.90, "num_courses_passed": 0.20}),
+        )
+    assert kept.columns.tolist() == [
+        "frac_courses_passed",
+        "num_courses_passed",
+        "noise",
+    ]
+    assert any("force-included" in message for message in caplog.messages)
+
+
+def test_select_features_repairs_force_include_after_smart_correlation():
+    base = np.linspace(-3, 3, 90)
+    features = pd.DataFrame(
+        {
+            "target": (base > 0).astype(int),
+            "frac_courses_passed": base,
+            "num_courses_passed": base * 2.0 + 1.0,
+            "low_collinear_feature": np.sin(np.linspace(0, 20, 90)),
+        }
+    )
+    returned = fs.select_features(
+        features,
+        non_feature_cols=["target"],
+        force_include_cols=["num_courses_passed"],
+        target_col="target",
+        random_state=0,
+        collinear_threshold=1e12,
+    )
+    assert returned.columns.tolist() == [
+        "target",
+        "num_courses_passed",
+        "low_collinear_feature",
+    ]
+
+
+def test_apply_feature_family_quotas_keeps_one_prefix_twin():
+    source = pd.DataFrame(
+        {
+            "num_credits_earned": [1, 4, 2, 8],
+            "frac_credits_earned": [0.1, 0.4, 0.2, 0.8],
+            "cummin_num_credits_earned": [1, 1, 1, 1],
+            "num_courses_grade_is_failing_or_withdrawal": [1, 2, 1, 2],
+            "frac_courses_grade_is_failing_or_withdrawal": [0.2, 0.5, 0.1, 0.4],
+            "noise": [0, 1, 0, 1],
+        }
+    )
+    kept = fs.apply_feature_family_quotas(
+        source.drop(columns=["frac_credits_earned", "cummin_num_credits_earned"]),
+        source,
+        candidate_cols=source.columns,
+        aucs=pd.Series(
+            {
+                "frac_credits_earned": 0.95,
+                "num_credits_earned": 0.70,
+                "cummin_num_credits_earned": 0.40,
+                "frac_courses_grade_is_failing_or_withdrawal": 0.80,
+                "num_courses_grade_is_failing_or_withdrawal": 0.80,
+            }
+        ),
+    )
+    assert kept.columns.tolist() == [
+        "frac_credits_earned",
+        "frac_courses_grade_is_failing_or_withdrawal",
+        "noise",
+    ]
