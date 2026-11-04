@@ -19,8 +19,9 @@ LOGGER = logging.getLogger(__name__)
 # Max fraction of nulls allowed when keeping a feature. Config may set a stricter
 # (lower) value; values above this cap are clamped for feature selection.
 MAX_INCOMPLETE_THRESHOLD = 0.2
-# A feature is added only when cross-validated ROC AUC rises by more than this.
-RECURSIVE_ADDITION_THRESHOLD = 0.01
+# A feature is removed when dropping it lowers cross-validated ROC AUC by no more
+# than this.
+RECURSIVE_ELIMINATION_THRESHOLD = 0.01
 # Compared together so 0/1 matches True/False. Kept separate from labels so "1" is not a copy of 1.
 _NUMBER_OR_BOOL = ("number", "boolean")
 _CATEGORICAL = ("string", "category", "object")
@@ -39,12 +40,12 @@ def select_features(
 ) -> pd.DataFrame:
     """
     Select features by dropping incomplete, near-constant, and identical
-    columns, then adding features only while ROC AUC still improves.
+    columns, then removing features whose removal barely changes ROC AUC.
 
     Keep-scores (univariate AUC, mutual information, absolute Spearman) are
     computed once on ``df`` and used to keep each feature family between one
     and three columns.
-    Pass the training split so those scores, and the addition model, do not
+    Pass the training split so those scores, and the elimination model, do not
     see test labels.
 
     Args:
@@ -58,11 +59,11 @@ def select_features(
         low_variance_threshold: Deprecated and ignored. Kept so existing configs
             still load. A non-zero value logs a warning and does not change selection.
         collinear_threshold: Retained so existing configs still load. Any
-            non-null value runs duplicate removal and recursive addition.
+            non-null value runs duplicate removal and recursive elimination.
             Null skips both. The number is not a VIF cutoff.
-        target_col: Binary target used for keep-scores and recursive addition.
+        target_col: Binary target used for keep-scores and recursive elimination.
             When missing, those steps are skipped.
-        random_state: Seed for mutual information and the addition model.
+        random_state: Seed for mutual information and the elimination model.
 
     Returns:
         df with non_feature_cols, force_include_cols, and any other columns selected
@@ -118,7 +119,7 @@ def select_features(
             if target_col is not None and target_col in df.columns
             else None
         )
-        df_selected = drop_by_recursive_feature_addition(
+        df_selected = drop_by_recursive_feature_elimination(
             df_selected,
             target_col=target_col,
             target=target,
@@ -344,34 +345,34 @@ def _drop_logged(
     return df.drop(columns=columns)
 
 
-def drop_by_recursive_feature_addition(
+def drop_by_recursive_feature_elimination(
     df: pd.DataFrame,
     *,
     target_col: str | None,
     target: pd.Series | None = None,
     force_include_cols: t.Optional[Collection[str]] = None,
-    threshold: float = RECURSIVE_ADDITION_THRESHOLD,
+    threshold: float = RECURSIVE_ELIMINATION_THRESHOLD,
     random_state: int = 0,
 ) -> pd.DataFrame:
-    """Add numeric features while cross-validated ROC AUC still improves.
+    """Drop numeric features whose removal barely changes cross-validated ROC AUC.
 
-    Uses feature-engine ``RecursiveFeatureAddition``. The forest ranks columns,
-    starts from the most important one, and keeps the next column only when
-    ROC AUC rises by more than ``threshold``. Categorical columns are left in
-    place. Force-included columns are scored with the rest and put back if the
-    selector drops them. ``target`` is aligned to ``df`` because the label is
-    not a feature column.
+    Uses feature-engine ``RecursiveFeatureElimination``. The forest ranks columns
+    from least to most important and removes a column when dropping it lowers
+    ROC AUC by no more than ``threshold``. The last remaining column is kept.
+    Categorical columns are left in place. Force-included columns are scored
+    with the rest and put back if the selector drops them. ``target`` is aligned
+    to ``df`` because the label is not a feature column.
     """
     y = resolve_binary_target(
-        df, target_col=target_col, target=target, step="recursive feature addition"
+        df, target_col=target_col, target=target, step="recursive feature elimination"
     )
     if y is None:
         return df
 
     require_feature_engine()
-    from feature_engine.selection import RecursiveFeatureAddition
+    from feature_engine.selection import RecursiveFeatureElimination
 
-    selector = RecursiveFeatureAddition(
+    selector = RecursiveFeatureElimination(
         estimator=selection_estimator(random_state),
         scoring=PERFORMANCE_SCORING,
         cv=PERFORMANCE_CV,
@@ -382,8 +383,11 @@ def drop_by_recursive_feature_addition(
         y,
         selector,
         force_include_cols=force_include_cols,
-        empty="skipping recursive feature addition",
-        found="dropping %s features that did not improve ROC AUC: %s",
+        empty="skipping recursive feature elimination",
+        found=(
+            "dropping %s features whose removal changed ROC AUC "
+            "by at most the threshold: %s"
+        ),
     )
 
 

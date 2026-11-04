@@ -377,7 +377,7 @@ class TrainingTask:
                     )
         selection_params: t.Dict[str, t.Any] = fs.model_dump() if fs is not None else {}
         selection_params["non_feature_cols"] = self.cfg.non_feature_cols
-        # Keep-scores and recursive addition are fit on the training split only.
+        # Keep-scores and recursive elimination are fit on the training split only.
         selection_params["target_col"] = self.cfg.target_col
         selection_params["random_state"] = self.cfg.random_state
 

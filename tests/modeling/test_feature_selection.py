@@ -233,9 +233,9 @@ def _predictive_frame() -> pd.DataFrame:
     )
 
 
-def test_recursive_addition_keeps_the_predictive_feature_and_force_include():
+def test_recursive_elimination_keeps_the_predictive_feature_and_force_include():
     features = _predictive_frame()
-    returned = fs.drop_by_recursive_feature_addition(
+    returned = fs.drop_by_recursive_feature_elimination(
         features.drop(columns=["target"]),
         target_col="target",
         target=features["target"],
@@ -247,16 +247,16 @@ def test_recursive_addition_keeps_the_predictive_feature_and_force_include():
     assert returned.shape[0] == len(features)
 
 
-def test_select_features_restores_an_empty_family_after_recursive_addition():
+def test_select_features_restores_an_empty_family_after_recursive_elimination():
     features = _predictive_frame()
     predictors = features.drop(columns=["target"])
-    added = fs.drop_by_recursive_feature_addition(
+    eliminated = fs.drop_by_recursive_feature_elimination(
         predictors,
         target_col="target",
         target=features["target"],
         random_state=0,
     )
-    assert "num_credits_earned" not in added.columns
+    assert "num_credits_earned" not in eliminated.columns
     returned = fs.select_features(
         features,
         non_feature_cols=["target"],

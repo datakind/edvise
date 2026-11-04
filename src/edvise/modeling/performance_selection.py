@@ -1,6 +1,6 @@
 """Shared fit path for model-performance feature selectors.
 
-Recursive addition and select-by-shuffling both need one imputed numeric
+Recursive elimination and select-by-shuffling both need one imputed numeric
 frame, one forest, and the same force-include repair. Each caller supplies
 the feature-engine selector.
 """
@@ -27,7 +27,7 @@ _BOOL = ("boolean", "bool")
 def selection_estimator(random_state: int) -> t.Any:
     """Shallow forest shared by the performance selectors.
 
-    Addition and shuffling refit this estimator once per feature. Depth and
+    Elimination and shuffling refit this estimator once per feature. Depth and
     leaf size keep that loop cheap and stable. ``n_jobs=1`` keeps the fit
     deterministic for a given ``random_state``.
     """
