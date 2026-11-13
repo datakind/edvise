@@ -1,20 +1,36 @@
 import logging
+import math
+import time
 import typing as t
-from collections.abc import Collection
+from collections.abc import Collection, Mapping
 
 import numpy as np
 import pandas as pd
 import sklearn.impute
 from statsmodels.stats.outliers_influence import variance_inflation_factor
 
+from edvise.modeling.feature_families import FEATURE_FAMILIES, QUOTA_MAX, QUOTA_MIN
+
 LOGGER = logging.getLogger(__name__)
 
 # Max fraction of nulls allowed when keeping a feature. Config may set a stricter
 # (lower) value; values above this cap are clamped for feature selection.
 MAX_INCOMPLETE_THRESHOLD = 0.2
+# Pinned with pyproject.toml and the training job libraries. 1.9.4 requires an
+# estimator for selection_method="model_performance" and records the kept column
+# as the key of correlated_feature_dict_.
+FEATURE_ENGINE_VERSION = "1.9.4"
+# |Spearman| / Cramer's V above this are one redundancy group. Matches
+# feature-engine 1.9.4 SmartCorrelatedSelection's default, which uses a strict ">".
+SMART_CORRELATION_THRESHOLD = 0.8
+# Stop the VIF loop before a slow collinear frame can run for hours.
+VIF_MAX_DROPS = 50
+VIF_TIMEOUT_SECONDS = 600.0
 # Compared together so 0/1 matches True/False. Kept separate from labels so "1" is not a copy of 1.
 _NUMBER_OR_BOOL = ("number", "boolean")
+_BOOL = ("boolean", "bool")
 _CATEGORICAL = ("string", "category", "object")
+_AUC_TIE_TOLERANCE = 1e-6
 
 
 def select_features(
@@ -25,30 +41,49 @@ def select_features(
     incomplete_threshold: float = MAX_INCOMPLETE_THRESHOLD,
     low_variance_threshold: float = 0.0,
     collinear_threshold: t.Optional[float] = 10.0,
+    target_col: str | None = None,
+    random_state: int | None = 0,
 ) -> pd.DataFrame:
     """
     Select features by dropping incomplete features, near-constant features,
-    identical features, and variables with high correlations to others.
+    identical features, pairwise-redundant features, and variables with high
+    variance inflation.
+
+    Keep-scores (univariate AUC, mutual information, absolute Spearman) are
+    computed once on ``df``. Pass the training split so those scores, and the
+    smart-correlation fit, do not see test labels.
 
     Args:
-        df: dataframe of features to select
-        non_features_cols: list of column names that are not features and should not
+        df: dataframe of features to select. Callers that have a train/test
+            split must pass the training rows.
+        non_feature_cols: list of column names that are not features and should not
             be run through the feature selection algorithm. For example, demographics, IDs, outcome variables, etc.
         force_include_cols: list of features to force include in the final dataset.
         incomplete_threshold: Threshold for determining incomplete features.
             Values above ``MAX_INCOMPLETE_THRESHOLD`` (0.2) are capped.
         low_variance_threshold: Deprecated and ignored. Kept so existing configs
             still load. A non-zero value logs a warning and does not change selection.
-        collinear_threshold: Threshold for determining collinear features;
-            if null, skip this selection step.
+        collinear_threshold: Variance-inflation threshold. If null, skip duplicate
+            removal, smart correlation, and VIF.
+        target_col: Binary target used for keep-scores and smart correlation.
+            When missing, those steps are skipped and VIF falls back to dropping
+            the highest inflation factor.
+        random_state: Seed for mutual information and the smart-correlation model.
 
     Returns:
-        df with non_features_cols, force_include_cols, and any other columns selected
+        df with non_feature_cols, force_include_cols, and any other columns selected
         by the algorithms
     """
     LOGGER.info("selecting features ...")
     non_feature_cols = [c for c in (non_feature_cols or []) if c in df.columns]
     force_include_cols = force_include_cols or []
+    seed = 0 if random_state is None else random_state
+    aucs, mis, corrs = _keep_metric_series(
+        df,
+        target_col=target_col,
+        exclude=set(non_feature_cols),
+        random_state=seed,
+    )
     if incomplete_threshold > MAX_INCOMPLETE_THRESHOLD:
         LOGGER.warning(
             "incomplete_threshold=%s exceeds max %s; capping for feature selection",
@@ -64,11 +99,13 @@ def select_features(
             "low_variance_threshold=%s is deprecated and ignored",
             low_variance_threshold,
         )
-    screened = (
-        df.drop(columns=non_feature_cols + force_include_cols)
-        .pipe(drop_incomplete_features, threshold=incomplete_threshold)
-        .pipe(drop_low_variance_features)
-    )
+    eligible = df.drop(columns=non_feature_cols + force_include_cols)
+    # Mostly-null columns are ineligible for the family quota. The quota must
+    # not put back a column this step already removed.
+    mostly_null = incomplete_feature_names(eligible, threshold=incomplete_threshold)
+    screened = eligible.pipe(
+        drop_incomplete_features, threshold=incomplete_threshold
+    ).pipe(drop_low_variance_features)
     keep = set(screened.columns)
     keep.update(force_include_cols)
     df_selected = _columns_in_order(df, keep)
@@ -82,11 +119,40 @@ def select_features(
             df_selected,
             force_include_cols=force_include_cols,
         )
+        target = (
+            df[target_col]
+            if target_col is not None and target_col in df.columns
+            else None
+        )
+        df_selected = drop_smart_correlated_features(
+            df_selected,
+            target_col=target_col,
+            target=target,
+            aucs=aucs,
+            mis=mis,
+            corrs=corrs,
+            force_include_cols=force_include_cols,
+            random_state=seed,
+        )
         df_selected = drop_collinear_features_iteratively(
             df_selected,
             threshold=collinear_threshold,
             force_include_cols=force_include_cols,
+            aucs=aucs,
+            mis=mis,
+            corrs=corrs,
         )
+    feature_cols = [col for col in df.columns if col not in set(non_feature_cols)]
+    df_selected = apply_feature_family_quotas(
+        df_selected,
+        df,
+        candidate_cols=feature_cols,
+        force_include_cols=force_include_cols,
+        incomplete_cols=mostly_null,
+        aucs=aucs,
+        mis=mis,
+        corrs=corrs,
+    )
 
     selected_feature_cols = set(df_selected.columns)
     orig_feature_cols = set(df.columns) - set(non_feature_cols)
@@ -104,6 +170,99 @@ def _columns_in_order(df: pd.DataFrame, names: Collection[str]) -> pd.DataFrame:
     return df.loc[:, [col for col in df.columns if col in names]]
 
 
+def _require_feature_engine() -> None:
+    import feature_engine
+
+    found = feature_engine.__version__
+    if found != FEATURE_ENGINE_VERSION:
+        raise RuntimeError(
+            "feature selection requires feature-engine "
+            f"{FEATURE_ENGINE_VERSION}, found {found}"
+        )
+
+
+def _bound_scores(
+    aucs: pd.Series | None,
+    mis: pd.Series | None,
+    corrs: pd.Series | None,
+) -> tuple[pd.Series, pd.Series, pd.Series]:
+    empty = pd.Series(dtype="float64")
+    return (
+        empty if aucs is None else aucs,
+        empty if mis is None else mis,
+        empty if corrs is None else corrs,
+    )
+
+
+def _metric_value(series: pd.Series, column: str, default: float) -> float:
+    value = series.get(column, default)
+    if value is None or pd.isna(value):
+        return default
+    return float(value)
+
+
+def _keep_key(
+    column: str,
+    aucs: pd.Series,
+    mis: pd.Series,
+    corrs: pd.Series,
+    *,
+    mi_first: bool = False,
+) -> tuple[float, float, float]:
+    """Higher is better. Numeric order is AUC, MI, |Spearman|; labels use MI first."""
+    auc = _metric_value(aucs, column, 0.5)
+    mi = _metric_value(mis, column, 0.0)
+    spearman = abs(_metric_value(corrs, column, 0.0))
+    if mi_first:
+        return (mi, auc, spearman)
+    return (auc, mi, spearman)
+
+
+def _keep_metric_series(
+    df: pd.DataFrame,
+    *,
+    target_col: str | None,
+    exclude: set[str],
+    random_state: int,
+) -> tuple[pd.Series, pd.Series, pd.Series]:
+    """AUC, MI, and Spearman on ``df`` only. Later steps read these series."""
+    empty = pd.Series(dtype="float64")
+    if target_col is None or target_col not in df.columns:
+        LOGGER.info(
+            "skipping keep-score metrics; target column %s is not in the frame",
+            target_col,
+        )
+        return empty, empty, empty
+
+    from edvise.model_prep.target_associations import (
+        compute_mutual_infos,
+        compute_spearman_corrs,
+        compute_univariate_aucs,
+    )
+
+    aucs = compute_univariate_aucs(df, target_col=target_col, exclude=exclude)
+    mis = compute_mutual_infos(
+        df, target_col=target_col, exclude=exclude, random_state=random_state
+    )
+    corrs = compute_spearman_corrs(df, target_col=target_col, exclude=exclude)
+    LOGGER.info(
+        "stored keep-scores for %s features (AUC %s, MI %s, Spearman %s)",
+        len(set(aucs.index) | set(mis.index) | set(corrs.index)),
+        len(aucs),
+        len(mis),
+        len(corrs),
+    )
+    return aucs, mis, corrs
+
+
+def incomplete_feature_names(df: pd.DataFrame, *, threshold: float) -> list[str]:
+    """Columns whose null fraction is at least ``threshold``. An all-null column qualifies."""
+    if df.shape[0] == 0:
+        return []
+    frac_null = df.isna().sum(axis="index") / df.shape[0]
+    return [str(column) for column in frac_null.loc[frac_null.ge(threshold)].index]
+
+
 def drop_incomplete_features(
     df: pd.DataFrame, *, threshold: float = 0.5
 ) -> pd.DataFrame:
@@ -118,8 +277,7 @@ def drop_incomplete_features(
     Returns:
         ``df`` without the incomplete feature columns
     """
-    frac_null = df.isna().sum(axis="index") / df.shape[0]
-    incomplete_cols = frac_null.loc[frac_null.ge(threshold)].index.tolist()
+    incomplete_cols = incomplete_feature_names(df, threshold=threshold)
     return _drop_logged(
         df,
         incomplete_cols,
@@ -217,25 +375,514 @@ def _drop_logged(
     return df.drop(columns=columns)
 
 
+def drop_smart_correlated_features(
+    df: pd.DataFrame,
+    *,
+    target_col: str | None,
+    target: pd.Series | None = None,
+    aucs: pd.Series | None = None,
+    mis: pd.Series | None = None,
+    corrs: pd.Series | None = None,
+    force_include_cols: t.Optional[Collection[str]] = None,
+    threshold: float = SMART_CORRELATION_THRESHOLD,
+    random_state: int = 0,
+) -> pd.DataFrame:
+    """
+    Drop pairwise-redundant columns before VIF.
+
+    Numeric and boolean columns use feature-engine 1.9.4
+    ``SmartCorrelatedSelection(method="spearman", selection_method="model_performance",
+    scoring="roc_auc")``. That release requires an estimator, so the fit uses a
+    random forest. Force-included columns are scored with the rest, then put back
+    if the package dropped them. An AUC tie is logged and the package's choice
+    is left in place. Categoricals skip the package and keep the higher-MI
+    column of a Cramer's V group. ``target`` is aligned to ``df`` because the
+    label is not a feature column.
+    """
+    aucs, mis, corrs = _bound_scores(aucs, mis, corrs)
+    y = target
+    if y is None and target_col is not None and target_col in df.columns:
+        y = df[target_col]
+    if y is None:
+        LOGGER.info(
+            "skipping smart correlation selection; target column %s is unavailable",
+            target_col,
+        )
+        return df
+    if not y.index.equals(df.index):
+        y = y.reindex(df.index)
+
+    from edvise.shared.validation import is_boolean_like
+
+    if not is_boolean_like(y):
+        LOGGER.warning(
+            "skipping smart correlation selection; target '%s' is not boolean-like",
+            target_col,
+        )
+        return df
+
+    df = _drop_smart_correlated_numeric(
+        df,
+        y=y,
+        aucs=aucs,
+        mis=mis,
+        corrs=corrs,
+        force_include_cols=force_include_cols,
+        threshold=float(threshold),
+        random_state=random_state,
+    )
+    return drop_redundant_categoricals(
+        df,
+        aucs=aucs,
+        mis=mis,
+        corrs=corrs,
+        force_include_cols=force_include_cols,
+        threshold=threshold,
+    )
+
+
+def repair_smart_correlated_groups(
+    correlated_feature_dict: Mapping[str, Collection[str]],
+    *,
+    aucs: pd.Series | None = None,
+    mis: pd.Series | None = None,
+    corrs: pd.Series | None = None,
+    force_include_cols: t.Optional[Collection[str]] = None,
+) -> list[str]:
+    """
+    Decide which members of each smart-correlation group to drop.
+
+    ``correlated_feature_dict`` is feature-engine's ``correlated_feature_dict_``:
+    the key is the column the package kept, and the values are the columns it
+    would drop. A force-included member is kept instead. When two or more members
+    share the best univariate AUC, the package's choice stays and a warning
+    records the tie. Mutual information and absolute Spearman are not used to
+    break that tie.
+    """
+    aucs, mis, corrs = _bound_scores(aucs, mis, corrs)
+    forced = set(force_include_cols or [])
+    drop: list[str] = []
+    for kept, others in correlated_feature_dict.items():
+        group = [kept, *sorted(col for col in others if col != kept)]
+        forced_members = [col for col in group if col in forced]
+        if forced_members:
+            rejected = [col for col in group if col not in forced]
+            if len(forced_members) > 1:
+                LOGGER.warning(
+                    "Correlated force-included columns %s; keeping all of them "
+                    "and dropping %s",
+                    forced_members,
+                    rejected,
+                )
+            elif rejected and kept not in forced:
+                LOGGER.info(
+                    "SCS repair puts force-included '%s' back and drops '%s'",
+                    forced_members[0],
+                    kept,
+                )
+            drop.extend(rejected)
+            continue
+
+        auc_values = {col: _metric_value(aucs, col, 0.5) for col in group}
+        best_auc = max(auc_values.values())
+        tied = [
+            col
+            for col in group
+            if math.isclose(
+                auc_values[col], best_auc, rel_tol=0.0, abs_tol=_AUC_TIE_TOLERANCE
+            )
+        ]
+        if len(tied) >= 2:
+            LOGGER.warning(
+                "SCS AUC tie among %s; leaving the package choice '%s'. "
+                "Tie-break on mutual information and |Spearman| is not applied. "
+                "Scores (AUC, MI, |Spearman|): %s",
+                tied,
+                kept,
+                {col: _keep_key(col, aucs, mis, corrs) for col in tied},
+            )
+        drop.extend(col for col in group if col != kept)
+    return list(dict.fromkeys(drop))
+
+
+def drop_redundant_categoricals(
+    df: pd.DataFrame,
+    *,
+    aucs: pd.Series | None = None,
+    mis: pd.Series | None = None,
+    corrs: pd.Series | None = None,
+    force_include_cols: t.Optional[Collection[str]] = None,
+    threshold: float = SMART_CORRELATION_THRESHOLD,
+) -> pd.DataFrame:
+    """Keep the higher-MI column of each Cramer's V group. Numeric columns stay."""
+    aucs, mis, corrs = _bound_scores(aucs, mis, corrs)
+    columns = df.select_dtypes(include=_CATEGORICAL).columns.tolist()
+    if len(columns) < 2:
+        LOGGER.info("no categorical pairs to compare with Cramer's V")
+        return df
+
+    forced = set(force_include_cols or [])
+    drop_columns: list[str] = []
+    described: list[str] = []
+    for group in _cramers_v_groups(
+        df.loc[:, columns].astype("string"), float(threshold)
+    ):
+        kept, rejected = _group_keeps(
+            group,
+            forced,
+            key=lambda col: _keep_key(col, aucs, mis, corrs, mi_first=True),
+        )
+        drop_columns.extend(rejected)
+        described.extend(f"{col} (Cramer's V group of {kept})" for col in rejected)
+    return _drop_logged(
+        df,
+        drop_columns,
+        empty="no redundant categorical features found",
+        found="dropping %s redundant categorical features: %s",
+        detail=described,
+    )
+
+
+def _group_keeps(
+    group: list[str],
+    forced: set[str],
+    *,
+    key: t.Callable[[str], tuple[float, ...]],
+) -> tuple[str, list[str]]:
+    """Keep force-included members, otherwise the highest ``key``."""
+    forced_members = [col for col in group if col in forced]
+    if forced_members:
+        kept = forced_members[0]
+        return kept, [col for col in group if col not in forced]
+    winner = max(group, key=key)
+    return winner, [col for col in group if col != winner]
+
+
+def _cramers_v_groups(df: pd.DataFrame, threshold: float) -> list[list[str]]:
+    from edvise.data_audit.eda import _cramers_v
+
+    columns = df.columns.tolist()
+    parent = {col: col for col in columns}
+
+    def find(col: str) -> str:
+        while parent[col] != col:
+            parent[col] = parent[parent[col]]
+            col = parent[col]
+        return col
+
+    for i, left in enumerate(columns):
+        for right in columns[i + 1 :]:
+            stat = _cramers_v(df[left], df[right])
+            if stat is not None and stat > threshold:
+                right_root = find(right)
+                left_root = find(left)
+                if left_root != right_root:
+                    parent[right_root] = left_root
+
+    grouped: dict[str, list[str]] = {}
+    for col in columns:
+        grouped.setdefault(find(col), []).append(col)
+    return [members for members in grouped.values() if len(members) > 1]
+
+
+def _drop_smart_correlated_numeric(
+    df: pd.DataFrame,
+    *,
+    y: pd.Series,
+    aucs: pd.Series,
+    mis: pd.Series,
+    corrs: pd.Series,
+    force_include_cols: t.Optional[Collection[str]],
+    threshold: float,
+    random_state: int,
+) -> pd.DataFrame:
+    _require_feature_engine()
+    from feature_engine.selection import SmartCorrelatedSelection
+    from sklearn.ensemble import RandomForestClassifier
+
+    columns = df.select_dtypes(include=["number", *_BOOL]).columns.tolist()
+    columns = [col for col in columns if bool(df[col].notna().any())]
+    if len(columns) < 2:
+        LOGGER.info(
+            "skipping smart correlation selection; fewer than 2 numeric columns"
+        )
+        return df
+
+    X = _imputed_numeric_bool(df.loc[:, columns])
+    labeled = y.notna()
+    X = X.loc[labeled].replace([np.inf, -np.inf], np.nan).dropna(axis="index")
+    y_fit = y.loc[X.index].astype(int)
+    class_counts = y_fit.value_counts()
+    if len(X) < 10 or class_counts.size != 2 or int(class_counts.min()) < 3:
+        LOGGER.warning(
+            "skipping smart correlation selection; need at least 10 rows and "
+            "3 per class to score roc_auc, got %s rows and class counts %s",
+            len(X),
+            class_counts.to_dict(),
+        )
+        return df
+
+    selector = SmartCorrelatedSelection(
+        method="spearman",
+        threshold=threshold,
+        missing_values="ignore",
+        selection_method="model_performance",
+        estimator=RandomForestClassifier(
+            n_estimators=100,
+            random_state=random_state,
+            n_jobs=1,
+        ),
+        scoring="roc_auc",
+        cv=3,
+    )
+    selector.fit(X, y_fit)
+    drop_columns = [
+        col
+        for col in repair_smart_correlated_groups(
+            selector.correlated_feature_dict_,
+            aucs=aucs,
+            mis=mis,
+            corrs=corrs,
+            force_include_cols=force_include_cols,
+        )
+        if col in df.columns
+    ]
+    return _drop_logged(
+        df,
+        drop_columns,
+        empty="no smart-correlated numeric features found",
+        found="dropping %s smart-correlated numeric features: %s",
+    )
+
+
+def _impute(frame: pd.DataFrame, strategy: str) -> pd.DataFrame:
+    imputer: sklearn.impute.SimpleImputer = sklearn.impute.SimpleImputer(
+        missing_values=np.nan, strategy=strategy
+    ).set_output(transform="pandas")  # type: ignore
+    imputed = imputer.fit_transform(frame)
+    assert isinstance(imputed, pd.DataFrame)
+    return imputed
+
+
+def _imputed_numeric_bool(df: pd.DataFrame) -> pd.DataFrame:
+    """Mean-impute numbers and mode-impute booleans. Other columns are omitted."""
+    frames: list[pd.DataFrame] = []
+    numeric = df.select_dtypes(include=["number"])
+    boolean = df.select_dtypes(include=list(_BOOL))
+    if not numeric.empty:
+        frames.append(_impute(numeric, "mean"))
+    if not boolean.empty:
+        frames.append(_impute(boolean.astype("float64"), "most_frequent"))
+    if not frames:
+        return pd.DataFrame(index=df.index)
+    return pd.concat(frames, axis=1)
+
+
+def _weaker_prefix_twins(
+    columns: list[str],
+    *,
+    selected: set[str],
+    forced: set[str],
+    ineligible: set[str],
+    aucs: pd.Series,
+    mis: pd.Series,
+    corrs: pd.Series,
+) -> tuple[list[str], list[str]]:
+    """Columns to drop so a family keeps one ``frac_`` / ``num_`` / ``cum*`` stem.
+
+    The second list is stronger twins to put back when a weaker twin is already
+    selected. Equal scores keep a fraction, then a count, then a cumulative
+    column. Force-included columns stay.
+    """
+    from edvise.model_prep.target_associations import feature_family
+
+    grouped: dict[str, list[str]] = {}
+    for column in columns:
+        grouped.setdefault(feature_family(column), []).append(column)
+    drop: list[str] = []
+    add: list[str] = []
+    for stem, members in grouped.items():
+        contestants = [
+            column for column in members if column in forced or column not in ineligible
+        ]
+        if len(contestants) < 2:
+            continue
+        protected = [column for column in contestants if column in forced]
+        if len(protected) > 1:
+            LOGGER.warning(
+                "prefix stem '%s' has %s force-included columns; keeping all of them: %s",
+                stem,
+                len(protected),
+                protected,
+            )
+        chosen = (
+            set(protected)
+            if protected
+            else {
+                max(
+                    sorted(contestants),
+                    key=lambda column: (
+                        *_keep_key(column, aucs, mis, corrs),
+                        -(
+                            0
+                            if column.startswith("frac_")
+                            else 1
+                            if column.startswith("num_")
+                            else 3
+                            if column.startswith("cum")
+                            else 2
+                        ),
+                    ),
+                )
+            }
+        )
+        losers = [column for column in members if column not in chosen]
+        if not losers:
+            continue
+        drop.extend(losers)
+        if any(column in selected for column in losers):
+            add.extend(column for column in chosen if column not in selected)
+        LOGGER.info(
+            "prefix stem '%s' keeps %s and drops %s", stem, sorted(chosen), losers
+        )
+    return drop, add
+
+
+def apply_feature_family_quotas(
+    df_selected: pd.DataFrame,
+    df_source: pd.DataFrame,
+    *,
+    candidate_cols: Collection[str],
+    force_include_cols: t.Optional[Collection[str]] = None,
+    incomplete_cols: t.Optional[Collection[str]] = None,
+    aucs: pd.Series | None = None,
+    mis: pd.Series | None = None,
+    corrs: pd.Series | None = None,
+    min_count: int = QUOTA_MIN,
+    max_count: int = QUOTA_MAX,
+) -> pd.DataFrame:
+    """Keep each present quota family between ``min_count`` and ``max_count``.
+
+    Prefix twins in the family collapse to the strongest column first. Below
+    the minimum, restore the strongest dropped member. Above the maximum, drop
+    the weakest member that is not force-included. Force-included columns can
+    leave a family above the maximum. Columns in ``incomplete_cols`` were
+    dropped because they are mostly or entirely null, and stay dropped.
+    """
+    if min_count > max_count:
+        raise ValueError(f"quota min_count={min_count} is above max_count={max_count}")
+    aucs, mis, corrs = _bound_scores(aucs, mis, corrs)
+    selected = set(df_selected.columns)
+    candidates = set(candidate_cols)
+    source_columns = set(df_source.columns)
+    forced = set(force_include_cols or [])
+    mostly_null = set(incomplete_cols or [])
+    restore: list[str] = []
+    trim: list[str] = []
+
+    def rank(column: str) -> tuple[float, float, float]:
+        return _keep_key(column, aucs, mis, corrs)
+
+    for family, members in FEATURE_FAMILIES.items():
+        present = [
+            col for col in members if col in candidates and col in source_columns
+        ]
+        if not present:
+            continue
+        twin_drop, twin_add = _weaker_prefix_twins(
+            present,
+            selected=selected,
+            forced=forced,
+            ineligible=mostly_null,
+            aucs=aucs,
+            mis=mis,
+            corrs=corrs,
+        )
+        if twin_drop:
+            trim.extend(twin_drop)
+            restore.extend(twin_add)
+            present = [col for col in present if col not in set(twin_drop)]
+        survivors = [col for col in present if col in selected or col in restore]
+        dropped = [
+            col for col in present if col not in survivors and col not in mostly_null
+        ]
+        blocked = [
+            col for col in present if col not in survivors and col in mostly_null
+        ]
+        if len(survivors) < min_count and not dropped and blocked:
+            LOGGER.info(
+                "not restoring mostly-null columns %s for quota family '%s'",
+                blocked,
+                family,
+            )
+        while len(survivors) < min_count and dropped:
+            best = max(dropped, key=rank)
+            dropped.remove(best)
+            survivors.append(best)
+            restore.append(best)
+            LOGGER.info(
+                "restoring '%s' so quota family '%s' has at least %s",
+                best,
+                family,
+                min_count,
+            )
+        removable = [col for col in survivors if col not in forced]
+        protected = len(survivors) - len(removable)
+        target = max(max_count, protected)
+        if protected > max_count:
+            LOGGER.warning(
+                "quota family '%s' has %s force-included columns, above the max of %s",
+                family,
+                protected,
+                max_count,
+            )
+        while len(survivors) > target and removable:
+            worst = min(removable, key=rank)
+            removable.remove(worst)
+            survivors.remove(worst)
+            trim.append(worst)
+            LOGGER.info(
+                "dropping '%s' so quota family '%s' stays at most %s",
+                worst,
+                family,
+                max_count,
+            )
+    keep = (selected | set(restore)) - set(trim)
+    if keep == selected:
+        return df_selected
+    return _columns_in_order(df_source, keep)
+
+
 def drop_collinear_features_iteratively(
     df: pd.DataFrame,
     *,
     threshold: float = 10.0,
     force_include_cols: t.Optional[Collection[str]] = None,
+    aucs: pd.Series | None = None,
+    mis: pd.Series | None = None,
+    corrs: pd.Series | None = None,
+    max_drops: int = VIF_MAX_DROPS,
+    timeout_seconds: float = VIF_TIMEOUT_SECONDS,
 ) -> pd.DataFrame:
     """
     Use Variance Inflation Factor (VIF) to drop collinear features iteratively.
 
     The function takes the following steps:
-    1. Selects only numeric features for VIF analysis
+    1. Selects only numeric and boolean features for VIF analysis. Categorical
+       columns are left in place.
     2. Impute missing values - this is required by the variance_inflation_factor()
     function. Because we typically rely on default AutoML strategies for imputation,
     we expect to have null values in our data. TODO: we may want to revisit this
     decision if we want more consistent imputation between the VIF analysis and the
     modeling, perhaps deciding to do our own imputation prior to this VIF analysis.
-    3. Find the highest VIF. If it is over threshold, it is considered too high and the
-    feature is contributing to multicollinearity - we drop this feature.
-    4. Repeat step 3 with the remaining features until there are no VIF >= threshold.
+    3. Among columns whose VIF is still >= ``threshold``, drop the one with the
+    worst keep-score (lowest AUC, then mutual information, then absolute Spearman).
+    When those scores tie, drop the higher VIF. Force-included columns are never
+    dropped. One column is removed, then VIF is recomputed.
+    4. Repeat step 3 until no non-forced column has VIF >= threshold, only a
+    force-included column is left, ``max_drops`` columns have been removed, or
+    ``timeout_seconds`` has elapsed. A cap keeps the columns already dropped and
+    logs the columns that are still at or above the threshold.
 
     Note: the function used, variance_inflation_factor(), does not take an
     intercept into account. See: https://github.com/statsmodels/statsmodels/issues/2376
@@ -248,81 +895,88 @@ def drop_collinear_features_iteratively(
 
     Args:
         df
-        threshold: Variance Inflaction Factor (VIF) above which columns are considered
+        threshold: Variance Inflation Factor (VIF) above which columns are considered
             "multicollinear" and dropped from ``df`` . A VIF of 1 indicates no correlation
             with any other feature; a VIF of 10 is considered "very high" and contributing
             to multicollinearity.
         force_include_cols
+        aucs: Univariate AUC from the training frame. Missing scores count as 0.5.
+        mis: Mutual information from the training frame. Missing scores count as 0.
+        corrs: Spearman correlation with the target. The absolute value is used.
+        max_drops: Most columns this call will drop. The default is 50.
+        timeout_seconds: Wall-clock cap for the loop. The default is 10 minutes.
 
     Returns:
         features not considered collinear according to a VIF threshold
     """
     np.seterr(divide="ignore", invalid="ignore")
-    force_include_cols = force_include_cols or []
-
-    # Identify numeric and boolean columns
-    numeric_df = df.select_dtypes(include=["number"])
-    bool_df = df.select_dtypes(include=["boolean"]).astype("Int64")
-
-    if numeric_df.empty and bool_df.empty:
+    aucs, mis, corrs = _bound_scores(aucs, mis, corrs)
+    # VIF cannot take nulls. Impute only the columns it will score.
+    df_features = _imputed_numeric_bool(df)
+    if df_features.empty:
         LOGGER.warning("no numeric columns found, so no collinear features to drop")
         return df
 
-    # Impute numeric features with mean because VIF function can't handle nulls
-    imputer: sklearn.impute.SimpleImputer = sklearn.impute.SimpleImputer(
-        missing_values=np.nan, strategy="mean"
-    ).set_output(transform="pandas")  # type: ignore
-    df_num_imputed = imputer.fit_transform(numeric_df)
-    assert isinstance(df_num_imputed, pd.DataFrame)
-
-    df_features = df_num_imputed.copy()
-
     n_features_dropped_so_far = 0
-
-    if not bool_df.empty:
-        bool_imputer: sklearn.impute.SimpleImputer = sklearn.impute.SimpleImputer(
-            missing_values=np.nan, strategy="most_frequent"
-        ).set_output(transform="pandas")  # type: ignore
-
-        df_bool_imputed = bool_imputer.fit_transform(bool_df)
-
-        assert isinstance(df_bool_imputed, pd.DataFrame)
-
-        df_features = pd.concat([df_features, df_bool_imputed], axis=1)
-
-    # calculate initial VIFs for features that aren't force-included
-    uncentered_vif_dict = {
-        col: variance_inflation_factor(df_features, col_idx)
-        for col_idx, col in enumerate(df_features.columns)
-        if col not in force_include_cols
-    }
-    if np.isinf(list(uncentered_vif_dict.values())).all():
-        LOGGER.warning(
-            "all features are perfectly correlated with one another; "
-            "no collinear features will be dropped ..."
-        )
-        return df
-
-    while (max_vif := max(uncentered_vif_dict.values())) >= threshold:
-        highest_vif_cols = [
-            col for col, vif in uncentered_vif_dict.items() if vif >= max_vif
-        ]
-        n_features_dropped_so_far += len(highest_vif_cols)
-        LOGGER.info(
-            "dropping %s columns with VIF >= %s: %s ...",
-            len(highest_vif_cols),
-            threshold,
-            highest_vif_cols,
-        )
-        df = df.drop(columns=highest_vif_cols)
-        df_features = df_features.drop(columns=highest_vif_cols)
-
-        # recalculate VIFs after dropping columns
+    forced = set(force_include_cols or [])
+    started = time.monotonic()
+    while True:
+        if df_features.shape[1] < 2:
+            LOGGER.info(
+                "stopping VIF with %s column(s) left",
+                df_features.shape[1],
+            )
+            break
         uncentered_vif_dict = {
             col: variance_inflation_factor(df_features, col_idx)
             for col_idx, col in enumerate(df_features.columns)
-            if col not in force_include_cols
+            if col not in forced
         }
+        if not uncentered_vif_dict:
+            LOGGER.info("only force-included columns remain; stopping VIF")
+            break
+        eligible = {
+            col: float(vif)
+            for col, vif in uncentered_vif_dict.items()
+            if pd.notna(vif) and float(vif) >= threshold
+        }
+        if not eligible:
+            break
+        elapsed = time.monotonic() - started
+        hit_drop_cap = n_features_dropped_so_far >= max_drops
+        hit_timeout = elapsed >= timeout_seconds
+        if hit_drop_cap or hit_timeout:
+            reason = (
+                f"max drops {max_drops}"
+                if hit_drop_cap
+                else f"timeout {timeout_seconds:.0f}s"
+            )
+            LOGGER.warning(
+                "stopping VIF after %s drops (%s); remaining columns with "
+                "VIF >= %s: %s",
+                n_features_dropped_so_far,
+                reason,
+                threshold,
+                dict(sorted(eligible.items(), key=lambda item: -item[1])),
+            )
+            break
+        victim = min(
+            eligible,
+            key=lambda col: (
+                *_keep_key(col, aucs, mis, corrs),
+                -float(eligible[col]),
+                -int(df_features.columns.get_loc(col)),
+            ),
+        )
+        n_features_dropped_so_far += 1
+        LOGGER.info(
+            "dropping '%s' with VIF %s (lowest keep-score among VIF >= %s)",
+            victim,
+            eligible[victim],
+            threshold,
+        )
+        df = df.drop(columns=[victim])
+        df_features = df_features.drop(columns=[victim])
 
     LOGGER.info("dropping %s collinear features", n_features_dropped_so_far)
 
