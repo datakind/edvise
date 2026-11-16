@@ -46,9 +46,7 @@ def register_attribute_sections(card, registry):
                 )
             description = f"This model predicts the likelihood of {outcome} based on student, course, and academic data."
         else:
-            # Selection limits are optional; graduation/credits_earned require
-            # target.intensity_time_limits, so fall back when selection omits them.
-            limits = card.cfg.preprocessing.selection.intensity_time_limits or getattr(
+            limits = getattr(
                 card.cfg.preprocessing.target, "intensity_time_limits", None
             )
 

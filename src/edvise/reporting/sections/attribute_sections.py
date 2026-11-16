@@ -34,9 +34,8 @@ def register_attribute_sections(card, registry):
         with the SST.
         """
         name = card.cfg.preprocessing.target.name
-        limits = (
-            card.cfg.preprocessing.selection.intensity_time_limits
-            or card.cfg.preprocessing.target.intensity_time_limits
+        limits = getattr(
+            card.cfg.preprocessing.target, "intensity_time_limits", None
         )
         if not name or not limits:
             LOGGER.warning(
