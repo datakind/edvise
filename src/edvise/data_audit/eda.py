@@ -26,6 +26,51 @@ ES_COHORT_PCT_BREAKDOWN_COLS: dict[str, str] = {
     "intended_program_type": "intended program types",
 }
 
+# Edvise Schema (ES) cohort column -> PDP / EdaSummary expected name.
+# Used so webapp EDA charts work for ES batches without a second summary class.
+ES_TO_PDP_EDA_COLUMN_ALIASES: dict[str, str] = {
+    "learner_id": "student_id",
+    "learner_age": "student_age",
+    "entry_year": "cohort",
+    "entry_term": "cohort_term",
+    "intended_program_type": "credential_type_sought_year_1",
+    "pell_recipient_year1": "pell_status_first_year",
+    "first_generation_status": "first_gen",
+}
+
+_FIRST_GEN_ALIAS_ALLOWED_VALUES = frozenset({"Y", "N", "YES", "NO"})
+
+
+def normalize_eda_cohort_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Alias ES cohort column names to the PDP names ``EdaSummary`` expects.
+
+    If the PDP target column already exists, it is left unchanged (PDP wins).
+    ``first_generation_status`` is only aliased to ``first_gen`` when values are
+    Y/N-compatible, matching chart logic that maps those codes to Yes/No.
+    """
+    rename_map: dict[str, str] = {}
+    for es_name, pdp_name in ES_TO_PDP_EDA_COLUMN_ALIASES.items():
+        if pdp_name in df.columns or es_name not in df.columns:
+            continue
+        if es_name == "first_generation_status":
+            vals = (
+                df[es_name].dropna().astype(str).str.strip().str.upper()
+            )
+            uniq = {v for v in vals.tolist() if v}
+            if uniq and not uniq.issubset(_FIRST_GEN_ALIAS_ALLOWED_VALUES):
+                LOGGER.warning(
+                    "Skipping first_generation_status -> first_gen alias: "
+                    "values are not Y/N-compatible (%s)",
+                    sorted(uniq)[:10],
+                )
+                continue
+        rename_map[es_name] = pdp_name
+    if not rename_map:
+        return df
+    LOGGER.debug("EDA cohort column aliases applied: %s", rename_map)
+    return df.rename(columns=rename_map)
+
 
 def assess_unique_values(data: pd.DataFrame, cols: str | list[str]) -> dict[str, int]:
     """
@@ -1923,10 +1968,12 @@ class EdaSummary:
 
         Args:
             df_cohort: DataFrame containing cohort/student data with columns like
-                'study_id', 'enrollment_type', 'gpa_group_year_1', etc.
+                'student_id', 'enrollment_type', 'gpa_group_year_1', etc.
+                ES column names (e.g. ``learner_id``, ``entry_year``) are aliased
+                to the PDP names chart methods expect.
             df_course: Optional DataFrame containing course data
         """
-        self.df_cohort = df_cohort
+        self.df_cohort = normalize_eda_cohort_columns(df_cohort)
         self.df_course = df_course
 
     def cohort_years(self, formatted: bool = True) -> list[str]:
