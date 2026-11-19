@@ -124,17 +124,6 @@ def test_select_features_does_not_apply_variance_threshold(df, caplog):
     )
 
 
-def test_drop_collinear_features_iteratively():
-    related_features = pd.DataFrame(
-        {"A": [1, 2, 3, 4, 5], "B": [6, 7, 8, 9, 10], "C": [6.5, 1.5, 4, 3.5, 2]}
-    )
-    returned_df = fs.drop_collinear_features_iteratively(
-        related_features, force_include_cols=[]
-    )
-    assert returned_df.columns.tolist() == ["A", "C"]
-    assert returned_df.shape[0] == related_features.shape[0]
-
-
 def test_drop_duplicate_features_bool_matches_numeric_twin():
     related_features = pd.DataFrame(
         {
@@ -209,11 +198,10 @@ def test_drop_duplicate_features_warns_when_force_includes_match(caplog):
     )
 
 
-def test_select_features_drops_identical_columns_before_vif():
+def test_select_features_drops_identical_columns_before_model_selection():
     """Identical numerics are removed even when the frame has no boolean column.
 
-    A copy that reached VIF would be dropped together with its twin, because both
-    have infinite VIF. Keeping the earlier column shows the duplicate step ran first.
+    Keeping the earlier column shows the duplicate step ran before the model.
     """
     features = pd.DataFrame(
         {
@@ -232,18 +220,191 @@ def test_select_features_drops_identical_columns_before_vif():
     assert returned_df.columns.tolist() == ["a", "b_copy", "c"]
 
 
-def test_drop_collinear_features_iteratively_force_include():
-    related_features = pd.DataFrame(
-        {"A": [1, 2, 3, 4, 5], "B": [6, 7, 8, 9, 10], "C": [6.5, 1.5, 4, 3.5, 2]}
+def _predictive_frame() -> pd.DataFrame:
+    signal = np.linspace(-3, 3, 120)
+    rng = np.random.default_rng(0)
+    return pd.DataFrame(
+        {
+            "target": (signal > 0).astype(int),
+            "frac_courses_passed": signal,
+            "num_credits_earned": rng.normal(size=signal.shape[0]),
+            "noise": rng.normal(size=signal.shape[0]),
+        }
     )
-    returned_df = fs.drop_collinear_features_iteratively(
-        related_features, force_include_cols=["B"]
-    )
-    assert returned_df.columns.tolist() == ["B", "C"]
-    assert returned_df.shape[0] == related_features.shape[0]
 
 
-def test_drop_collinear_features_iteratively_fails_with_one_feature_left():
-    related_features = pd.DataFrame({"A": [1, 2, 3, 4, 5], "B": [6, 7, 8, 9, 10]})
-    with pytest.raises(Exception):
-        fs.drop_collinear_features_iteratively(related_features)
+def test_shuffling_keeps_the_predictive_feature_and_force_include():
+    features = _predictive_frame()
+    returned = fs.drop_by_shuffling(
+        features.drop(columns=["target"]),
+        target_col="target",
+        target=features["target"],
+        force_include_cols=["num_credits_earned"],
+        random_state=0,
+    )
+    assert "frac_courses_passed" in returned.columns
+    assert "num_credits_earned" in returned.columns
+    assert "noise" not in returned.columns
+    assert returned.shape[0] == len(features)
+
+
+def test_select_features_restores_an_empty_family_after_shuffling():
+    features = _predictive_frame()
+    predictors = features.drop(columns=["target"])
+    shuffled = fs.drop_by_shuffling(
+        predictors,
+        target_col="target",
+        target=features["target"],
+        random_state=0,
+    )
+    assert "frac_courses_passed" in shuffled.columns
+    assert "num_credits_earned" not in shuffled.columns
+    assert "noise" not in shuffled.columns
+    returned = fs.select_features(
+        features,
+        non_feature_cols=["target"],
+        target_col="target",
+        random_state=0,
+    )
+    assert "frac_courses_passed" in returned.columns
+    assert "num_credits_earned" in returned.columns
+    assert "noise" not in returned.columns
+    assert "target" in returned.columns
+
+
+def test_apply_feature_family_quotas_does_not_restore_mostly_null_columns():
+    source = pd.DataFrame(
+        {
+            "frac_courses_passed": [0.2, 0.8, 0.4, 0.9],
+            "num_courses_passed": [pd.NA, pd.NA, pd.NA, 1],
+            "course_grade_numeric_mean_diff_prev_term": [pd.NA, pd.NA, pd.NA, pd.NA],
+            "noise": [1, 0, 1, 0],
+        }
+    )
+    selected = source.loc[:, ["noise"]]
+    restored = fs.apply_feature_family_quotas(
+        selected,
+        source,
+        candidate_cols=source.columns,
+        incomplete_cols=[
+            "num_courses_passed",
+            "course_grade_numeric_mean_diff_prev_term",
+        ],
+        aucs=pd.Series(
+            {
+                "frac_courses_passed": 0.90,
+                "num_courses_passed": 0.99,
+                "course_grade_numeric_mean_diff_prev_term": 0.99,
+            }
+        ),
+    )
+    assert restored.columns.tolist() == ["frac_courses_passed", "noise"]
+
+
+def test_select_features_leaves_mostly_null_columns_dropped():
+    features = pd.DataFrame(
+        {
+            "target": [0, 1, 0, 1],
+            "frac_courses_passed": [0.2, 0.8, 0.4, 0.9],
+            "num_courses_passed": [pd.NA, pd.NA, pd.NA, 1],
+            "course_grade_numeric_mean_diff_prev_term": [pd.NA, pd.NA, pd.NA, pd.NA],
+        }
+    )
+    selected = fs.select_features(
+        features,
+        non_feature_cols=["target"],
+        target_col="target",
+        collinear_threshold=None,
+    )
+    assert "frac_courses_passed" in selected.columns
+    assert "num_courses_passed" not in selected.columns
+    assert "course_grade_numeric_mean_diff_prev_term" not in selected.columns
+
+
+def test_apply_feature_family_quotas_drops_weakest_above_the_max():
+    source = pd.DataFrame(
+        {
+            "frac_courses_passed": [0.2, 0.8, 0.4, 0.9],
+            "frac_courses_completed": [0.1, 0.7, 0.2, 0.8],
+            "frac_courses_grade_above_section_avg": [0.0, 1.0, 0.0, 1.0],
+            "student_pass_rate_above_sections_avg": [0, 0, 1, 1],
+            "noise": [1, 0, 1, 0],
+        }
+    )
+    trimmed = fs.apply_feature_family_quotas(
+        source,
+        source,
+        candidate_cols=source.columns,
+        max_count=3,
+        aucs=pd.Series(
+            {
+                "frac_courses_passed": 0.90,
+                "frac_courses_completed": 0.80,
+                "frac_courses_grade_above_section_avg": 0.70,
+                "student_pass_rate_above_sections_avg": 0.10,
+            }
+        ),
+    )
+    assert trimmed.columns.tolist() == [
+        "frac_courses_passed",
+        "frac_courses_completed",
+        "frac_courses_grade_above_section_avg",
+        "noise",
+    ]
+
+
+def test_apply_feature_family_quotas_keeps_force_includes_above_the_max(caplog):
+    source = pd.DataFrame(
+        {
+            "frac_courses_passed": [0.2, 0.8, 0.4, 0.9],
+            "num_courses_passed": [1, 4, 2, 5],
+            "noise": [1, 0, 1, 0],
+        }
+    )
+    with caplog.at_level("WARNING"):
+        kept = fs.apply_feature_family_quotas(
+            source,
+            source,
+            candidate_cols=source.columns,
+            force_include_cols=["frac_courses_passed", "num_courses_passed"],
+            max_count=1,
+            aucs=pd.Series({"frac_courses_passed": 0.90, "num_courses_passed": 0.20}),
+        )
+    assert kept.columns.tolist() == [
+        "frac_courses_passed",
+        "num_courses_passed",
+        "noise",
+    ]
+    assert any("force-included" in message for message in caplog.messages)
+
+
+def test_apply_feature_family_quotas_keeps_one_prefix_twin():
+    source = pd.DataFrame(
+        {
+            "num_credits_earned": [1, 4, 2, 8],
+            "frac_credits_earned": [0.1, 0.4, 0.2, 0.8],
+            "cummin_num_credits_earned": [1, 1, 1, 1],
+            "num_courses_grade_is_failing_or_withdrawal": [1, 2, 1, 2],
+            "frac_courses_grade_is_failing_or_withdrawal": [0.2, 0.5, 0.1, 0.4],
+            "noise": [0, 1, 0, 1],
+        }
+    )
+    kept = fs.apply_feature_family_quotas(
+        source.drop(columns=["frac_credits_earned", "cummin_num_credits_earned"]),
+        source,
+        candidate_cols=source.columns,
+        aucs=pd.Series(
+            {
+                "frac_credits_earned": 0.95,
+                "num_credits_earned": 0.70,
+                "cummin_num_credits_earned": 0.40,
+                "frac_courses_grade_is_failing_or_withdrawal": 0.80,
+                "num_courses_grade_is_failing_or_withdrawal": 0.80,
+            }
+        ),
+    )
+    assert kept.columns.tolist() == [
+        "frac_credits_earned",
+        "frac_courses_grade_is_failing_or_withdrawal",
+        "noise",
+    ]
