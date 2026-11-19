@@ -47,8 +47,7 @@ def test_outcome_variants(
     mock_card, outcome_type, time_limits, extra_config, expected_snippet
 ):
     mock_card.cfg.preprocessing.target.type_ = outcome_type
-    mock_card.cfg.preprocessing.selection.intensity_time_limits = time_limits
-    mock_card.cfg.preprocessing.target.intensity_time_limits = None
+    mock_card.cfg.preprocessing.target.intensity_time_limits = time_limits
 
     # Patching checkpoint since we are testing outcome
     mock_card.cfg.preprocessing.checkpoint.type_ = "nth"
@@ -78,29 +77,8 @@ def _stub_checkpoint_for_outcome(mock_card):
     mock_card.cfg.preprocessing.selection.student_criteria = {}
 
 
-def test_outcome_falls_back_to_target_intensity_time_limits(mock_card):
-    """Selection intensity_time_limits is optional; use target when omitted."""
-    mock_card.cfg.preprocessing.target.type_ = "graduation"
-    mock_card.cfg.preprocessing.selection.intensity_time_limits = None
-    mock_card.cfg.preprocessing.target.intensity_time_limits = {
-        "FULL-TIME": (2.0, "year"),
-        "PART-TIME": (3.0, "year"),
-    }
-    _stub_checkpoint_for_outcome(mock_card)
-
-    registry = SectionRegistry()
-    pdp_attribute_sections.register_attribute_sections(mock_card, registry)
-    rendered = registry.render_all()
-
-    assert (
-        "not graduating on time within 2 years for full-time students, "
-        "and within 3 years for part-time students" in rendered["outcome_section"]
-    )
-
-
 def test_outcome_missing_intensity_time_limits(mock_card):
     mock_card.cfg.preprocessing.target.type_ = "graduation"
-    mock_card.cfg.preprocessing.selection.intensity_time_limits = None
     mock_card.cfg.preprocessing.target.intensity_time_limits = None
     _stub_checkpoint_for_outcome(mock_card)
 
