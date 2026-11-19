@@ -17,7 +17,7 @@ def mock_card():
 
 def test_outcome_graduation_and_full_time_limit(mock_card):
     mock_card.cfg.preprocessing.target.name = "graduation"
-    mock_card.cfg.preprocessing.selection.intensity_time_limits = {
+    mock_card.cfg.preprocessing.target.intensity_time_limits = {
         "FULL-TIME": (2.0, "year"),
         "PART-TIME": (3, "year"),
     }
@@ -35,7 +35,7 @@ def test_outcome_graduation_and_full_time_limit(mock_card):
 
 def test_outcome_missing_target_or_limits(mock_card):
     mock_card.cfg.preprocessing.target.name = ""
-    mock_card.cfg.preprocessing.selection.intensity_time_limits = {}
+    mock_card.cfg.preprocessing.target.intensity_time_limits = {}
 
     registry = SectionRegistry()
     register_attribute_sections(mock_card, registry)
