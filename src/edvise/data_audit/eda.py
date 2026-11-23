@@ -54,9 +54,7 @@ def normalize_eda_cohort_columns(df: pd.DataFrame) -> pd.DataFrame:
         if pdp_name in df.columns or es_name not in df.columns:
             continue
         if es_name == "first_generation_status":
-            vals = (
-                df[es_name].dropna().astype(str).str.strip().str.upper()
-            )
+            vals = df[es_name].dropna().astype(str).str.strip().str.upper()
             uniq = {v for v in vals.tolist() if v}
             if uniq and not uniq.issubset(_FIRST_GEN_ALIAS_ALLOWED_VALUES):
                 LOGGER.warning(
