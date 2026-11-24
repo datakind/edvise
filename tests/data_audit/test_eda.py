@@ -459,6 +459,141 @@ class TestEdaSummary:
         assert first == second  # Values should also be equal
 
 
+class TestEdaSummaryEsColumnAliases:
+    """ES cohort columns alias to PDP names so AC EDA charts still compute."""
+
+    @pytest.fixture
+    def sample_es_cohort_data(self) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "learner_id": ["L1", "L2", "L3", "L4"],
+                "entry_year": ["2020-21", "2020-21", "2021-22", "2021-22"],
+                "entry_term": ["Fall", "Spring", "Fall", "Fall"],
+                "enrollment_type": [
+                    "FIRST-TIME",
+                    "TRANSFER-IN",
+                    "FIRST-TIME",
+                    "RE-ADMIT",
+                ],
+                "intended_program_type": [
+                    "Associate of Arts",
+                    "Bachelor of Science",
+                    "Associate of Arts",
+                    "Certificate",
+                ],
+                "pell_recipient_year1": ["Y", "N", "Y", "N"],
+                "first_generation_status": ["Y", "N", "Y", "N"],
+                "learner_age": [
+                    "20 AND YOUNGER",
+                    ">20 - 24",
+                    "OLDER THAN 24",
+                    "20 AND YOUNGER",
+                ],
+                "gender": ["F", "M", "F", "M"],
+                "race": ["White", "Hispanic", "White", "Asian"],
+            }
+        )
+
+    def test_normalize_aliases_es_columns(self, sample_es_cohort_data):
+        from edvise.data_audit.eda import normalize_eda_cohort_columns
+
+        out = normalize_eda_cohort_columns(sample_es_cohort_data)
+        assert "student_id" in out.columns
+        assert "cohort" in out.columns
+        assert "cohort_term" in out.columns
+        assert "credential_type_sought_year_1" in out.columns
+        assert "pell_status_first_year" in out.columns
+        assert "first_gen" in out.columns
+        assert "student_age" in out.columns
+        assert "learner_id" not in out.columns
+
+    def test_pdp_column_names_preferred_over_es_aliases(self):
+        from edvise.data_audit.eda import normalize_eda_cohort_columns
+
+        df = pd.DataFrame(
+            {
+                "student_id": ["S1"],
+                "learner_id": ["L1"],
+                "cohort": ["2020-21"],
+                "entry_year": ["2019-20"],
+            }
+        )
+        out = normalize_eda_cohort_columns(df)
+        assert list(out["student_id"]) == ["S1"]
+        assert list(out["cohort"]) == ["2020-21"]
+        assert "learner_id" in out.columns
+        assert "entry_year" in out.columns
+
+    def test_first_gen_alias_skipped_for_non_yn_values(self):
+        from edvise.data_audit.eda import normalize_eda_cohort_columns
+
+        df = pd.DataFrame(
+            {
+                "learner_id": ["L1", "L2"],
+                "first_generation_status": ["First Gen", "Not First Gen"],
+            }
+        )
+        out = normalize_eda_cohort_columns(df)
+        assert "first_gen" not in out.columns
+        assert "first_generation_status" in out.columns
+
+    def test_ac_charts_work_with_es_column_names(self, sample_es_cohort_data):
+        eda = EdaSummary(sample_es_cohort_data)
+
+        assert eda.total_students == {"name": "Total Students", "value": 4}
+
+        age = eda.student_age_by_gender
+        assert age is not None
+        assert set(age["categories"]) == {"F", "M"}
+        assert {s["name"] for s in age["series"]} == {
+            "20 And Younger",
+            ">20 - 24",
+            "Older Than 24",
+        }
+
+        cohort_term = eda.students_by_cohort_term
+        assert cohort_term is not None
+        assert cohort_term["years"] == ["2020 - 21", "2021 - 22"]
+        assert len(cohort_term["by_year"]) == 2
+
+        race = eda.race_by_pell_status
+        assert race is not None
+        assert set(race["categories"]) == {"Asian", "Hispanic", "White"}
+        assert {s["name"] for s in race["series"]} == {"No", "Yes"}
+
+        pell_fg = eda.pell_recipient_by_first_gen
+        assert pell_fg is not None
+        assert set(pell_fg["categories"]) == {"No", "Yes"}
+
+        degrees = eda.degree_types
+        assert degrees is not None
+        assert degrees["total"] == 4
+        names = {d["name"] for d in degrees["degrees"]}
+        assert "Associate Of Arts" in names
+        assert "Bachelor Of Science" in names
+
+    def test_optional_es_demo_missing_hides_those_charts_only(
+        self, sample_es_cohort_data
+    ):
+        df = sample_es_cohort_data.drop(
+            columns=[
+                "pell_recipient_year1",
+                "first_generation_status",
+                "race",
+                "learner_age",
+                "gender",
+            ]
+        )
+        eda = EdaSummary(df)
+        assert eda.total_students["value"] == 4
+        assert eda.students_by_cohort_term is not None
+        assert eda.degree_types is not None
+        assert eda.pell_recipient_by_first_gen is None
+        assert eda.pell_recipient_status is None
+        assert eda.race_by_pell_status is None
+        assert eda.student_age_by_gender is None
+
+
 def test_log_grade_distribution_flags_lack_of_numeric_grades(caplog):
     """Flag when grades are only status codes (P, F, I, W, A, M, O)."""
     df = pd.DataFrame({"grade": ["P", "F", "P", "W", "I", "M"]})
