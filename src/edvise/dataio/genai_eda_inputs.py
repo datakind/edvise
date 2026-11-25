@@ -24,14 +24,12 @@ from databricks.sdk.service.sql import (
 )
 
 from edvise.dataio.batch_gcs_inference_ingest import BRONZE_GCS_UPLOADS_SUBDIR
+from edvise.dataio.genai_registry_paths import pipeline_input_dir
 from edvise.genai.mapping.state._sql import PIPELINE_RUNS, lit, qualified_table
 from edvise.runtime.versioned_inference.genai_registry import silver_volume_root
 from edvise.utils.institution_naming import databricksify_inst_name
 
 LOGGER = logging.getLogger(__name__)
-
-# Terminal success statuses written by GenAI mapping execute.
-_COMPLETED_RUN_STATUSES = frozenset({"complete", "completed"})
 
 # Webapp batch ids are UUID hex strings (with or without hyphens).
 _BATCH_ID_RE = re.compile(r"^[0-9a-fA-F-]{32,36}$")
@@ -49,7 +47,9 @@ class GenaiMappedInputs:
 def _validate_batch_id(batch_id: str) -> str:
     cleaned = batch_id.strip()
     if not _BATCH_ID_RE.fullmatch(cleaned):
-        raise ValueError(f"Invalid batch_id for GenAI mapped-input lookup: {batch_id!r}")
+        raise ValueError(
+            f"Invalid batch_id for GenAI mapped-input lookup: {batch_id!r}"
+        )
     return cleaned
 
 
@@ -71,7 +71,7 @@ def pipeline_input_parquet_paths(
     if not run_id:
         raise ValueError("execute_run_id must be a non-empty string")
     silver = silver_volume_root(catalog, institution_id).as_posix()
-    root = f"{silver}/genai_mapping/runs/execute/{run_id}/pipeline_input"
+    root = pipeline_input_dir(silver, mode="execute", run_id=run_id).replace("\\", "/")
     return f"{root}/cohort.parquet", f"{root}/course.parquet"
 
 
@@ -121,18 +121,18 @@ def _execute_sql(
     return [dict(zip(cols, row)) for row in rows]
 
 
-def lookup_genai_execute_runs_for_batch(
+def lookup_latest_complete_genai_execute_run_for_batch(
     workspace: WorkspaceClient,
     *,
     warehouse_id: str,
     catalog: str,
     institution_id: str,
     batch_id: str,
-) -> list[dict[str, Any]]:
+) -> Optional[dict[str, Any]]:
     """
-    Return execute-mode ``pipeline_runs`` rows tied to ``gcs_uploads/{batch_id}``.
+    Latest completed execute-mode ``pipeline_runs`` row for ``gcs_uploads/{batch_id}``.
 
-    Newest ``updated_at`` first.
+    Returns ``None`` when no completed execute run exists for this batch.
     """
     cleaned_batch = _validate_batch_id(batch_id)
     needle = f"{BRONZE_GCS_UPLOADS_SUBDIR}/{cleaned_batch}"
@@ -142,11 +142,13 @@ SELECT execute_run_id, status, updated_at, input_file_paths
 FROM {table}
 WHERE institution_id = {lit(institution_id)}
   AND execute_run_id IS NOT NULL
+  AND status = 'complete'
   AND input_file_paths LIKE {lit("%" + needle + "%")}
 ORDER BY updated_at DESC
-LIMIT 20
+LIMIT 1
 """
-    return _execute_sql(workspace, warehouse_id=warehouse_id, statement=sql)
+    rows = _execute_sql(workspace, warehouse_id=warehouse_id, statement=sql)
+    return rows[0] if rows else None
 
 
 def resolve_genai_mapped_inputs_for_batch(
@@ -175,25 +177,17 @@ def resolve_genai_mapped_inputs_for_batch(
         Databricks SQL lookup or volume parquet download/load failure.
     """
     inst_slug = databricksify_inst_name(institution_name)
-    rows = lookup_genai_execute_runs_for_batch(
+    row = lookup_latest_complete_genai_execute_run_for_batch(
         workspace,
         warehouse_id=warehouse_id,
         catalog=catalog,
         institution_id=inst_slug,
         batch_id=batch_id,
     )
-    if not rows:
+    if row is None:
         return None
 
-    complete_rows = [
-        r
-        for r in rows
-        if str(r.get("status") or "").strip().lower() in _COMPLETED_RUN_STATUSES
-    ]
-    if not complete_rows:
-        return None
-
-    execute_run_id = str(complete_rows[0].get("execute_run_id") or "").strip()
+    execute_run_id = str(row.get("execute_run_id") or "").strip()
     if not execute_run_id:
         return None
 
@@ -213,11 +207,11 @@ def resolve_genai_mapped_inputs_for_batch(
     df_cohort = _read_volume_parquet(workspace, cohort_path)
     df_course = _read_volume_parquet(workspace, course_path)
 
-    if df_cohort is None or df_cohort.empty:
+    if df_cohort.empty:
         return None
 
     return GenaiMappedInputs(
         execute_run_id=execute_run_id,
         df_cohort=df_cohort,
-        df_course=df_course if df_course is not None else None,
+        df_course=df_course,
     )

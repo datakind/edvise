@@ -8,11 +8,7 @@ import pandas as pd
 import pytest
 
 from edvise.dataio import genai_eda_inputs as gei
-from edvise.genai.mapping.state._sql import lit, qualified_table
-
-
-def test_lit_escape_used_for_sql() -> None:
-    assert lit("a'b") == "'a''b'"
+from edvise.genai.mapping.state._sql import qualified_table
 
 
 def test_pipeline_input_parquet_paths_layout() -> None:
@@ -30,7 +26,7 @@ def test_pipeline_input_parquet_paths_layout() -> None:
 
 def test_lookup_rejects_unsafe_batch_id() -> None:
     with pytest.raises(ValueError, match="Invalid batch_id"):
-        gei.lookup_genai_execute_runs_for_batch(
+        gei.lookup_latest_complete_genai_execute_run_for_batch(
             mock.Mock(),
             warehouse_id="wh",
             catalog="dev_sst_02",
@@ -39,10 +35,10 @@ def test_lookup_rejects_unsafe_batch_id() -> None:
         )
 
 
-def test_lookup_builds_pipeline_runs_sql() -> None:
+def test_lookup_builds_complete_execute_sql() -> None:
     workspace = mock.Mock()
     with mock.patch.object(gei, "_execute_sql", return_value=[]) as exec_sql:
-        gei.lookup_genai_execute_runs_for_batch(
+        result = gei.lookup_latest_complete_genai_execute_run_for_batch(
             workspace,
             warehouse_id="wh",
             catalog="dev_sst_02",
@@ -50,38 +46,20 @@ def test_lookup_builds_pipeline_runs_sql() -> None:
             batch_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         )
 
+    assert result is None
     statement = exec_sql.call_args.kwargs["statement"]
     assert qualified_table("dev_sst_02", "pipeline_runs") in statement
     assert "gcs_uploads/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" in statement
     assert "execute_run_id IS NOT NULL" in statement
+    assert "status = 'complete'" in statement
     assert "ORDER BY updated_at DESC" in statement
+    assert "LIMIT 1" in statement
 
 
 def test_resolve_returns_none_when_no_pipeline_rows() -> None:
     workspace = mock.Mock()
-    with mock.patch.object(gei, "lookup_genai_execute_runs_for_batch", return_value=[]):
-        result = gei.resolve_genai_mapped_inputs_for_batch(
-            workspace,
-            warehouse_id="wh",
-            catalog="dev_sst_02",
-            institution_name="Test School",
-            batch_id="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        )
-    assert result is None
-
-
-def test_resolve_returns_none_when_only_running_rows() -> None:
-    workspace = mock.Mock()
-    rows = [
-        {
-            "execute_run_id": "ex-1",
-            "status": "running",
-            "updated_at": "2026-01-01",
-            "input_file_paths": "gcs_uploads/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        }
-    ]
     with mock.patch.object(
-        gei, "lookup_genai_execute_runs_for_batch", return_value=rows
+        gei, "lookup_latest_complete_genai_execute_run_for_batch", return_value=None
     ):
         result = gei.resolve_genai_mapped_inputs_for_batch(
             workspace,
@@ -95,19 +73,19 @@ def test_resolve_returns_none_when_only_running_rows() -> None:
 
 def test_resolve_ready_loads_parquets() -> None:
     workspace = mock.Mock()
-    rows = [
-        {
-            "execute_run_id": "ex-ready",
-            "status": "complete",
-            "updated_at": "2026-01-02",
-            "input_file_paths": ".../gcs_uploads/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/...",
-        }
-    ]
+    row = {
+        "execute_run_id": "ex-ready",
+        "status": "complete",
+        "updated_at": "2026-01-02",
+        "input_file_paths": ".../gcs_uploads/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/...",
+    }
     cohort = pd.DataFrame({"learner_id": ["L1"], "entry_year": ["2020-21"]})
     course = pd.DataFrame({"learner_id": ["L1"], "grade": ["3.0"]})
 
     with (
-        mock.patch.object(gei, "lookup_genai_execute_runs_for_batch", return_value=rows),
+        mock.patch.object(
+            gei, "lookup_latest_complete_genai_execute_run_for_batch", return_value=row
+        ),
         mock.patch.object(
             gei,
             "_read_volume_parquet",
@@ -130,16 +108,16 @@ def test_resolve_ready_loads_parquets() -> None:
 
 def test_resolve_raises_when_parquet_load_fails() -> None:
     workspace = mock.Mock()
-    rows = [
-        {
-            "execute_run_id": "ex-ready",
-            "status": "complete",
-            "updated_at": "2026-01-02",
-            "input_file_paths": ".../gcs_uploads/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/...",
-        }
-    ]
+    row = {
+        "execute_run_id": "ex-ready",
+        "status": "complete",
+        "updated_at": "2026-01-02",
+        "input_file_paths": ".../gcs_uploads/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/...",
+    }
     with (
-        mock.patch.object(gei, "lookup_genai_execute_runs_for_batch", return_value=rows),
+        mock.patch.object(
+            gei, "lookup_latest_complete_genai_execute_run_for_batch", return_value=row
+        ),
         mock.patch.object(
             gei, "_read_volume_parquet", side_effect=FileNotFoundError("missing")
         ),
@@ -156,16 +134,16 @@ def test_resolve_raises_when_parquet_load_fails() -> None:
 
 def test_resolve_returns_none_when_cohort_empty() -> None:
     workspace = mock.Mock()
-    rows = [
-        {
-            "execute_run_id": "ex-ready",
-            "status": "complete",
-            "updated_at": "2026-01-02",
-            "input_file_paths": ".../gcs_uploads/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/...",
-        }
-    ]
+    row = {
+        "execute_run_id": "ex-ready",
+        "status": "complete",
+        "updated_at": "2026-01-02",
+        "input_file_paths": ".../gcs_uploads/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/...",
+    }
     with (
-        mock.patch.object(gei, "lookup_genai_execute_runs_for_batch", return_value=rows),
+        mock.patch.object(
+            gei, "lookup_latest_complete_genai_execute_run_for_batch", return_value=row
+        ),
         mock.patch.object(
             gei,
             "_read_volume_parquet",
