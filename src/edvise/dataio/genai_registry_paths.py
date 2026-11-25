@@ -14,7 +14,13 @@ LOGGER = logging.getLogger(__name__)
 _REGISTRY_REL = ("genai_mapping", "active", "genai_active_registry.json")
 
 
-def _pipeline_input_dir(silver_root: str, *, mode: str, run_id: str) -> str:
+def pipeline_input_dir(silver_root: str, *, mode: str, run_id: str) -> str:
+    """
+    ``{silver_root}/genai_mapping/runs/{mode}/{run_id}/pipeline_input``.
+
+    ``mode`` is typically ``onboard`` or ``execute``. Path separators follow the
+    local OS (callers that need UC volume paths should normalize to ``/``).
+    """
     return os.path.join(
         silver_root,
         "genai_mapping",
@@ -63,7 +69,7 @@ def resolve_genai_pipeline_input_dir(
         )
 
     if mode == "training":
-        onboard_path = _pipeline_input_dir(
+        onboard_path = pipeline_input_dir(
             silver_root, mode="onboard", run_id=onboard_run_id
         )
         if not path_exists(onboard_path):
@@ -84,7 +90,7 @@ def resolve_genai_pipeline_input_dir(
             f"GenAI active registry at {registry_path!r} has no execute_run_id; "
             "inference requires a completed genai mapping execute run."
         )
-    execute_path = _pipeline_input_dir(
+    execute_path = pipeline_input_dir(
         silver_root, mode="execute", run_id=execute_run_id
     )
     if not path_exists(execute_path):
