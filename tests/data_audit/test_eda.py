@@ -594,6 +594,141 @@ class TestEdaSummaryEsColumnAliases:
         assert eda.student_age_by_gender is None
 
 
+class TestEdaSummaryYear1FeatureDerivation:
+    """Derive gpa_group_year_1 / enrollment_intensity_first_term from course rows."""
+
+    @pytest.fixture
+    def es_cohort(self) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "learner_id": ["L1", "L2", "L3"],
+                "entry_year": ["2020-21", "2020-21", "2021-22"],
+                "entry_term": ["Fall", "Fall", "Spring"],
+                "enrollment_type": ["FIRST-TIME", "FIRST-TIME", "TRANSFER-IN"],
+            }
+        )
+
+    @pytest.fixture
+    def es_course(self) -> pd.DataFrame:
+        # L1 Fall 2020-21: 3cr A + 3cr B; Spring 3cr A → year GPA (4*3+3*3+4*3)/9
+        #     first-term credits = 6 → PART-TIME
+        # L2 Fall 2020-21: 12cr A = 4.0 GPA; 12 credits → FULL-TIME
+        # L2 later year course ignored for year-1 GPA
+        # L3 Spring 2021-22: 4cr numeric 3.5 + 4cr P (excluded from GPA) + 4cr C
+        #     → GPA (3.5*4+2*4)/8 = 2.75; first-term credits 12 → FULL-TIME
+        return pd.DataFrame(
+            {
+                "learner_id": [
+                    "L1",
+                    "L1",
+                    "L1",
+                    "L2",
+                    "L2",
+                    "L3",
+                    "L3",
+                    "L3",
+                ],
+                "academic_year": [
+                    "2020-21",
+                    "2020 - 21",
+                    "2020-21",
+                    "2020-21",
+                    "2021-22",
+                    "2021-22",
+                    "2021-22",
+                    "2021-22",
+                ],
+                "academic_term": [
+                    "Fall",
+                    "FALL",
+                    "Spring",
+                    "Fall",
+                    "Fall",
+                    "Spring",
+                    "Spring",
+                    "Spring",
+                ],
+                "grade": ["A", "B", "A", "A", "C", "3.5", "P", "C"],
+                "course_credits_attempted": [3, 3, 3, 12, 3, 4, 4, 4],
+            }
+        )
+
+    def test_enrich_derives_credit_weighted_gpa_and_intensity(
+        self, es_cohort, es_course
+    ):
+        from edvise.data_audit.eda import (
+            enrich_eda_cohort_year1_features,
+            normalize_eda_cohort_columns,
+        )
+
+        out = enrich_eda_cohort_year1_features(
+            normalize_eda_cohort_columns(es_cohort), es_course
+        )
+        by_id = out.set_index("student_id")
+
+        assert by_id.loc["L1", "gpa_group_year_1"] == pytest.approx(33 / 9)
+        assert by_id.loc["L2", "gpa_group_year_1"] == pytest.approx(4.0)
+        assert by_id.loc["L3", "gpa_group_year_1"] == pytest.approx(2.75)
+
+        assert by_id.loc["L1", "enrollment_intensity_first_term"] == "PART-TIME"
+        assert by_id.loc["L2", "enrollment_intensity_first_term"] == "FULL-TIME"
+        assert by_id.loc["L3", "enrollment_intensity_first_term"] == "FULL-TIME"
+
+    def test_eda_summary_charts_use_derived_fields(self, es_cohort, es_course):
+        eda = EdaSummary(es_cohort, es_course)
+        assert eda.avg_year1_gpa_all_students["value"] == pytest.approx(
+            (33 / 9 + 4.0 + 2.75) / 3, abs=0.01
+        )
+        intensity = eda.gpa_by_enrollment_intensity
+        assert intensity is not None
+        names = {s["name"] for s in intensity["series"]}
+        assert names == {"Full-Time", "Part-Time"}
+
+    def test_existing_pdp_columns_not_overwritten(self, es_course):
+        from edvise.data_audit.eda import enrich_eda_cohort_year1_features
+
+        cohort = pd.DataFrame(
+            {
+                "student_id": ["L1"],
+                "cohort": ["2020-21"],
+                "cohort_term": ["Fall"],
+                "gpa_group_year_1": [1.0],
+                "enrollment_intensity_first_term": ["FULL-TIME"],
+            }
+        )
+        out = enrich_eda_cohort_year1_features(cohort, es_course)
+        assert list(out["gpa_group_year_1"]) == [1.0]
+        assert list(out["enrollment_intensity_first_term"]) == ["FULL-TIME"]
+
+    def test_no_course_leaves_features_absent(self, es_cohort):
+        eda = EdaSummary(es_cohort, None)
+        assert "gpa_group_year_1" not in eda.df_cohort.columns
+        assert "enrollment_intensity_first_term" not in eda.df_cohort.columns
+        assert eda.avg_year1_gpa_all_students is None
+        assert eda.gpa_by_enrollment_intensity is None
+
+    def test_pass_fail_only_courses_skip_gpa_but_can_set_intensity(self):
+        cohort = pd.DataFrame(
+            {
+                "learner_id": ["L1"],
+                "entry_year": ["2020-21"],
+                "entry_term": ["Fall"],
+            }
+        )
+        course = pd.DataFrame(
+            {
+                "learner_id": ["L1", "L1"],
+                "academic_year": ["2020-21", "2020-21"],
+                "academic_term": ["Fall", "Fall"],
+                "grade": ["P", "W"],
+                "course_credits_attempted": [6, 6],
+            }
+        )
+        eda = EdaSummary(cohort, course)
+        assert "gpa_group_year_1" not in eda.df_cohort.columns
+        assert eda.df_cohort.loc[0, "enrollment_intensity_first_term"] == "FULL-TIME"
+
+
 def test_log_grade_distribution_flags_lack_of_numeric_grades(caplog):
     """Flag when grades are only status codes (P, F, I, W, A, M, O)."""
     df = pd.DataFrame({"grade": ["P", "F", "P", "W", "I", "M"]})

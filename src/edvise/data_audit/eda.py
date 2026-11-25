@@ -8,6 +8,8 @@ import scipy.stats as ss
 from functools import cached_property, wraps
 from edvise import utils as edvise_utils
 from edvise.configs.es import DEFAULT_ES_STUDENT_GROUP_COLS
+from edvise.data_audit.default_grade_map import DEFAULT_ES_LETTER_GPA_MAP
+from edvise.feature_generation.constants import DEFAULT_MIN_NUM_CREDITS_FULL_TIME
 from edvise.shared.utils import as_percent, validate_optional_column
 
 LOGGER = logging.getLogger(__name__)
@@ -40,6 +42,17 @@ ES_TO_PDP_EDA_COLUMN_ALIASES: dict[str, str] = {
 
 _FIRST_GEN_ALIAS_ALLOWED_VALUES = frozenset({"Y", "N", "YES", "NO"})
 
+# Course id alias so ES/GenAI course frames join to aliased cohort student_id.
+_ES_TO_PDP_EDA_COURSE_ID_ALIASES: dict[str, str] = {
+    "learner_id": "student_id",
+}
+
+_COURSE_CREDITS_ATTEMPTED_COLS: tuple[str, ...] = (
+    "course_credits_attempted",
+    "number_of_credits_attempted",
+    "credits_attempted",
+)
+
 
 def normalize_eda_cohort_columns(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -68,6 +81,202 @@ def normalize_eda_cohort_columns(df: pd.DataFrame) -> pd.DataFrame:
         return df
     LOGGER.debug("EDA cohort column aliases applied: %s", rename_map)
     return df.rename(columns=rename_map)
+
+
+def _normalize_eda_year_label(series: pd.Series) -> pd.Series:
+    """Normalize academic-year labels like ``2020 - 21`` → ``2020-21``."""
+    return (
+        series.astype("string")
+        .str.strip()
+        .str.replace(r"\s*-\s*", "-", regex=True)
+    )
+
+
+def _normalize_eda_term_label(series: pd.Series) -> pd.Series:
+    return series.astype("string").str.strip().str.upper()
+
+
+def _course_credits_attempted_col(df_course: pd.DataFrame) -> str | None:
+    for col in _COURSE_CREDITS_ATTEMPTED_COLS:
+        if col in df_course.columns:
+            return col
+    return None
+
+
+def _grade_to_gpa_points(grade: pd.Series) -> pd.Series:
+    """
+    Map course grades to 4.0-scale points.
+
+    Prefer the platform letter→GPA map; otherwise coerce numeric strings.
+    Pass/fail and other non-GPA status codes become null (excluded from GPA).
+    """
+    tokens = grade.astype("string").str.strip().str.upper()
+    from_letter = pd.to_numeric(tokens.map(DEFAULT_ES_LETTER_GPA_MAP), errors="coerce")
+    from_numeric = pd.to_numeric(tokens, errors="coerce")
+    return from_letter.fillna(from_numeric)
+
+
+def _prepare_eda_course_frame(df_course: pd.DataFrame) -> pd.DataFrame | None:
+    """Return a course frame with ``student_id`` plus year/term columns when possible."""
+    course = df_course.copy()
+    for es_name, pdp_name in _ES_TO_PDP_EDA_COURSE_ID_ALIASES.items():
+        if pdp_name not in course.columns and es_name in course.columns:
+            course = course.rename(columns={es_name: pdp_name})
+    if "student_id" not in course.columns:
+        LOGGER.debug(
+            "EDA year-1 derivation skipped: course frame missing student_id/learner_id"
+        )
+        return None
+    if "academic_year" not in course.columns:
+        LOGGER.debug("EDA year-1 derivation skipped: course frame missing academic_year")
+        return None
+    course = course.assign(
+        _eda_year=_normalize_eda_year_label(course["academic_year"]),
+        _eda_term=(
+            _normalize_eda_term_label(course["academic_term"])
+            if "academic_term" in course.columns
+            else pd.Series(pd.NA, index=course.index, dtype="string")
+        ),
+    )
+    return course
+
+
+def enrich_eda_cohort_year1_features(
+    df_cohort: pd.DataFrame,
+    df_course: pd.DataFrame | None,
+    *,
+    min_num_credits_full_time: float = DEFAULT_MIN_NUM_CREDITS_FULL_TIME,
+) -> pd.DataFrame:
+    """
+    Derive missing year-1 GPA / first-term enrollment intensity from course rows.
+
+    Intended for ES / GenAI cohort files that lack PDP fields
+    ``gpa_group_year_1`` and ``enrollment_intensity_first_term``.
+
+    * **GPA** — credit-weighted mean of numeric/letter GPA grades in the student's
+      entry year (``cohort``). Pass/fail and other non-GPA grades are excluded.
+      Courses outside the entry year are excluded.
+    * **Intensity** — sum of credits attempted in the entry year+term; ``FULL-TIME``
+      when that sum is ``>= min_num_credits_full_time`` (default 12), else
+      ``PART-TIME``.
+
+    Existing PDP columns are left unchanged. Returns ``df_cohort`` unchanged when
+    both fields already exist or course data is insufficient.
+    """
+    need_gpa = "gpa_group_year_1" not in df_cohort.columns
+    need_intensity = "enrollment_intensity_first_term" not in df_cohort.columns
+    if not need_gpa and not need_intensity:
+        return df_cohort
+    if df_course is None or df_course.empty:
+        return df_cohort
+    if "student_id" not in df_cohort.columns or "cohort" not in df_cohort.columns:
+        LOGGER.debug(
+            "EDA year-1 derivation skipped: cohort missing student_id/cohort "
+            "after aliasing"
+        )
+        return df_cohort
+
+    course = _prepare_eda_course_frame(df_course)
+    if course is None:
+        return df_cohort
+
+    credits_col = _course_credits_attempted_col(course)
+    out = df_cohort.copy()
+    cohort_keys = out.assign(
+        _eda_year=_normalize_eda_year_label(out["cohort"]),
+        _eda_term=(
+            _normalize_eda_term_label(out["cohort_term"])
+            if "cohort_term" in out.columns
+            else pd.Series(pd.NA, index=out.index, dtype="string")
+        ),
+    )[["student_id", "_eda_year", "_eda_term"]]
+
+    if need_gpa and credits_col is not None and "grade" in course.columns:
+        graded = course.assign(
+            _gpa_points=_grade_to_gpa_points(course["grade"]),
+            _credits=pd.to_numeric(course[credits_col], errors="coerce"),
+        )
+        graded = graded.loc[
+            graded["_gpa_points"].notna()
+            & graded["_credits"].notna()
+            & graded["_credits"].gt(0)
+        ]
+        year_courses = graded.merge(
+            cohort_keys[["student_id", "_eda_year"]].drop_duplicates(),
+            on=["student_id", "_eda_year"],
+            how="inner",
+        )
+        if not year_courses.empty:
+            weighted = (
+                year_courses.assign(
+                    _quality=year_courses["_gpa_points"] * year_courses["_credits"]
+                )
+                .groupby("student_id", sort=False)
+                .agg(_quality=("_quality", "sum"), _credits=("_credits", "sum"))
+            )
+            gpa = weighted["_quality"] / weighted["_credits"]
+            out = out.merge(
+                gpa.rename("gpa_group_year_1").reset_index(),
+                on="student_id",
+                how="left",
+            )
+            LOGGER.info(
+                "EDA derived gpa_group_year_1 for %s / %s students from course grades",
+                int(out["gpa_group_year_1"].notna().sum()),
+                len(out),
+            )
+        else:
+            LOGGER.info(
+                "EDA could not derive gpa_group_year_1: no graded entry-year courses"
+            )
+
+    if (
+        need_intensity
+        and credits_col is not None
+        and "cohort_term" in out.columns
+        and "academic_term" in course.columns
+    ):
+        attempted = course.assign(
+            _credits=pd.to_numeric(course[credits_col], errors="coerce")
+        )
+        attempted = attempted.loc[
+            attempted["_credits"].notna() & attempted["_credits"].gt(0)
+        ]
+        first_term = attempted.merge(
+            cohort_keys.dropna(subset=["_eda_term"]).drop_duplicates(),
+            on=["student_id", "_eda_year", "_eda_term"],
+            how="inner",
+        )
+        if not first_term.empty:
+            credits_sum = first_term.groupby("student_id", sort=False)["_credits"].sum()
+            intensity = pd.Series(
+                np.where(
+                    credits_sum.ge(min_num_credits_full_time),
+                    "FULL-TIME",
+                    "PART-TIME",
+                ),
+                index=credits_sum.index,
+                dtype="string",
+            )
+            out = out.merge(
+                intensity.rename("enrollment_intensity_first_term").reset_index(),
+                on="student_id",
+                how="left",
+            )
+            LOGGER.info(
+                "EDA derived enrollment_intensity_first_term for %s / %s students "
+                "(full-time cutoff=%s credits)",
+                int(out["enrollment_intensity_first_term"].notna().sum()),
+                len(out),
+                min_num_credits_full_time,
+            )
+        else:
+            LOGGER.info(
+                "EDA could not derive enrollment_intensity_first_term: "
+                "no entry-term course credits"
+            )
+
+    return out
 
 
 def assess_unique_values(data: pd.DataFrame, cols: str | list[str]) -> dict[str, int]:
@@ -1960,6 +2169,8 @@ class EdaSummary:
         self,
         df_cohort: pd.DataFrame,
         df_course: pd.DataFrame | None = None,
+        *,
+        min_num_credits_full_time: float = DEFAULT_MIN_NUM_CREDITS_FULL_TIME,
     ):
         """
         Initialize EdaSummary with cohort and course data.
@@ -1969,9 +2180,18 @@ class EdaSummary:
                 'student_id', 'enrollment_type', 'gpa_group_year_1', etc.
                 ES column names (e.g. ``learner_id``, ``entry_year``) are aliased
                 to the PDP names chart methods expect.
-            df_course: Optional DataFrame containing course data
+            df_course: Optional DataFrame containing course data. When present and
+                cohort lacks year-1 GPA / first-term intensity, those fields are
+                derived from entry-year / entry-term course rows.
+            min_num_credits_full_time: Credit cutoff used when deriving
+                ``enrollment_intensity_first_term`` (default 12).
         """
-        self.df_cohort = normalize_eda_cohort_columns(df_cohort)
+        aliased = normalize_eda_cohort_columns(df_cohort)
+        self.df_cohort = enrich_eda_cohort_year1_features(
+            aliased,
+            df_course,
+            min_num_credits_full_time=min_num_credits_full_time,
+        )
         self.df_course = df_course
 
     def cohort_years(self, formatted: bool = True) -> list[str]:
