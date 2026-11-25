@@ -31,10 +31,6 @@ def pipeline_input_dir(silver_root: str, *, mode: str, run_id: str) -> str:
     )
 
 
-# Back-compat alias for older call sites / tests.
-_pipeline_input_dir = pipeline_input_dir
-
-
 def resolve_genai_pipeline_input_dir(
     silver_volume_path: str,
     *,

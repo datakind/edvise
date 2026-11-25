@@ -71,6 +71,8 @@ def pipeline_input_parquet_paths(
     if not run_id:
         raise ValueError("execute_run_id must be a non-empty string")
     silver = silver_volume_root(catalog, institution_id).as_posix()
+    # Normalize so UC volume paths stay `/`-separated even if os.path.join
+    # introduces backslashes (e.g. Windows local unit tests).
     root = pipeline_input_dir(silver, mode="execute", run_id=run_id).replace("\\", "/")
     return f"{root}/cohort.parquet", f"{root}/course.parquet"
 
