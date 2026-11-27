@@ -729,6 +729,58 @@ class TestEdaSummaryYear1FeatureDerivation:
         assert eda.df_cohort.loc[0, "enrollment_intensity_first_term"] == "FULL-TIME"
 
 
+class TestEdaSummaryEnrollmentTypeNormalization:
+    """ES enrollment_type labels map to PDP codes for transfer + GPA-by-type charts."""
+
+    def test_normalize_maps_bronx_style_labels(self):
+        from edvise.data_audit.eda import normalize_eda_enrollment_type_values
+
+        df = pd.DataFrame(
+            {
+                "student_id": ["S1", "S2", "S3"],
+                "enrollment_type": [
+                    "Transfer",
+                    "First-time freshman",
+                    "TRANSFER-IN",
+                ],
+            }
+        )
+        out = normalize_eda_enrollment_type_values(df)
+        assert list(out["enrollment_type"]) == [
+            "TRANSFER-IN",
+            "FIRST-TIME",
+            "TRANSFER-IN",
+        ]
+
+    def test_transfer_metric_and_gpa_by_type_use_normalized_labels(self):
+        cohort = pd.DataFrame(
+            {
+                "learner_id": ["L1", "L2"],
+                "entry_year": ["2020-21", "2020-21"],
+                "entry_term": ["Fall", "Fall"],
+                "enrollment_type": ["Transfer", "First-time freshman"],
+                "gpa_group_year_1": [2.5, 3.0],
+                "enrollment_intensity_first_term": ["FULL-TIME", "PART-TIME"],
+            }
+        )
+        eda = EdaSummary(cohort)
+
+        assert eda.transfer_students == {
+            "name": "Transfer Students",
+            "value": 1,
+        }
+
+        gpa_type = eda.gpa_by_enrollment_type
+        assert gpa_type is not None
+        names = {s["name"] for s in gpa_type["series"]}
+        assert names == {"First-Time", "Transfer-In"}
+        assert gpa_type["min_gpa"] == pytest.approx(2.5)
+
+        intensity_xtab = eda.enrollment_type_by_intensity
+        assert intensity_xtab is not None
+        assert set(intensity_xtab["categories"]) == {"First-Time", "Transfer-In"}
+
+
 def test_log_grade_distribution_flags_lack_of_numeric_grades(caplog):
     """Flag when grades are only status codes (P, F, I, W, A, M, O)."""
     df = pd.DataFrame({"grade": ["P", "F", "P", "W", "I", "M"]})

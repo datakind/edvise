@@ -9,6 +9,7 @@ from functools import cached_property, wraps
 from edvise import utils as edvise_utils
 from edvise.configs.es import DEFAULT_ES_STUDENT_GROUP_COLS
 from edvise.data_audit.default_grade_map import DEFAULT_ES_LETTER_GPA_MAP
+from edvise.data_audit.schemas._edvise_shared import enrollment_series_to_pdp
 from edvise.feature_generation.constants import DEFAULT_MIN_NUM_CREDITS_FULL_TIME
 from edvise.shared.utils import as_percent, validate_optional_column
 
@@ -81,6 +82,29 @@ def normalize_eda_cohort_columns(df: pd.DataFrame) -> pd.DataFrame:
         return df
     LOGGER.debug("EDA cohort column aliases applied: %s", rename_map)
     return df.rename(columns=rename_map)
+
+
+def normalize_eda_enrollment_type_values(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Map ES / free-text ``enrollment_type`` labels to PDP categories.
+
+    Uses :func:`enrollment_series_to_pdp` so values like ``Transfer`` and
+    ``First-time freshman`` become ``TRANSFER-IN`` / ``FIRST-TIME``. Already-canonical
+    PDP codes are unchanged. Unmapped labels become null.
+
+    Applied once in ``EdaSummary`` so transfer counts, GPA-by-type, and
+    type×intensity charts share one vocabulary.
+    """
+    if "enrollment_type" not in df.columns:
+        return df
+    mapped = enrollment_series_to_pdp(df["enrollment_type"])
+    out = df.copy()
+    out["enrollment_type"] = mapped
+    LOGGER.debug(
+        "EDA enrollment_type normalized to PDP categories: %s",
+        mapped.value_counts(dropna=False).to_dict(),
+    )
+    return out
 
 
 def _normalize_eda_year_label(series: pd.Series) -> pd.Series:
@@ -2179,14 +2203,17 @@ class EdaSummary:
             df_cohort: DataFrame containing cohort/student data with columns like
                 'student_id', 'enrollment_type', 'gpa_group_year_1', etc.
                 ES column names (e.g. ``learner_id``, ``entry_year``) are aliased
-                to the PDP names chart methods expect.
+                to the PDP names chart methods expect. ES ``enrollment_type``
+                labels (e.g. ``Transfer``) are normalized to PDP categories.
             df_course: Optional DataFrame containing course data. When present and
                 cohort lacks year-1 GPA / first-term intensity, those fields are
                 derived from entry-year / entry-term course rows.
             min_num_credits_full_time: Credit cutoff used when deriving
                 ``enrollment_intensity_first_term`` (default 12).
         """
-        aliased = normalize_eda_cohort_columns(df_cohort)
+        aliased = normalize_eda_enrollment_type_values(
+            normalize_eda_cohort_columns(df_cohort)
+        )
         self.df_cohort = enrich_eda_cohort_year1_features(
             aliased,
             df_course,
